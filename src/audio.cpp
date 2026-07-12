@@ -17,16 +17,22 @@ static constexpr uint16_t MELODY0_FREQS[] = {880, 1109, 1319};
 static constexpr uint16_t MELODY0_DURS[] = {30, 30, 30};
 static constexpr uint16_t MELODY0_GAPS[] = {150, 30, 30};
 
+// Da-da-ta (descending A major — reverse of ta-da-da for sleep)
+static constexpr uint16_t MELODY1_FREQS[] = {1319, 1109, 880};
+static constexpr uint16_t MELODY1_DURS[] = {30, 30, 30};
+static constexpr uint16_t MELODY1_GAPS[] = {150, 30, 30};
+
 // Chirp-chirp (noisy ascending sweeps)
-static constexpr uint16_t MELODY1_FREQS[] = {1500, 2500};
-static constexpr uint16_t MELODY1_DURS[] = {0, 0};
-static constexpr uint16_t MELODY1_GAPS[] = {50, 50};
+static constexpr uint16_t MELODY2_FREQS[] = {1500, 2500};
+static constexpr uint16_t MELODY2_DURS[] = {0, 0};
+static constexpr uint16_t MELODY2_GAPS[] = {50, 50};
 
 static const MelodyData MELODIES[] = {
-    {MELODY0_FREQS, MELODY0_DURS, MELODY0_GAPS, 3, false},
-    {MELODY1_FREQS, MELODY1_DURS, MELODY1_GAPS, 2, true},
+    {MELODY0_FREQS, MELODY0_DURS, MELODY0_GAPS, 3, false},  // TaDaDa
+    {MELODY1_FREQS, MELODY1_DURS, MELODY1_GAPS, 3, false},  // DaDaTa
+    {MELODY2_FREQS, MELODY2_DURS, MELODY2_GAPS, 2, true},   // ChirpChirp
 };
-static constexpr int NUM_MELODIES = 2;
+static constexpr int NUM_MELODIES = 2;  // Random picks from TaDaDa and ChirpChirp only
 
 // Async melody state
 static int currentMelody = 0;
@@ -44,8 +50,11 @@ static void playChirp(uint16_t startFreq) {
 
 void init(uint8_t buzzerPin) {
     _buzzerPin = buzzerPin;
+    ledcDetachPin(_buzzerPin);
     pinMode(_buzzerPin, OUTPUT);
     digitalWrite(_buzzerPin, LOW);
+    melodyStep = -1;
+    noteStarted = false;
 }
 
 void playClick(bool light) {
@@ -67,7 +76,8 @@ void playMelody(Melody type) {
     if (melodyStep >= 0) return;  // Already playing
 
     if (type == Melody::Random) {
-        currentMelody = random(NUM_MELODIES);
+        // Random picks TaDaDa (0) or ChirpChirp (2), skipping DaDaTa (sleep melody)
+        currentMelody = random(2) == 0 ? 0 : 2;
     } else {
         currentMelody = static_cast<int>(type);
     }
@@ -106,9 +116,8 @@ void update() {
 
 void stop() {
     noTone(_buzzerPin);
-    if (melodyStep >= 0) {
-        noteStarted = false;
-    }
+    melodyStep = -1;
+    noteStarted = false;
 }
 
 bool isPlaying() {

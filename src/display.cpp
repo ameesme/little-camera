@@ -1,5 +1,6 @@
 #include "display.h"
 #include "splash_data.h"
+#include "sleep_data.h"
 #include "ui.h"
 #include <SPI.h>
 
@@ -561,6 +562,29 @@ void drawSplash() {
 
         // Send bitmap data directly without bit-reversal — ImageMagick's
         // MSB-first pixel order matches what the LCD expects after SPI transmission
+        for (int i = 0; i < BYTES_PER_LINE; i++) {
+            _spi->transfer(pgm_read_byte(ptr++));
+        }
+
+        sendByte(0x00);
+    }
+
+    sendByte(0x00);
+
+    delayMicroseconds(2);
+    digitalWrite(_cs, LOW);
+}
+
+void drawSleep() {
+    digitalWrite(_cs, HIGH);
+    delayMicroseconds(6);
+
+    sendByte(makeCommand(CMD_WRITE));
+
+    const uint8_t* ptr = SLEEP_BITMAP;
+    for (int line = 1; line <= HEIGHT; line++) {
+        sendByte(line);
+
         for (int i = 0; i < BYTES_PER_LINE; i++) {
             _spi->transfer(pgm_read_byte(ptr++));
         }

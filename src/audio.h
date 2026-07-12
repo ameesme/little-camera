@@ -6,6 +6,7 @@ namespace Audio {
 
 enum class Melody {
     TaDaDa,
+    DaDaTa,  // Reverse ta-da-da (descending) for sleep
     ChirpChirp,
     Random
 };

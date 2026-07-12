@@ -15,6 +15,7 @@ void clear();
 void fillPattern(uint8_t pattern);
 void drawTestPattern();
 void drawSplash();
+void drawSleep();
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight);
 void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight);  // Floyd-Steinberg dither
 void refresh();  // Call periodically to toggle VCOM
