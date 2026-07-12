@@ -162,6 +162,14 @@ static int _batteryPercent = 100;
 static int _inboxCount = 0;
 static UI::SignalLevel _signalLevel = UI::SignalLevel::Full;
 
+// Toast state
+static char _toastText[64] = {0};
+static ToastHAlign _toastHAlign = ToastHAlign::Center;
+static ToastVAlign _toastVAlign = ToastVAlign::Top;
+static bool _toastInverted = false;
+static uint32_t _toastExpireAt = 0;  // 0 = no toast, UINT32_MAX = indefinite
+static bool _toastActive = false;
+
 // Sidebar layout constants
 constexpr int SIDEBAR_PADDING = 5;
 constexpr int BOX_WIDTH = 70;
@@ -172,6 +180,14 @@ constexpr int BOX_RADIUS = 10;
 
 // Default font for sidebar UI
 constexpr UI::Font SIDEBAR_FONT = UI::Font::Large;
+
+// Toast layout constants
+constexpr int TOAST_PADDING_H = 10;   // Horizontal padding inside toast
+constexpr int TOAST_PADDING_V = 6;    // Vertical padding inside toast
+constexpr int TOAST_MARGIN = 8;       // Margin from screen edges
+constexpr int TOAST_RADIUS = 8;       // Corner radius
+constexpr int TOAST_MIN_X = 80;       // Don't overlap sidebar
+constexpr UI::Font TOAST_FONT = UI::Font::Large;
 
 // Set pixel in framebuffer (0=black, 1=white)
 static void setPixel(int x, int y, bool white) {
@@ -328,6 +344,87 @@ static void drawSidebar() {
     drawTextCenteredAt("inbox", box2X, BOX_WIDTH, inboxStartY + UI::ICON_SIZE + textGap, SIDEBAR_FONT, true);
 }
 
+// Render active toast onto framebuffer (call after image + sidebar are drawn)
+static void renderToast() {
+    if (!_toastActive) return;
+
+    // Check expiration
+    if (_toastExpireAt != UINT32_MAX && millis() >= _toastExpireAt) {
+        _toastActive = false;
+        return;
+    }
+
+    int textW = UI::textWidth(_toastText, TOAST_FONT);
+    int textH = UI::fontHeight(TOAST_FONT);
+    int boxW = textW + TOAST_PADDING_H * 2;
+    int boxH = textH + TOAST_PADDING_V * 2;
+
+    // Calculate X position (constrained to not overlap sidebar)
+    int boxX;
+    switch (_toastHAlign) {
+        case ToastHAlign::Left:
+            boxX = TOAST_MIN_X + TOAST_MARGIN;
+            break;
+        case ToastHAlign::Right:
+            boxX = WIDTH - boxW - TOAST_MARGIN;
+            break;
+        case ToastHAlign::Center:
+        default:
+            boxX = TOAST_MIN_X + (WIDTH - TOAST_MIN_X - boxW) / 2;
+            break;
+    }
+    // Clamp to valid range
+    if (boxX < TOAST_MIN_X + TOAST_MARGIN) boxX = TOAST_MIN_X + TOAST_MARGIN;
+    if (boxX + boxW > WIDTH - TOAST_MARGIN) boxX = WIDTH - boxW - TOAST_MARGIN;
+
+    // Calculate Y position
+    int boxY;
+    if (_toastVAlign == ToastVAlign::Top) {
+        boxY = TOAST_MARGIN;
+    } else {
+        boxY = HEIGHT - boxH - TOAST_MARGIN;
+    }
+
+    // Draw background
+    bool bgWhite = !_toastInverted;
+    fillRoundedRect(boxX, boxY, boxW, boxH, TOAST_RADIUS, bgWhite);
+
+    // Draw border (1px, opposite of background)
+    drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, !bgWhite);
+
+    // Draw text centered in box
+    int textX = boxX + TOAST_PADDING_H;
+    int textY = boxY + TOAST_PADDING_V;
+    drawText(_toastText, textX, textY, TOAST_FONT, !bgWhite);
+}
+
+void showToast(const char* text, ToastHAlign halign, ToastVAlign valign,
+               bool inverted, uint32_t duration_ms) {
+    // Copy text (truncate if needed)
+    int i = 0;
+    while (text[i] && i < (int)sizeof(_toastText) - 1) {
+        _toastText[i] = text[i];
+        i++;
+    }
+    _toastText[i] = '\0';
+
+    _toastHAlign = halign;
+    _toastVAlign = valign;
+    _toastInverted = inverted;
+    _toastActive = true;
+
+    if (duration_ms == 0) {
+        _toastExpireAt = UINT32_MAX;  // Indefinite
+    } else {
+        _toastExpireAt = millis() + duration_ms;
+    }
+}
+
+void clearToast() {
+    _toastActive = false;
+    _toastText[0] = '\0';
+}
+
 void setBatteryPercent(int percent) {
     _batteryPercent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
 }
@@ -444,6 +541,9 @@ void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     // Draw sidebar UI over the left padding area
     drawSidebar();
 
+    // Draw toast if active
+    renderToast();
+
     // --- Phase 2: Blast entire buffer to display ---
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
@@ -530,6 +630,9 @@ void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     // Draw sidebar UI over the left padding area
     drawSidebar();
 
+    // Draw toast if active
+    renderToast();
+
     // --- Phase 2: Blast buffer to display ---
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
@@ -576,19 +679,38 @@ void drawSplash() {
 }
 
 void drawSleep() {
+    // Copy sleep bitmap to framebuffer
+    const uint8_t* ptr = SLEEP_BITMAP;
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < BYTES_PER_LINE; x++) {
+            _framebuffer[y * BYTES_PER_LINE + x] = pgm_read_byte(ptr++);
+        }
+    }
+
+    // Draw "press to wake" top-right, inverted (white on black)
+    const char* text = "press to wake";
+    int textW = UI::textWidth(text, TOAST_FONT);
+    int textH = UI::fontHeight(TOAST_FONT);
+    int boxW = textW + TOAST_PADDING_H * 2;
+    int boxH = textH + TOAST_PADDING_V * 2;
+    int boxX = WIDTH - boxW - TOAST_MARGIN;
+    int boxY = TOAST_MARGIN;
+
+    fillRoundedRect(boxX, boxY, boxW, boxH, TOAST_RADIUS, false);  // Black bg
+    drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);  // White border
+    drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);  // White text
+
+    // Send framebuffer to display
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
 
     sendByte(makeCommand(CMD_WRITE));
 
-    const uint8_t* ptr = SLEEP_BITMAP;
+    uint8_t* fbPtr = _framebuffer;
     for (int line = 1; line <= HEIGHT; line++) {
         sendByte(line);
-
-        for (int i = 0; i < BYTES_PER_LINE; i++) {
-            _spi->transfer(pgm_read_byte(ptr++));
-        }
-
+        _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
+        fbPtr += BYTES_PER_LINE;
         sendByte(0x00);
     }
 

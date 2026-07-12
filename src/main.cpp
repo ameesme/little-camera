@@ -32,6 +32,7 @@ constexpr uint8_t PIN_MODEM_PWR = 48;
 constexpr uint32_t DEBOUNCE_MS = 100;
 constexpr uint32_t VIEWFINDER_PAUSE_MS = 3000;
 constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
+constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 
 // State variables
 static bool lastButtonState = HIGH;
@@ -39,6 +40,8 @@ static uint32_t lastPressTime = 0;
 static uint32_t lastReleaseTime = 0;
 static uint32_t viewfinderPauseUntil = 0;
 static uint32_t lastActivityTime = 0;
+static bool hintToastShowing = false;
+static bool wasPreviewActive = false;
 
 // Forward declaration
 void enterSleepMode();
@@ -96,6 +99,10 @@ void setup() {
 void enterSleepMode() {
     Serial.println("Entering sleep mode...");
 
+    // Clear any active toast before sleep
+    Display::clearToast();
+    hintToastShowing = false;
+
     // Play descending melody before sleep
     Audio::playMelody(Audio::Melody::DaDaTa);
     while (Audio::isPlaying()) {
@@ -119,9 +126,11 @@ void enterSleepMode() {
     // Disable GPIO wakeup after waking
     gpio_wakeup_disable((gpio_num_t)PIN_BUTTON);
 
-    // Woke up! Reset activity timer
+    // Woke up! Reset activity timer and hint state
     Serial.println("Woke up from sleep!");
     lastActivityTime = millis();
+    hintToastShowing = false;
+    Display::clearToast();
 
     // Play click immediately after wake
     Audio::init(PIN_BUZZER);
@@ -146,8 +155,20 @@ void loop() {
 
     bool previewActive = now < viewfinderPauseUntil;
 
+    // Reset activity timer when preview ends (so hint timer starts fresh)
+    if (wasPreviewActive && !previewActive) {
+        lastActivityTime = now;
+    }
+    wasPreviewActive = previewActive;
+
     // Update async melody (runs during preview so capture melody plays)
     Audio::update();
+
+    // Show hint toast after 5s of inactivity (but not during preview)
+    if (!previewActive && !hintToastShowing && (now - lastActivityTime) >= HINT_TOAST_DELAY_MS) {
+        Display::showToast("press to shoot", Display::ToastHAlign::Right, Display::ToastVAlign::Top, false, 0);
+        hintToastShowing = true;
+    }
 
     // Only update viewfinder after pause expires
     if (!previewActive) {
@@ -164,6 +185,12 @@ void loop() {
     // Blocked while preview is active to prevent rapid captures
     if (!previewActive && buttonState == LOW && lastButtonState == HIGH && (now - lastPressTime) > DEBOUNCE_MS) {
         Serial.println("Button pressed — capturing");
+
+        // Clear hint toast if showing
+        if (hintToastShowing) {
+            Display::clearToast();
+            hintToastShowing = false;
+        }
 
         // Capture and render with Floyd-Steinberg dithering
         uint8_t* frame = Camera::capture();

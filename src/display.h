@@ -25,4 +25,15 @@ void setBatteryPercent(int percent);  // 0-100
 void setInboxCount(int count);
 void setSignalLevel(UI::SignalLevel level);
 
+// Toast positioning
+enum class ToastHAlign { Left, Center, Right };
+enum class ToastVAlign { Top, Bottom };
+
+// Show a toast message that persists over viewfinder updates.
+// duration_ms: how long to show (0 = indefinite until clearToast)
+// inverted: true = white text on black background
+void showToast(const char* text, ToastHAlign halign, ToastVAlign valign,
+               bool inverted = false, uint32_t duration_ms = 2000);
+void clearToast();
+
 }
