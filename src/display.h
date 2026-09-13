@@ -18,6 +18,8 @@ void drawSplash();
 void drawSleep();
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight);
 void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight);  // Floyd-Steinberg dither
+// Post-capture review: photo shifts left, send/discard buttons take the right column
+void drawGallery(const uint8_t* grayscale, int srcWidth, int srcHeight);
 // VCOM must keep flipping or the panel accumulates DC bias and burns in. The
 // datasheet wants >=1Hz; 5s is a deliberate tradeoff — the panel tolerates it
 // and it sets how often we have to wake out of light sleep, which is the whole

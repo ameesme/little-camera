@@ -21,6 +21,8 @@ ICONS = [
     ("lucide-signal-high.svg", "SIGNAL_3"),
     ("lucide-signal.svg", "SIGNAL_FULL"),
     ("lucide-mail.svg", "MAIL"),
+    ("lucide-send.svg", "SEND"),
+    ("lucide-trash-2.svg", "TRASH"),
 ]
 
 SIZE = 24

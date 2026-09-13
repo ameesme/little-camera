@@ -158,6 +158,7 @@ static const uint8_t CORNER_MASK_10[10] = {10, 7, 5, 4, 3, 3, 2, 1, 1, 0};
 
 // Viewfinder padding
 constexpr int VF_PADDING_TOP = 5;
+constexpr int VF_PADDING_LEFT = 5;
 constexpr int VF_PADDING_RIGHT = 5;
 constexpr int VF_PADDING_BOTTOM = 5;
 constexpr int VF_CORNER_RADIUS = 10;
@@ -187,8 +188,22 @@ constexpr int BOX_WIDTH = 70;
 constexpr int INBOX_HEIGHT = HEIGHT - SIDEBAR_PADDING * 2;
 constexpr int BOX_RADIUS = 10;
 
+// Review-screen action column: mirrors the sidebar on the opposite edge, split
+// into two stacked buttons. Gap is 6 so the two halves divide the column
+// height exactly and the stack stays symmetric top to bottom.
+constexpr int ACTION_GAP = 6;
+constexpr int ACTION_BUTTON_HEIGHT = (INBOX_HEIGHT - ACTION_GAP) / 2;
+constexpr int ACTION_X = WIDTH - SIDEBAR_PADDING - BOX_WIDTH;
+// The gesture line sits as low as the corner radius allows. It's centred
+// horizontally and both words are far narrower than the box, so the 10px
+// corners never reach it.
+constexpr int ACTION_PADDING_BOTTOM = 4;
+constexpr int ACTION_LABEL_GAP = 3;  // Icon to label
+
 // Default font for sidebar UI
 constexpr UI::Font SIDEBAR_FONT = UI::Font::Large;
+// The buttons carry a second line naming the gesture, which needs the small face
+constexpr UI::Font HINT_FONT = UI::Font::Small;
 
 // Toast layout constants
 constexpr int TOAST_PADDING_H = 10;   // Horizontal padding inside toast
@@ -336,6 +351,32 @@ static void drawSidebar() {
     drawTextCenteredAt("inbox", boxX, BOX_WIDTH, inboxStartY + UI::ICON_SIZE + textGap, SIDEBAR_FONT, true);
 }
 
+// One review action: filled box with icon, label and the gesture that triggers it
+static void drawActionButton(int y, const uint8_t* icon, const char* label, const char* gesture) {
+    fillRoundedRect(ACTION_X, y, BOX_WIDTH, ACTION_BUTTON_HEIGHT, BOX_RADIUS, false);
+
+    int gestureH = UI::fontHeight(HINT_FONT);
+
+    // The icon is the anchor: it sits dead centre in the box, with the label
+    // hung directly under it. The gesture line is not part of that group — it's
+    // pinned to the bottom edge, so it reads as a footnote on the button rather
+    // than a third line of the title.
+    int iconY = y + (ACTION_BUTTON_HEIGHT - UI::ICON_SIZE) / 2;
+    int labelY = iconY + UI::ICON_SIZE + ACTION_LABEL_GAP;
+    int gestureY = y + ACTION_BUTTON_HEIGHT - ACTION_PADDING_BOTTOM - gestureH;
+
+    drawIconCentered(icon, UI::ICON_SIZE, UI::ICON_SIZE, ACTION_X, BOX_WIDTH, iconY, true);
+    drawTextCenteredAt(label, ACTION_X, BOX_WIDTH, labelY, SIDEBAR_FONT, true);
+    drawTextCenteredAt(gesture, ACTION_X, BOX_WIDTH, gestureY, HINT_FONT, true);
+}
+
+// Review actions, stacked in the right-hand column
+static void drawActionBar() {
+    drawActionButton(SIDEBAR_PADDING, UI::getSendIcon(), "send", "press");
+    drawActionButton(SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
+                     UI::getTrashIcon(), "trash", "hold");
+}
+
 // Render active toast onto framebuffer (call after image + sidebar are drawn)
 static void renderToast() {
     if (!_toastActive) return;
@@ -429,31 +470,39 @@ void setSignalLevel(UI::SignalLevel level) {
     _signalLevel = level;
 }
 
-// Apply rounded corners and padding to viewfinder area
-// Image starts at pixel 80, with padding on top/right/bottom
-static void applyViewfinderPaddingAndCorners() {
-    const int imgStartX = 80;  // After sidebar
-    const int imgEndX = WIDTH - VF_PADDING_RIGHT;  // 395
+// Whiten the padding strips around the photo and round its corners.
+//
+// drawnX/drawnW is the span the dither loop actually wrote image pixels to;
+// imgStartX/imgEndX is the span that should stay visible. The photo sits flush
+// against one panel edge (right for the viewfinder, left while reviewing), so
+// only that edge has image pixels to paint over — the opposite 80px column is
+// already white from the render loop and gets the sidebar or buttons drawn on
+// top of it.
+static void applyImagePaddingAndCorners(int drawnX, int drawnW, int imgStartX, int imgEndX) {
+    const int drawnEndX = drawnX + drawnW;
     const int imgStartY = VF_PADDING_TOP;  // 5
     const int imgEndY = HEIGHT - VF_PADDING_BOTTOM;  // 235
 
-    // Fill top padding (rows 0 to VF_PADDING_TOP-1, from imgStartX to WIDTH)
-    for (int y = 0; y < VF_PADDING_TOP; y++) {
-        for (int x = imgStartX; x < WIDTH; x++) {
+    // Fill top padding
+    for (int y = 0; y < imgStartY; y++) {
+        for (int x = drawnX; x < drawnEndX; x++) {
             setPixel(x, y, true);  // white
         }
     }
 
-    // Fill bottom padding (rows imgEndY to HEIGHT-1, from imgStartX to WIDTH)
+    // Fill bottom padding
     for (int y = imgEndY; y < HEIGHT; y++) {
-        for (int x = imgStartX; x < WIDTH; x++) {
+        for (int x = drawnX; x < drawnEndX; x++) {
             setPixel(x, y, true);  // white
         }
     }
 
-    // Fill right padding (from imgEndX to WIDTH-1, rows VF_PADDING_TOP to imgEndY-1)
-    for (int y = VF_PADDING_TOP; y < imgEndY; y++) {
-        for (int x = imgEndX; x < WIDTH; x++) {
+    // Fill whichever side strip has image pixels under it
+    for (int y = imgStartY; y < imgEndY; y++) {
+        for (int x = drawnX; x < imgStartX; x++) {
+            setPixel(x, y, true);  // white
+        }
+        for (int x = imgEndX; x < drawnEndX; x++) {
             setPixel(x, y, true);  // white
         }
     }
@@ -483,6 +532,27 @@ static void applyViewfinderPaddingAndCorners() {
             setPixel(imgEndX - 1 - p, imgEndY - 1 - row, true);
         }
     }
+}
+
+// Push the whole framebuffer to the panel in one CS-high transaction.
+static void flushFramebuffer() {
+    digitalWrite(_cs, HIGH);
+    delayMicroseconds(6);
+
+    sendByte(makeCommand(CMD_WRITE));
+
+    uint8_t* fbPtr = _framebuffer;
+    for (int line = 1; line <= HEIGHT; line++) {
+        sendByte(line);
+        _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
+        fbPtr += BYTES_PER_LINE;
+        sendByte(0x00);
+    }
+
+    sendByte(0x00);
+
+    delayMicroseconds(2);
+    digitalWrite(_cs, LOW);
 }
 
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
@@ -528,7 +598,7 @@ void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     }
 
     // Apply 8px rounded corners
-    applyViewfinderPaddingAndCorners();
+    applyImagePaddingAndCorners(80, srcWidth, 80, WIDTH - VF_PADDING_RIGHT);
 
     // Draw sidebar UI over the left padding area
     drawSidebar();
@@ -537,50 +607,26 @@ void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     renderToast();
 
     // --- Phase 2: Blast entire buffer to display ---
-    digitalWrite(_cs, HIGH);
-    delayMicroseconds(6);
-
-    sendByte(makeCommand(CMD_WRITE));
-
-    fbPtr = _framebuffer;
-    for (int line = 1; line <= HEIGHT; line++) {
-        sendByte(line);
-
-        // Send 50 bytes of pixel data
-        _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
-        fbPtr += BYTES_PER_LINE;
-
-        sendByte(0x00);
-    }
-
-    sendByte(0x00);
-
-    delayMicroseconds(2);
-    digitalWrite(_cs, LOW);
+    flushFramebuffer();
 }
 
-void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
-    if (!grayscale) return;
-
-    // Clear error buffers
+// Floyd-Steinberg dither the source into the framebuffer, with the image
+// placed leftPadBytes in from the left edge and the remainder filled white.
+static void ditherFloydSteinberg(const uint8_t* grayscale, int srcWidth, int leftPadBytes) {
     memset(_errCurr, 0, sizeof(_errCurr));
     memset(_errNext, 0, sizeof(_errNext));
 
-    // Right-aligned: 80px left padding, 0px right padding
-    // Image is 320px = 40 bytes
+    const int imgBytes = srcWidth / 8;
+    const int rightPadBytes = BYTES_PER_LINE - leftPadBytes - imgBytes;
 
-    // --- Phase 1: Floyd-Steinberg dither to framebuffer ---
     uint8_t* fbPtr = _framebuffer;
 
     for (int y = 0; y < HEIGHT; y++) {
         const uint8_t* srcRow = grayscale + y * srcWidth;
 
-        // Left padding: 80px = 10 bytes
-        *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF;
-        *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF;
+        for (int i = 0; i < leftPadBytes; i++) *fbPtr++ = 0xFF;
 
-        // Process image pixels with Floyd-Steinberg (320px = 40 bytes)
-        for (int byteIdx = 0; byteIdx < 40; byteIdx++) {
+        for (int byteIdx = 0; byteIdx < imgBytes; byteIdx++) {
             uint8_t outByte = 0;
 
             for (int bit = 0; bit < 8; bit++) {
@@ -609,40 +655,38 @@ void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
             *fbPtr++ = outByte;
         }
 
-        // No right padding (right-aligned)
+        for (int i = 0; i < rightPadBytes; i++) *fbPtr++ = 0xFF;
 
         // Swap error buffers and clear next
         memcpy(_errCurr, _errNext, sizeof(_errCurr));
         memset(_errNext, 0, sizeof(_errNext));
     }
+}
 
-    // Apply 8px rounded corners
-    applyViewfinderPaddingAndCorners();
+void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
+    if (!grayscale) return;
 
-    // Draw sidebar UI over the left padding area
+    // Right-aligned: 80px (10 bytes) of sidebar to the left of the photo
+    ditherFloydSteinberg(grayscale, srcWidth, 10);
+
+    applyImagePaddingAndCorners(80, srcWidth, 80, WIDTH - VF_PADDING_RIGHT);
     drawSidebar();
-
-    // Draw toast if active
     renderToast();
+    flushFramebuffer();
+}
 
-    // --- Phase 2: Blast buffer to display ---
-    digitalWrite(_cs, HIGH);
-    delayMicroseconds(6);
+void drawGallery(const uint8_t* grayscale, int srcWidth, int srcHeight) {
+    if (!grayscale) return;
 
-    sendByte(makeCommand(CMD_WRITE));
+    // Mirror of the capture layout: the photo goes flush left and the freed
+    // 80px column on the right carries the send/discard buttons. The photo
+    // keeps the same 315px visible width, so it just shifts across by 75px.
+    ditherFloydSteinberg(grayscale, srcWidth, 0);
 
-    fbPtr = _framebuffer;
-    for (int line = 1; line <= HEIGHT; line++) {
-        sendByte(line);
-        _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
-        fbPtr += BYTES_PER_LINE;
-        sendByte(0x00);
-    }
-
-    sendByte(0x00);
-
-    delayMicroseconds(2);
-    digitalWrite(_cs, LOW);
+    applyImagePaddingAndCorners(0, srcWidth, VF_PADDING_LEFT, srcWidth);
+    drawActionBar();
+    renderToast();
+    flushFramebuffer();
 }
 
 void drawSplash() {

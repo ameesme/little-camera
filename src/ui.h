@@ -88,4 +88,13 @@ inline const uint8_t* getMailIcon() {
     return Icons::MAIL;
 }
 
+// Review-screen action icons
+inline const uint8_t* getSendIcon() {
+    return Icons::SEND;
+}
+
+inline const uint8_t* getTrashIcon() {
+    return Icons::TRASH;
+}
+
 }  // namespace UI
