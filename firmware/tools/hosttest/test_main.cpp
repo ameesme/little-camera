@@ -12,6 +12,7 @@
 #include "../../src/crc32.h"
 #include "../../src/sha256.h"
 #include "../../src/shortcode.h"
+#include "../../src/sync_protocol.h"
 
 static int failures = 0;
 static int checks = 0;
@@ -102,7 +103,54 @@ static void testPbmHeader() {
     CHECK(!Pbm::parseHeader((const uint8_t*)"P4\n320 240\n", 10, &h));    // no raster byte within len
 }
 
+static void testSyncProtocol() {
+    using namespace SyncProto;
+    // Layouts pinned by docs/protocol.md §3
+    CHECK(INFO_SIZE == 25 && LIST_ENTRY_SIZE == 16 && FRAME_HEADER_SIZE == 3 && END_PAYLOAD_SIZE == 10);
+    CHECK(MAX_CHUNK == 506);
+
+    Info i;
+    const uint8_t mac[6] = {0x7c, 0xdf, 0xa1, 0xe2, 0xb3, 0xc4};
+    memcpy(i.mac, mac, 6);
+    i.photoCount = 12; i.unsyncedCount = 3; i.newestIndex = 57; i.boot = 17;
+    i.uptimeMs = 0x01020304; i.epoch = 1757789000u; i.flags = INFO_TIME_VALID | INFO_STORAGE_OK;
+    uint8_t p[INFO_SIZE];
+    packInfo(i, p);
+    CHECK(p[0] == 1);
+    CHECK(!memcmp(p + 1, mac, 6));
+    CHECK(get16(p + 7) == 12 && get16(p + 9) == 3 && get16(p + 11) == 57 && get16(p + 13) == 17);
+    CHECK(p[15] == 0x04 && p[16] == 0x03 && p[17] == 0x02 && p[18] == 0x01);  // little-endian
+    CHECK(get32(p + 19) == 1757789000u);
+    CHECK(p[23] == 0x03 && p[24] == 0);
+
+    ListEntry e;
+    e.index = 7; e.flags = ENTRY_SYNCED; e.size = 9646; e.epoch = 0; e.uptimeMs = 48213;
+    uint8_t le[LIST_ENTRY_SIZE];
+    packListEntry(e, le);
+    CHECK(get16(le) == 7 && le[2] == 1 && le[3] == 0 && get32(le + 4) == 9646 &&
+          get32(le + 8) == 0 && get32(le + 12) == 48213);
+
+    uint8_t fh[FRAME_HEADER_SIZE];
+    packFrameHeader(KIND_PHOTO_DATA, 0x0201, fh);
+    CHECK(fh[0] == 0x02 && fh[1] == 0x01 && fh[2] == 0x02);
+
+    uint8_t end[END_PAYLOAD_SIZE];
+    packEnd(OP_GET, STATUS_OK, 9646, 0xCBF43926u, end);
+    CHECK(end[0] == OP_GET && end[1] == 0 && get32(end + 2) == 9646 && get32(end + 6) == 0xCBF43926u);
+
+    // Dating rule: clock beats estimate, estimate needs same boot and a set clock
+    uint8_t f = 0;
+    CHECK(estimateEpoch(1000, 1, 5000, 1, 9000, 2000, &f) == 1000 && (f & ENTRY_EPOCH_FROM_CLOCK));
+    f = 0;
+    CHECK(estimateEpoch(0, 17, 48213, 17, 60213, 1757789000u, &f) == 1757789000u - 12 &&
+          (f & ENTRY_EPOCH_IS_ESTIMATE));
+    f = 0;
+    CHECK(estimateEpoch(0, 16, 48213, 17, 60213, 1757789000u, &f) == 0 && f == 0);  // other boot
+    CHECK(estimateEpoch(0, 17, 48213, 17, 60213, 0, &f) == 0);                        // clock unset
+}
+
 int main() {
+    testSyncProtocol();
     testCrc32();
     testSha256();
     testShortCode();

@@ -15,6 +15,7 @@
 #include "display.h"
 #include "identity.h"
 #include "storage.h"
+#include "sync.h"
 
 // Sharp Memory LCD (LS027B7DH01 / Adafruit 4694)
 constexpr uint8_t PIN_LCD_SCLK = 7;   // D8
@@ -176,11 +177,51 @@ void setup() {
         while (true) delay(1000);
     }
 
+    // Radio last: everything it advertises (photo counts, the secret) exists
+    // by now, and the camera init above is the slow part of boot anyway.
+    Sync::begin();
+
     // Don't enter the loop until the shutter line is quiet
     waitForStableRelease(50);
 
     // Initialize activity timer
     lastActivityTime = millis();
+}
+
+// Sync raises its events from loop() on the main thread, so drawing here is
+// safe. Toasts are the whole UI the radio gets: connect, the pairing code,
+// and a running count of what left the device.
+static void handleSyncEvents() {
+    Sync::Event ev;
+    while (Sync::nextEvent(&ev)) {
+        char text[32];
+        switch (ev.kind) {
+            case Sync::Event::Connected:
+                Display::showToast("phone connected", Display::ToastHAlign::Right,
+                                   Display::ToastVAlign::Top);
+                break;
+            case Sync::Event::Disconnected:
+                break;
+            case Sync::Event::Passkey:
+                // Indefinite: it stays until pairing finishes one way or the other.
+                snprintf(text, sizeof(text), "pair %06lu", (unsigned long)ev.value);
+                Display::showToast(text, Display::ToastHAlign::Right, Display::ToastVAlign::Top,
+                                   true, 0);
+                break;
+            case Sync::Event::PairingDone:
+                Display::showToast(ev.value ? "paired" : "pairing failed",
+                                   Display::ToastHAlign::Right, Display::ToastVAlign::Top);
+                break;
+            case Sync::Event::Sent:
+                snprintf(text, sizeof(text), "sent %lu", (unsigned long)ev.value);
+                Display::showToast(text, Display::ToastHAlign::Right, Display::ToastVAlign::Top);
+                break;
+            default:
+                continue;
+        }
+        // The gallery only repaints on change; a new toast text is a change.
+        galleryDirty = true;
+    }
 }
 
 void enterSleepMode() {
@@ -207,6 +248,11 @@ void enterSleepMode() {
 
     // Draw sleep screen
     Display::drawSleep();
+
+    // Radio off before the camera: light sleep and a live BLE controller is
+    // undefined territory in this Arduino core, and the phone is told nothing
+    // — it reconnects when the camera advertises again after wake.
+    Sync::end();
 
     // The OV2640 has no PWDN or RESET pin wired on the Sense B2B connector, so
     // light sleep only stops its XCLK — the sensor stays powered and biased at
@@ -257,6 +303,8 @@ void enterSleepMode() {
     if (!Camera::init()) {
         Serial.println("Camera re-init failed after wake");
     }
+
+    Sync::begin();
 
     // Require a continuously-released line before resuming — a plain
     // release-wait plus fixed delay still let release bounce re-trigger
@@ -359,13 +407,17 @@ void loop() {
 
     // Idle timeout. Also applies on the save screen: an unanswered prompt is
     // still an idle device, and the photo is discarded rather than saved —
-    // walking away is not consent to keep it.
-    if (now - lastActivityTime >= IDLE_TIMEOUT_MS) {
+    // walking away is not consent to keep it. A phone mid-transfer, or one
+    // that may be about to connect, stretches it (Sync::keepAwake).
+    const uint32_t idleFor = now - lastActivityTime;
+    if (idleFor >= IDLE_TIMEOUT_MS && !Sync::keepAwake(now, idleFor)) {
         enterSleepMode();
         return;  // After wake, restart loop fresh
     }
 
     Audio::update();
+    Sync::loop();
+    handleSyncEvents();
 
     // USB console: an export in progress is activity, so it holds off sleep the
     // same way a button press does.
