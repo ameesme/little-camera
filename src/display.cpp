@@ -712,20 +712,23 @@ void drawSleep() {
     digitalWrite(_cs, LOW);
 }
 
-void refresh() {
-    // Toggle VCOM at least every second to prevent DC bias / burn-in
-    uint32_t now = millis();
-    if (now - _lastVcomToggle >= 1000) {
-        _vcom = !_vcom;
-        _lastVcomToggle = now;
+void toggleVcom() {
+    _vcom = !_vcom;
+    _lastVcomToggle = millis();
 
-        // Send VCOM toggle command (no data, just updates the internal VCOM state)
-        digitalWrite(_cs, HIGH);
-        delayMicroseconds(6);
-        sendByte(makeCommand(CMD_VCOM));
-        sendByte(0x00);
-        delayMicroseconds(2);
-        digitalWrite(_cs, LOW);
+    // Send VCOM toggle command (no data, just updates the internal VCOM state)
+    digitalWrite(_cs, HIGH);
+    delayMicroseconds(6);
+    sendByte(makeCommand(CMD_VCOM));
+    sendByte(0x00);
+    delayMicroseconds(2);
+    digitalWrite(_cs, LOW);
+}
+
+void refresh() {
+    // Toggle VCOM at least every VCOM_INTERVAL_MS to prevent DC bias / burn-in
+    if (millis() - _lastVcomToggle >= VCOM_INTERVAL_MS) {
+        toggleVcom();
     }
 }
 

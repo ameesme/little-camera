@@ -9,6 +9,7 @@ constexpr int WIDTH = 320;
 constexpr int HEIGHT = 240;
 
 bool init();
+void deinit();       // Tear down before sleep — the OV2640 has no PWDN pin wired
 uint8_t* capture();  // Returns pointer to grayscale framebuffer, or nullptr on failure
 
 }

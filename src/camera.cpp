@@ -75,6 +75,24 @@ bool init() {
     return true;
 }
 
+// PWDN and RESET are both -1 on the Sense B2B connector, so there is no way to
+// cut power to the OV2640 from a GPIO. Light sleep only gates XCLK, which
+// leaves the sensor powered and biased — by far the largest idle draw on the
+// board. Tearing the driver down is the only lever we have. Costs a few hundred
+// ms of re-init before the viewfinder returns on wake.
+void deinit() {
+    // The driver owns the framebuffer; hand it back before freeing the driver.
+    if (fb) {
+        esp_camera_fb_return(fb);
+        fb = nullptr;
+    }
+
+    esp_err_t err = esp_camera_deinit();
+    if (err != ESP_OK) {
+        Serial.printf("Camera deinit failed: 0x%x\n", err);
+    }
+}
+
 uint8_t* capture() {
     // Return previous framebuffer if any
     if (fb) {

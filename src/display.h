@@ -18,7 +18,15 @@ void drawSplash();
 void drawSleep();
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight);
 void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight);  // Floyd-Steinberg dither
-void refresh();  // Call periodically to toggle VCOM
+// VCOM must keep flipping or the panel accumulates DC bias and burns in. The
+// datasheet wants >=1Hz; 5s is a deliberate tradeoff — the panel tolerates it
+// and it sets how often we have to wake out of light sleep, which is the whole
+// idle power budget. Shared by the awake loop and the sleep keep-alive so both
+// paths can't drift apart.
+constexpr uint32_t VCOM_INTERVAL_MS = 5000;
+
+void refresh();     // Call periodically; toggles VCOM at most once per interval
+void toggleVcom();  // Force a VCOM toggle now — used by the sleep keep-alive
 
 // UI state for sidebar
 void setBatteryPercent(int percent);  // 0-100

@@ -133,6 +133,13 @@ void enterSleepMode() {
     // Draw sleep screen
     Display::drawSleep();
 
+    // The OV2640 has no PWDN or RESET pin wired on the Sense B2B connector, so
+    // light sleep only stops its XCLK — the sensor stays powered and biased at
+    // milliamps, dwarfing everything else on the board (~250uA for the sleeping
+    // S3, ~50uA for the static panel). Tearing the driver down is the only lever
+    // we have; it costs a few hundred ms of re-init on wake.
+    Camera::deinit();
+
     // Configure GPIO wakeup for light sleep (wake on HIGH = button press,
     // inverted polarity — see PIN_SHUTTER note)
     gpio_wakeup_enable((gpio_num_t)PIN_SHUTTER, GPIO_INTR_HIGH_LEVEL);
@@ -141,10 +148,22 @@ void enterSleepMode() {
     // Small delay to let display finish and avoid immediate wake
     delay(100);
 
-    // Enter light sleep
-    esp_light_sleep_start();
+    // The panel keeps showing the sleep face while we're out, and DISP stays
+    // HIGH across light sleep, so VCOM has to keep flipping or the pixels take
+    // a permanent DC bias. Nothing runs while esp_light_sleep_start() blocks,
+    // so wake ourselves on a timer to do it and go straight back down.
+    for (;;) {
+        esp_sleep_enable_timer_wakeup((uint64_t)Display::VCOM_INTERVAL_MS * 1000);
+        esp_light_sleep_start();
 
-    // Disable GPIO wakeup after waking
+        if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) break;
+
+        // Keep-alive tick: one SPI command, no melody, no re-init.
+        Display::toggleVcom();
+    }
+
+    // Disable both wake sources after waking for real
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
     gpio_wakeup_disable((gpio_num_t)PIN_SHUTTER);
 
     // Woke up! Reset activity timer and hint state
@@ -156,6 +175,13 @@ void enterSleepMode() {
     // Play click immediately after wake
     Audio::init(PIN_BUZZ);
     Audio::playClick();
+
+    // Bring the sensor back up (torn down before sleep). On failure the loop
+    // just gets nullptr frames from capture() and keeps a stale viewfinder,
+    // which beats halting a device the user just woke up.
+    if (!Camera::init()) {
+        Serial.println("Camera re-init failed after wake");
+    }
 
     // Require a continuously-released line before resuming — a plain
     // release-wait plus fixed delay still let release bounce re-trigger

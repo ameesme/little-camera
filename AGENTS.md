@@ -56,7 +56,10 @@ Treat each of these as a hard failure if violated:
 - **Live viewfinder:** ordered **Bayer** dithering — stable and fast under motion, no shimmer.
 - **Received / stored images:** **Floyd–Steinberg** dithering for better static-image quality.
 - **Display output:** source is 320×240; pillarbox to the 400×240 panel.
-- **Sleep:** don't chase deep-sleep micro-optimizations at the cost of prototype complexity.
+- **Sleep:** light sleep, woken by the shutter (HIGH level) or a `Display::VCOM_INTERVAL_MS` timer. Two things are load-bearing — don't remove them:
+  - The panel keeps showing the sleep face (DISP stays HIGH across light sleep), so the timer wake exists purely to flip VCOM. Without it the pixels sit at fixed DC polarity for the entire sleep and burn in.
+  - `Camera::deinit()` before sleeping, `Camera::init()` after waking. PWDN and RESET are both `-1` on the Sense B2B connector, so light sleep only gates XCLK — the OV2640 stays powered and biased at milliamps, dominating the idle budget (sleeping S3 ~250µA, static panel ~50µA). Costs a few hundred ms of re-init on wake.
+  - Beyond that, don't chase deep-sleep micro-optimizations at the cost of prototype complexity. There is no current sense on this board, so every power figure above is an estimate, not a measurement.
 
 ## Build & flash
 
