@@ -75,6 +75,49 @@ Config facts that affect firmware:
 - Board `seeed_xiao_esp32s3`, MCU esp32s3, **8MB flash**, partitions `default_8MB.csv`, QIO flash + OPI PSRAM (`BOARD_HAS_PSRAM`).
 - `ARDUINO_USB_MODE=1` + `ARDUINO_USB_CDC_ON_BOOT=1`: **`Serial` is the native USB-CDC console**, not a UART bridge. The USB port re-enumerates after flashing, so the monitor may need a moment to reconnect.
 
+## UI preview (no hardware)
+
+`tools/preview/` compiles the **real** `src/display.cpp` for the host against a stub Arduino/SPI layer and writes what the panel would be showing to a BMP. **Iterate on layout here before flashing** — once the app starts light-sleeping, every upload needs a physical shutter press to catch the board awake.
+
+Host toolchain only (`c++`, no PlatformIO, no deps). Nothing under `src/` is modified or conditionally compiled for it.
+
+```
+cd tools/preview
+make            # build ./preview
+make scenes     # render every scene to out/
+make open       # render every scene and open them (macOS)
+make clean
+```
+
+```
+./preview <scene> [options]
+
+scenes:   viewfinder  capture  toast  sleep  splash
+  --out PATH   output BMP            (default preview.bmp)
+  --scale N    integer upscale       (default 2 — 1:1 is unreadable on hidpi)
+  --src FILE   320x240 binary PGM    (default: built-in synthetic test image)
+  --at MS      virtual clock value   (default 0)
+```
+
+Layout:
+
+| File | Role |
+|---|---|
+| `preview.cpp` | CLI, scene list, test-image generator, PGM loader |
+| `sim_panel.{h,cpp}` | LS027B7DH01 model — decodes the SPI stream, writes the BMP |
+| `shim/Arduino.h` | `millis`, `digitalWrite`, `PROGMEM`, `Serial`, … |
+| `shim/SPI.h` | `SPIClass` that forwards every byte to the panel model |
+| `sim_arduino.cpp` | Virtual clock + `Serial` backing |
+
+How it works, and how far to trust it:
+
+- It intercepts at the **SPI byte stream**, not the framebuffer, so it exercises the real wire protocol — command bits, VCOM bit, line addressing, bit order. That's why `drawSplash()` previews correctly even though it streams PROGMEM straight to SPI and never touches `_framebuffer`.
+- `millis()` is a **virtual clock** (`--at`, or `Sim::advanceMillis` in-process), so time-dependent UI — toast expiry, animation — is reproducible and can be stepped frame by frame into an image sequence.
+- It warns on **DISP low** and on **SPI protocol errors**, which covers two of this panel's classic blank-screen causes.
+- It models the **digital side only**. No contrast, no 8MHz-overclock behaviour, no refresh timing, no ghosting. Layout and dithering are faithful; "will the panel actually like this" is still a hardware question.
+
+Extending it: add a branch in `preview.cpp` for a new scene. The Arduino shim deliberately covers only the symbols `display.cpp` actually uses — widen it when a build fails rather than emulating Arduino wholesale.
+
 ## Open tasks / known unknowns
 
 Flag these if relevant to a change; don't silently assume they're resolved:
