@@ -10,6 +10,13 @@ constexpr int WIDTH = 400;
 constexpr int HEIGHT = 240;
 constexpr int BYTES_PER_LINE = WIDTH / 8;  // 50 bytes
 
+// The photo, dithered to 1-bit and cached so the save slide can re-blit it at a
+// new offset each frame instead of re-dithering. Packed MSB-first, bit set =
+// white, no padding.
+constexpr int PHOTO_WIDTH = 320;
+constexpr int PHOTO_HEIGHT = HEIGHT;
+constexpr int PHOTO_BYTES = PHOTO_WIDTH / 8;  // 40 bytes per row
+
 void init(uint8_t sclk, uint8_t mosi, uint8_t cs, uint8_t disp);
 void clear();
 void fillPattern(uint8_t pattern);
@@ -31,6 +38,12 @@ void drawSaveTransition(float t);
 // come back to life while the columns are still moving. Pass nullptr to keep
 // showing whatever was last dithered.
 void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight, float t);
+
+// The cached 1-bit photo, PHOTO_BYTES * PHOTO_HEIGHT bytes. This is the exact
+// bitmap on the panel, so saving it can't disagree with the frame the user
+// approved. Only valid until the next draw call re-dithers — in practice that
+// means read it while the save screen is up.
+const uint8_t* photoBits();
 // VCOM must keep flipping or the panel accumulates DC bias and burns in. The
 // datasheet wants >=1Hz; 5s is a deliberate tradeoff — the panel tolerates it
 // and it sets how often we have to wake out of light sleep, which is the whole

@@ -12,6 +12,7 @@
 #include "audio.h"
 #include "camera.h"
 #include "display.h"
+#include "storage.h"
 
 // Sharp Memory LCD (LS027B7DH01 / Adafruit 4694)
 constexpr uint8_t PIN_LCD_SCLK = 7;   // D8
@@ -48,9 +49,9 @@ constexpr uint32_t SAVE_SLIDE_MS = 280;
 // most of the motion smooth while still masking the dither change.
 constexpr float DISMISS_LIVE_AT = 0.5f;
 
-// Save-screen gestures. 800ms is past anything you'd produce trying to tap, so
-// trash can't be hit by accident, but it's not a wait either.
-constexpr uint32_t TRASH_HOLD_MS = 800;
+// Save-screen gestures. Long enough that trash reads as a deliberate act rather
+// than a slow tap — it's the one irreversible thing the button can do.
+constexpr uint32_t TRASH_HOLD_MS = 1500;
 
 // One button drives everything, so the UI is a strict mode machine: the
 // meaning of a press depends entirely on which screen is up.
@@ -137,6 +138,10 @@ void setup() {
         Audio::update();
         delay(10);
     }
+
+    // Photo storage. Non-fatal: the camera still works without it, saves just
+    // report an error, and refusing to boot over a bad partition would be worse.
+    Storage::init();
 
     // Initialize camera (OV2640 on the Sense B2B connector)
     if (!Camera::init()) {
@@ -270,8 +275,9 @@ void loop() {
     bool pressed = shutterPressed();
     uint32_t now = millis();
 
-    // Idle timeout. Also applies on the save screen — an unanswered prompt is
-    // still an idle device, and nothing is persisted either way yet.
+    // Idle timeout. Also applies on the save screen: an unanswered prompt is
+    // still an idle device, and the photo is discarded rather than saved —
+    // walking away is not consent to keep it.
     if (now - lastActivityTime >= IDLE_TIMEOUT_MS) {
         enterSleepMode();
         return;  // After wake, restart loop fresh
@@ -348,9 +354,13 @@ void loop() {
                 gestureActive = true;
                 holdFired = false;
             }
-
-            if (pressed && gestureActive && !holdFired &&
-                (now - pressStartedAt) >= TRASH_HOLD_MS) {
+            // Re-read the clock instead of using `now` from the top of loop().
+            // confirmPressed() spends 10ms above, so on the iteration that
+            // starts a gesture `pressStartedAt` is *later* than `now` and the
+            // unsigned subtraction wraps to ~4.29 billion — which cleared the
+            // threshold instantly and made every press a trash.
+            else if (pressed && gestureActive && !holdFired &&
+                     (millis() - pressStartedAt) >= TRASH_HOLD_MS) {
                 // Fire on the threshold rather than on release, so the hold has
                 // a definite end the user can feel instead of a silent wait.
                 Serial.println("Save: trash");
@@ -358,12 +368,23 @@ void loop() {
                 Audio::playMelody(Audio::Melody::DaDaTa);
                 startDismiss("deleted");
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
-                // Released before the threshold: a tap.
-                // No modem on this carrier revision, so "send" is UI only —
-                // there is nowhere to send to yet.
-                Serial.println("Save: send");
+                // Released before the threshold: a tap. No modem on this carrier
+                // revision, so "send" writes the photo to flash and stops there
+                // — the file is staged for whatever eventually uploads it.
+                //
+                // Done here rather than after the slide so the toast can report
+                // what actually happened. The write is ~10KB and stalls the
+                // frozen frame briefly before the slide starts, which reads as
+                // part of the button press rather than as a dropped frame.
+                Storage::Result r = Storage::savePhoto(Display::photoBits(),
+                                                       Display::PHOTO_WIDTH,
+                                                       Display::PHOTO_HEIGHT);
                 Audio::playClick();
-                startDismiss("sent");
+                switch (r) {
+                    case Storage::Result::Ok:   startDismiss("saved"); break;
+                    case Storage::Result::Full: startDismiss("storage full"); break;
+                    default:                    startDismiss("save failed"); break;
+                }
             }
 
             if (!pressed) gestureActive = false;

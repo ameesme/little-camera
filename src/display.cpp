@@ -167,14 +167,14 @@ constexpr int VF_CORNER_RADIUS = 10;
 static int16_t _errCurr[322];
 static int16_t _errNext[322];
 
-// The captured photo, dithered once and kept as 1-bit. The capture -> save
-// slide re-blits this at a new offset every frame; re-running Floyd-Steinberg
-// per frame would roughly double the cost of a frame for an identical result,
-// since the dither loop works in image coordinates and doesn't care where the
-// photo lands on the panel.
-constexpr int PHOTO_WIDTH = 320;
-constexpr int PHOTO_BYTES = PHOTO_WIDTH / 8;  // 40
-static uint8_t _photoBits[PHOTO_BYTES * HEIGHT];  // 9600 bytes
+// The captured photo, dithered once and kept as 1-bit (see display.h for the
+// geometry). The capture -> save slide re-blits this at a new offset every
+// frame; re-running Floyd-Steinberg per frame would roughly double the cost of
+// a frame for an identical result, since the dither loop works in image
+// coordinates and doesn't care where the photo lands on the panel.
+static uint8_t _photoBits[PHOTO_BYTES * PHOTO_HEIGHT];  // 9600 bytes
+
+const uint8_t* photoBits() { return _photoBits; }
 
 // UI state
 static int _batteryPercent = 100;
@@ -211,11 +211,17 @@ constexpr int PHOTO_X_CAPTURE = SIDEBAR_PADDING + BOX_WIDTH + SIDEBAR_PADDING;  
 constexpr int SAVE_SLIDE_PX = PHOTO_X_CAPTURE - VF_PADDING_LEFT;               // 75
 // 320px of source minus the 5 columns cropped to leave a margin on the far side
 constexpr int CARD_WIDTH = PHOTO_WIDTH - VF_PADDING_RIGHT;                     // 315
-// The gesture line sits as low as the corner radius allows. It's centred
-// horizontally and every gesture word is far narrower than the box, so the
-// 10px corners never reach it.
-constexpr int BOX_PADDING_BOTTOM = 4;
+// The gesture sits in a knocked-out white strip along the bottom of the button,
+// so it reads as a separate affordance rather than a third line of the title.
+// It's centred horizontally and every gesture word is far narrower than the
+// box, so the 10px corners never reach it.
+constexpr int BOX_FOOTER_PADDING = 4;
 constexpr int BOX_LABEL_GAP = 3;  // Icon to label
+// The gesture sits on the same black as the rest of the button, divided off by
+// a 1px rule. Every attempt at a lighter footer — white, or a grey dither —
+// either cost too much legibility at this font size or fought the photo next to
+// it; a hairline gets the separation for none of the contrast.
+constexpr int BOX_DIVIDER_HEIGHT = 1;
 
 // Default font for sidebar UI
 constexpr UI::Font SIDEBAR_FONT = UI::Font::Large;
@@ -348,9 +354,9 @@ static void drawTextCenteredAt(const char* text, int boxX, int boxW, int y, UI::
     drawText(text, startX, y, font, white);
 }
 
-// A filled box with a centred icon, a label hung under it, and the gesture that
-// triggers it pinned to the bottom edge. Shared by the viewfinder sidebar and
-// the save-screen actions so the two columns stay visually identical.
+// A black box with a centred icon and a label hung under it, plus a footer
+// naming the gesture that triggers it, ruled off by a hairline. Shared by the
+// viewfinder sidebar and the save-screen actions so the two stay identical.
 static void drawBoxButton(int x, int y, int w, int h,
                           const uint8_t* icon, const char* label, const char* gesture) {
     // setPixel clips, so drawing off-panel is harmless — but during the slide
@@ -358,15 +364,29 @@ static void drawBoxButton(int x, int y, int w, int h,
     // no-op setPixel calls per frame.
     if (x + w <= 0 || x >= WIDTH) return;
 
+    const int footerH = UI::fontHeight(HINT_FONT) + BOX_FOOTER_PADDING * 2;
+    const int footerY = y + h - footerH;
+
     fillRoundedRect(x, y, w, h, BOX_RADIUS, false);
 
-    // The icon is the anchor: it sits dead centre in the box, with the label
-    // hung directly under it. The gesture line is not part of that group — it's
-    // pinned to the bottom edge, so it reads as a footnote on the button rather
-    // than a third line of the title.
-    int iconY = y + (h - UI::ICON_SIZE) / 2;
+    // Rule between the body and the gesture footer. Masked against the same
+    // rounded rect so it stops at the button's edge instead of overhanging it.
+    for (int py = footerY; py < footerY + BOX_DIVIDER_HEIGHT; py++) {
+        for (int px = x; px < x + w; px++) {
+            if (isInsideRoundedRect(px, py, x, y, w, h, BOX_RADIUS)) {
+                setPixel(px, py, true);
+            }
+        }
+    }
+
+    // The icon is the anchor: it centres in the body — the box above the rule —
+    // and the label hangs off it. Centring the icon+label block as a whole is
+    // more correct on paper but reads as too high, because the eye takes the
+    // icon for the centre and the label for a caption.
+    const int bodyH = h - footerH;
+    int iconY = y + (bodyH - UI::ICON_SIZE) / 2;
     int labelY = iconY + UI::ICON_SIZE + BOX_LABEL_GAP;
-    int gestureY = y + h - BOX_PADDING_BOTTOM - UI::fontHeight(HINT_FONT);
+    int gestureY = footerY + BOX_FOOTER_PADDING;
 
     drawIconCentered(icon, UI::ICON_SIZE, UI::ICON_SIZE, x, w, iconY, true);
     drawTextCenteredAt(label, x, w, labelY, SIDEBAR_FONT, true);
