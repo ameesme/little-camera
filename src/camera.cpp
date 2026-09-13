@@ -60,6 +60,17 @@ bool init() {
         return false;
     }
 
+    // The OV2640 is mounted upside down on the carrier, so rotate 180 in the
+    // sensor: vflip + hmirror together. Done here rather than in the render
+    // path because it's free (sensor register writes, no per-frame CPU) and it
+    // applies to captures as well as the viewfinder — flipping in the display
+    // code would have to be duplicated in both dither paths.
+    sensor_t* s = esp_camera_sensor_get();
+    if (s) {
+        s->set_vflip(s, 1);
+        s->set_hmirror(s, 1);
+    }
+
     Serial.println("Camera initialized");
     return true;
 }
