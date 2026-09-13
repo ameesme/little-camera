@@ -16,6 +16,7 @@
 
 #include "../../src/display.h"
 #include "../../src/camera.h"
+#include "../../src/pbm_header.h"
 #include "sim_panel.h"
 
 // Pins are arbitrary here; they only have to be distinct so the panel model can
@@ -26,6 +27,8 @@ constexpr uint8_t PIN_CS   = 44;
 constexpr uint8_t PIN_DISP = 3;
 
 static uint8_t g_source[Camera::WIDTH * Camera::HEIGHT];
+// A stored photo in panel polarity, for the gallery scenes.
+static uint8_t g_photo[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 
 // Synthetic 320x240 grayscale scene. Deliberately mixes smooth ramps, flat
 // mid-greys and hard edges — those are exactly where Bayer and Floyd-Steinberg
@@ -107,6 +110,44 @@ static bool loadPGM(const char* path) {
     return true;
 }
 
+// Binary PBM (P4), exactly Display::PHOTO_WIDTH x PHOTO_HEIGHT — a file pulled
+// off the camera. Same parser the firmware uses; inverted into panel polarity
+// the same way Storage::loadPhoto() does it.
+static bool loadPBM(const char* path) {
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "error: cannot open %s\n", path);
+        return false;
+    }
+    uint8_t head[Pbm::MAX_HEADER];
+    size_t n = fread(head, 1, sizeof(head), f);
+    Pbm::Header h;
+    if (!Pbm::parseHeader(head, n, &h)) {
+        fprintf(stderr, "error: %s is not a binary PBM (P4)\n", path);
+        fclose(f);
+        return false;
+    }
+    if (h.width != Display::PHOTO_WIDTH || h.height != Display::PHOTO_HEIGHT) {
+        fprintf(stderr, "error: %s is %dx%d, need %dx%d\n",
+                path, h.width, h.height, Display::PHOTO_WIDTH, Display::PHOTO_HEIGHT);
+        fclose(f);
+        return false;
+    }
+    fseek(f, (long)h.rasterOffset, SEEK_SET);
+    size_t got = fread(g_photo, 1, sizeof(g_photo), f);
+    fclose(f);
+    if (got != sizeof(g_photo)) {
+        fprintf(stderr, "error: %s truncated (%zu of %zu bytes)\n", path, got, sizeof(g_photo));
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(g_photo); i++) g_photo[i] = (uint8_t)~g_photo[i];
+    if (h.hasMeta) {
+        fprintf(stderr, "%s: boot=%u up=%lu t=%lu\n", path, (unsigned)h.boot,
+                (unsigned long)h.up, (unsigned long)h.t);
+    }
+    return true;
+}
+
 static void usage(const char* argv0) {
     fprintf(stderr,
         "usage: %s <scene> [options]\n"
@@ -119,13 +160,19 @@ static void usage(const char* argv0) {
         "  toast        viewfinder with the 'press to shoot' hint\n"
         "  sleep        sleep face\n"
         "  splash       boot splash\n"
+        "  gallery      a stored photo with the browse column (see --index/--total/--pbm)\n"
+        "  gallery-empty  the gallery with nothing on the flash\n"
         "\n"
         "options:\n"
         "  --out PATH   output BMP (default preview.bmp)\n"
         "  --scale N    integer upscale, default 2\n"
         "  --src FILE   320x240 binary PGM instead of the synthetic test image\n"
         "  --at MS      virtual clock value at render time, default 0\n"
-        "  --t F        slide position 0.0-1.0 for the 'slide' scene, default 0.5\n",
+        "  --t F        slide position 0.0-1.0 for the 'slide' scene, default 0.5\n"
+        "  --pbm FILE   320x240 binary PBM from the camera for the 'gallery' scene\n"
+        "               (default: the test image, Floyd-Steinberg dithered)\n"
+        "  --index N    0-based position shown in the gallery counter, default 2\n"
+        "  --total N    total shown in the gallery counter, default 12\n",
         argv0);
 }
 
@@ -141,6 +188,9 @@ int main(int argc, char** argv) {
     int scale = 2;
     uint32_t at = 0;
     float slideT = 0.5f;
+    const char* pbm = nullptr;
+    int galleryIndex = 2;
+    int galleryTotal = 12;
 
     for (int i = 2; i < argc; i++) {
         bool hasValue = (i + 1 < argc);
@@ -154,6 +204,12 @@ int main(int argc, char** argv) {
             slideT = strtof(argv[++i], nullptr);
         } else if (!strcmp(argv[i], "--at") && hasValue) {
             at = (uint32_t)strtoul(argv[++i], nullptr, 10);
+        } else if (!strcmp(argv[i], "--pbm") && hasValue) {
+            pbm = argv[++i];
+        } else if (!strcmp(argv[i], "--index") && hasValue) {
+            galleryIndex = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--total") && hasValue) {
+            galleryTotal = atoi(argv[++i]);
         } else {
             fprintf(stderr, "error: unknown or incomplete option '%s'\n\n", argv[i]);
             usage(argv[0]);
@@ -192,6 +248,18 @@ int main(int argc, char** argv) {
         Display::drawSleep();
     } else if (!strcmp(scene, "splash")) {
         Display::drawSplash();
+    } else if (!strcmp(scene, "gallery")) {
+        if (pbm) {
+            if (!loadPBM(pbm)) return 1;
+        } else {
+            // No file: dither the test image and take the bits the same way
+            // main.cpp's gallery buffer would receive them from storage.
+            Display::drawCapture(g_source, Camera::WIDTH, Camera::HEIGHT);
+            memcpy(g_photo, Display::photoBits(), sizeof(g_photo));
+        }
+        Display::drawGallery(g_photo, galleryIndex, galleryTotal);
+    } else if (!strcmp(scene, "gallery-empty")) {
+        Display::drawGalleryEmpty();
     } else {
         fprintf(stderr, "error: unknown scene '%s'\n\n", scene);
         usage(argv[0]);

@@ -178,7 +178,7 @@ const uint8_t* photoBits() { return _photoBits; }
 
 // UI state
 static int _batteryPercent = 100;
-static int _inboxCount = 0;
+static int _photoCount = 0;
 static UI::SignalLevel _signalLevel = UI::SignalLevel::Full;
 
 // Toast state
@@ -393,11 +393,27 @@ static void drawBoxButton(int x, int y, int w, int h,
     drawTextCenteredAt(gesture, x, w, gestureY, HINT_FONT, true);
 }
 
-// Viewfinder sidebar: single full-height inbox box. x is a parameter so the
-// save slide can walk it off the left edge.
+// Viewfinder sidebar: a single full-height box that names the one gesture the
+// viewfinder has besides shooting — hold for the gallery. x is a parameter so
+// the save slide can walk it off the left edge. (It used to say "inbox", for
+// received images that this carrier revision cannot receive.)
 static void drawSidebar(int x) {
     drawBoxButton(x, SIDEBAR_PADDING, BOX_WIDTH, INBOX_HEIGHT,
-                  UI::getMailIcon(), "inbox", "hold");
+                  UI::getImagesIcon(), "photos", "hold");
+}
+
+// Gallery column: same two-button stack as the save screen so the two review
+// screens read as siblings. The top button's label is the position counter —
+// the arrow says next, the counter says where, the footer says how, in the
+// three slots the button already has. "150/150" is 62px in the large face,
+// inside the 70px box.
+static void drawGalleryBar(int x, int index, int total) {
+    char counter[16];
+    snprintf(counter, sizeof(counter), "%d/%d", index + 1, total);
+    drawBoxButton(x, SIDEBAR_PADDING, BOX_WIDTH, ACTION_BUTTON_HEIGHT,
+                  UI::getNextIcon(), counter, "press");
+    drawBoxButton(x, SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
+                  BOX_WIDTH, ACTION_BUTTON_HEIGHT, UI::getCameraIcon(), "back", "hold");
 }
 
 // Save-screen actions, stacked in the right-hand column
@@ -489,12 +505,17 @@ void clearToast() {
     _toastText[0] = '\0';
 }
 
+bool toastVisible() {
+    if (!_toastActive) return false;
+    return _toastExpireAt == UINT32_MAX || millis() < _toastExpireAt;
+}
+
 void setBatteryPercent(int percent) {
     _batteryPercent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
 }
 
-void setInboxCount(int count) {
-    _inboxCount = count < 0 ? 0 : count;
+void setPhotoCount(int count) {
+    _photoCount = count < 0 ? 0 : count;
 }
 
 void setSignalLevel(UI::SignalLevel level) {
@@ -704,6 +725,13 @@ static void blitPhoto(int destX) {
     }
 }
 
+// The photo card: _photoBits blitted with its left edge at photoX, padding
+// whitened and corners rounded. Shared by every screen that shows a photo.
+static void renderPhotoCard(int photoX) {
+    blitPhoto(photoX);
+    applyImagePaddingAndCorners(photoX, PHOTO_WIDTH, photoX, photoX + CARD_WIDTH);
+}
+
 // Render the photo card and both columns at an arbitrary point on the capture
 // -> save slide. t=0 is the capture layout (sidebar in place, actions parked
 // off the right edge), t=1 is the save layout (sidebar gone off the left,
@@ -718,9 +746,7 @@ static void renderSaveLayout(float t) {
     // crops. Keeping the crop identical everywhere means the slide is a pure
     // translation and the photo doesn't jump sideways relative to itself at
     // either the capture moment or the end of the slide.
-    const int photoX = PHOTO_X_CAPTURE - shift;
-    blitPhoto(photoX);
-    applyImagePaddingAndCorners(photoX, PHOTO_WIDTH, photoX, photoX + CARD_WIDTH);
+    renderPhotoCard(PHOTO_X_CAPTURE - shift);
 
     drawSidebar(SIDEBAR_PADDING - shift);
     drawActionBar(WIDTH - shift);
@@ -754,6 +780,37 @@ void drawSaveTransition(float t) {
 void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight, float t) {
     if (grayscale) bayerPhoto(grayscale, srcWidth);
     renderSaveLayout(t);
+}
+
+void drawGallery(const uint8_t* bits, int index, int total) {
+    if (!bits) return;
+    // A copy rather than decoding straight into _photoBits: 9.6KB of memcpy is
+    // microseconds against a 13ms panel flush, and it keeps Display's contract
+    // one-directional (bitmaps in, pixels out), which is what the preview tool
+    // relies on.
+    memcpy(_photoBits, bits, sizeof(_photoBits));
+    // Same geometry as the save layout at rest: card flush left, column right.
+    renderPhotoCard(VF_PADDING_LEFT);
+    drawGalleryBar(WIDTH - SIDEBAR_PADDING - BOX_WIDTH, index, total);
+    renderToast();
+    flushFramebuffer();
+}
+
+void drawGalleryEmpty() {
+    memset(_framebuffer, 0xFF, sizeof(_framebuffer));
+    // The card's outline where the photo would be, with the message inside it,
+    // so the empty state has the same shape as the full one.
+    const int cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
+    drawRoundedRectBorder(VF_PADDING_LEFT, VF_PADDING_TOP, CARD_WIDTH, cardH, VF_CORNER_RADIUS, false);
+    const char* text = "no photos yet";
+    drawTextCenteredAt(text, VF_PADDING_LEFT, CARD_WIDTH,
+                       VF_PADDING_TOP + (cardH - UI::fontHeight(SIDEBAR_FONT)) / 2, SIDEBAR_FONT, false);
+    // Nothing to step through, so only the back button — full height, like
+    // the viewfinder's sidebar.
+    drawBoxButton(WIDTH - SIDEBAR_PADDING - BOX_WIDTH, SIDEBAR_PADDING, BOX_WIDTH, INBOX_HEIGHT,
+                  UI::getCameraIcon(), "back", "hold");
+    renderToast();
+    flushFramebuffer();
 }
 
 void drawSplash() {

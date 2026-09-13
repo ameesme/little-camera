@@ -13,9 +13,9 @@ SRCS = preview.cpp sim_panel.cpp sim_arduino.cpp ../../src/display.cpp
 BIN  = preview
 OUT  = out
 
-SCENES = splash sleep viewfinder capture save slide toast
+SCENES = splash sleep viewfinder capture save slide toast gallery gallery-empty
 
-$(BIN): $(SRCS) shim/Arduino.h shim/SPI.h sim_panel.h ../../src/display.cpp ../../src/display.h
+$(BIN): $(SRCS) shim/Arduino.h shim/SPI.h sim_panel.h ../../src/display.cpp ../../src/display.h ../../src/pbm_header.h
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o $(BIN)
 
 scenes: $(BIN)

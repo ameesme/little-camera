@@ -39,6 +39,21 @@ void drawSaveTransition(float t);
 // showing whatever was last dithered.
 void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight, float t);
 
+// Gallery: one stored photo in the save-layout geometry (card flush left) with
+// a browse column on the right: next (press) with the position counter, and
+// back (hold). `bits` is panel polarity — set bit = white — and exactly
+// PHOTO_BYTES * PHOTO_HEIGHT bytes, i.e. what Storage::loadPhoto() produces.
+// Display knows nothing about files, which is what lets the preview tool hand
+// it any bitmap. index is 0-based, total >= 1.
+void drawGallery(const uint8_t* bits, int index, int total);
+// Gallery with nothing to show: an empty card and only the back button.
+void drawGalleryEmpty();
+
+// True while a toast is on screen and not yet expired. Static screens (the
+// gallery) redraw only when this changes; the viewfinder redraws every frame
+// anyway.
+bool toastVisible();
+
 // The cached 1-bit photo, PHOTO_BYTES * PHOTO_HEIGHT bytes. This is the exact
 // bitmap on the panel, so saving it can't disagree with the frame the user
 // approved. Only valid until the next draw call re-dithers — in practice that
@@ -56,7 +71,7 @@ void toggleVcom();  // Force a VCOM toggle now — used by the sleep keep-alive
 
 // UI state for sidebar
 void setBatteryPercent(int percent);  // 0-100
-void setInboxCount(int count);
+void setPhotoCount(int count);        // Photos on flash (not rendered yet)
 void setSignalLevel(UI::SignalLevel level);
 
 // Toast positioning

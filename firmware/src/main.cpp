@@ -55,13 +55,19 @@ constexpr float DISMISS_LIVE_AT = 0.5f;
 // than a slow tap — it's the one irreversible thing the button can do.
 constexpr uint32_t TRASH_HOLD_MS = 1500;
 
+// Hold in the viewfinder to open the gallery, hold in the gallery to leave it.
+// 3.5x the measured ~200ms press, so a tap never becomes a hold by accident,
+// and well short of TRASH_HOLD_MS so the two holds stay apart by feel.
+constexpr uint32_t GALLERY_HOLD_MS = 700;
+
 // One button drives everything, so the UI is a strict mode machine: the
 // meaning of a press depends entirely on which screen is up.
 enum class Mode {
-    Viewfinder,  // Live preview; press shoots
+    Viewfinder,  // Live preview; press shoots, hold opens the gallery
     Capture,     // Frozen frame: dwell, then slide into Save
     Save,        // Frame plus send/trash; press sends, hold trashes
     Dismissing,  // Slide back out after an action, then resume the viewfinder
+    Gallery,     // Stored photos, newest first; press = next, hold = back
 };
 
 // State variables
@@ -82,6 +88,22 @@ static bool holdFired = false;
 // Dismiss slide: when it started and the toast to raise once it lands.
 static uint32_t dismissStartedAt = 0;
 static const char* pendingToast = nullptr;
+// Grab-on-press, commit-on-release: the shutter still fires the instant it is
+// pressed (that's what a camera button does), but whether the frozen frame
+// goes on to the save screen or gets thrown away for the gallery is decided by
+// whether the button is still down at GALLERY_HOLD_MS. True from the press
+// edge until that decision is made.
+static bool captureHeld = false;
+// Gallery: which photo (0 = newest), whether the screen needs redrawing, and
+// what the toast looked like at the last redraw — the gallery is static, so it
+// only repaints when something about it changed.
+static int galleryOrdinal = 0;
+static bool galleryDirty = false;
+static bool galleryToastWasVisible = false;
+// The decoded photo. Its own buffer rather than Display's: 9.6KB is noise next
+// to the 77KB camera frame, and Display keeps its bitmaps-in, pixels-out
+// contract (which is what lets the preview tool render the gallery).
+static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 
 // Forward declaration
 void enterSleepMode();
@@ -174,6 +196,7 @@ void enterSleepMode() {
     mode = Mode::Viewfinder;
     savedFrame = nullptr;
     pendingToast = nullptr;
+    captureHeld = false;
 
     // Play descending melody before sleep
     Audio::playMelody(Audio::Melody::DaDaTa);
@@ -263,6 +286,60 @@ static void startDismiss(const char* toast) {
     savedFrame = nullptr;
 }
 
+// Draw the current gallery photo. Files that fail to decode are skipped — a
+// partial write can't leave one behind (savePhoto removes them), but a file
+// copied onto the flash by some future tool might be the wrong size.
+static void showGalleryPhoto() {
+    galleryDirty = false;
+    int total = Storage::photoCount();
+    if (total <= 0) {
+        Display::drawGalleryEmpty();
+        return;
+    }
+    if (galleryOrdinal >= total) galleryOrdinal = 0;
+    for (int tries = 0; tries < total; tries++) {
+        int index = Storage::photoAt(galleryOrdinal);
+        if (index > 0 && Storage::loadPhoto(index, galleryBits, sizeof(galleryBits))) {
+            Display::drawGallery(galleryBits, galleryOrdinal, total);
+            return;
+        }
+        Serial.printf("Gallery: could not load #%04d, skipping\n", index);
+        galleryOrdinal = (galleryOrdinal + 1) % total;
+    }
+    Display::drawGalleryEmpty();
+}
+
+// Open the gallery. Called while the shutter is still held, so lastPressed is
+// already true and the gallery's press-edge test can't fire until the button
+// is released — the hold that opened it doesn't also advance it.
+static void enterGallery() {
+    // The grabbed frame is the driver's framebuffer; dropping it costs nothing.
+    savedFrame = nullptr;
+    captureHeld = false;
+    galleryOrdinal = 0;
+    gestureActive = false;
+    holdFired = false;
+    Display::clearToast();
+    hintToastShowing = false;
+    galleryToastWasVisible = false;
+    mode = Mode::Gallery;
+    lastActivityTime = millis();
+    Audio::playClick(true);
+    Serial.println("Gallery: open");
+    showGalleryPhoto();
+}
+
+// Back to the viewfinder. Also called mid-hold, and the viewfinder's own
+// press-edge test likewise waits for a release, so leaving never shoots.
+static void leaveGallery() {
+    mode = Mode::Viewfinder;
+    lastActivityTime = millis();
+    hintToastShowing = false;
+    Display::clearToast();
+    Audio::playClick(true);
+    Serial.println("Gallery: close");
+}
+
 // Slide finished: back to live preview, with a toast naming what happened.
 static void returnToViewfinder() {
     savedFrame = nullptr;
@@ -327,9 +404,12 @@ void loop() {
                 }
 
                 Audio::playClick();
-                Audio::playMelody(Audio::Melody::TaDaDa);
 
-                captureShownAt = millis();
+                // Fresh clock, same rule as the Save hold: confirmPressed()
+                // just spent 10ms, so `now` is stale.
+                pressStartedAt = millis();
+                captureShownAt = pressStartedAt;
+                captureHeld = savedFrame != nullptr;
                 lastActivityTime = captureShownAt;
                 mode = savedFrame ? Mode::Capture : Mode::Viewfinder;
             }
@@ -337,7 +417,25 @@ void loop() {
         }
 
         case Mode::Capture: {
-            uint32_t elapsed = now - captureShownAt;
+            if (captureHeld) {
+                if (pressed) {
+                    // Still deciding. The frozen frame stays up — for a normal
+                    // tap this window closes inside the dwell, so nothing
+                    // looks different from a plain capture.
+                    if (millis() - pressStartedAt >= GALLERY_HOLD_MS) enterGallery();
+                    break;
+                }
+                // Released before the threshold: it's a shot.
+                captureHeld = false;
+                Audio::playMelody(Audio::Melody::TaDaDa);
+                // Held past the dwell? Start the slide now rather than jumping
+                // into the middle of it.
+                if (millis() - captureShownAt > CAPTURE_DWELL_MS) {
+                    captureShownAt = millis() - CAPTURE_DWELL_MS;
+                }
+            }
+
+            uint32_t elapsed = millis() - captureShownAt;
             if (elapsed < CAPTURE_DWELL_MS) break;  // Frame frozen, nothing to do
 
             uint32_t slid = elapsed - CAPTURE_DWELL_MS;
@@ -399,6 +497,41 @@ void loop() {
             }
 
             if (!pressed) gestureActive = false;
+            break;
+        }
+
+        case Mode::Gallery: {
+            if (pressed && !lastPressed && confirmPressed()) {
+                pressStartedAt = millis();
+                gestureActive = true;
+                holdFired = false;
+                lastActivityTime = pressStartedAt;  // Browsing is activity
+            } else if (pressed && gestureActive && !holdFired &&
+                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+                // Fires on the threshold, like trash, so the hold has an end.
+                holdFired = true;
+                leaveGallery();
+                break;
+            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+                // A tap: next photo, wrapping. With one forward gesture,
+                // stopping at the oldest would strand the user; the counter
+                // makes the wrap legible.
+                int total = Storage::photoCount();
+                if (total > 0) {
+                    galleryOrdinal = (galleryOrdinal + 1) % total;
+                    galleryDirty = true;
+                }
+                Audio::playClick(true);
+            }
+            if (!pressed) gestureActive = false;
+
+            // Static screen: repaint only when the photo changed or a toast
+            // came or went (the sync service raises toasts from outside).
+            bool toastNow = Display::toastVisible();
+            if (galleryDirty || toastNow != galleryToastWasVisible) {
+                galleryToastWasVisible = toastNow;
+                showGalleryPhoto();
+            }
             break;
         }
 

@@ -97,4 +97,17 @@ inline const uint8_t* getTrashIcon() {
     return Icons::TRASH;
 }
 
+// Gallery: sidebar entry, next-photo button, back-to-camera button
+inline const uint8_t* getImagesIcon() {
+    return Icons::IMAGES;
+}
+
+inline const uint8_t* getNextIcon() {
+    return Icons::ARROW_RIGHT;
+}
+
+inline const uint8_t* getCameraIcon() {
+    return Icons::CAMERA;
+}
+
 }  // namespace UI
