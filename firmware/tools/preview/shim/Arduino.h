@@ -55,6 +55,9 @@ struct SimSerial {
     void printf(const char* fmt, Args... args) { fprintf(stderr, fmt, args...); }
     void println(const char* s) { fprintf(stderr, "%s\n", s); }
     void print(const char* s) { fprintf(stderr, "%s", s); }
+    // Nothing ever arrives on the host console.
+    int available() { return 0; }
+    int read() { return -1; }
 };
 
 extern SimSerial Serial;

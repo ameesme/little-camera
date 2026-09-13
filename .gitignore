@@ -7,3 +7,4 @@ server/data/
 backup/
 ios/*.xcodeproj
 ios/DerivedData/
+.claude/

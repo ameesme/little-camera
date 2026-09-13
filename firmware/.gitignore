@@ -6,3 +6,5 @@ tools/preview/out
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+tools/hosttest/hosttest
+tools/hosttest/hosttest.dSYM

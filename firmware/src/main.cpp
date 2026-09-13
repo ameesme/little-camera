@@ -11,7 +11,9 @@
 #include <driver/gpio.h>
 #include "audio.h"
 #include "camera.h"
+#include "console.h"
 #include "display.h"
+#include "identity.h"
 #include "storage.h"
 
 // Sharp Memory LCD (LS027B7DH01 / Adafruit 4694)
@@ -142,6 +144,9 @@ void setup() {
     // Photo storage. Non-fatal: the camera still works without it, saves just
     // report an error, and refusing to boot over a bad partition would be worse.
     Storage::init();
+
+    Identity::init();
+    Console::begin();
 
     // Initialize camera (OV2640 on the Sense B2B connector)
     if (!Camera::init()) {
@@ -285,6 +290,10 @@ void loop() {
 
     Audio::update();
 
+    // USB console: an export in progress is activity, so it holds off sleep the
+    // same way a button press does.
+    if (Console::poll()) lastActivityTime = millis();
+
     // Toggle VCOM to prevent LCD burn-in. Every mode needs this.
     Display::refresh();
 
@@ -382,7 +391,9 @@ void loop() {
                 Audio::playClick();
                 switch (r) {
                     case Storage::Result::Ok:   startDismiss("saved"); break;
-                    case Storage::Result::Full: startDismiss("storage full"); break;
+                    // Full means every photo on the flash is one the phone
+                    // hasn't pulled yet; syncing frees the room.
+                    case Storage::Result::Full: startDismiss("full, sync first"); break;
                     default:                    startDismiss("save failed"); break;
                 }
             }
