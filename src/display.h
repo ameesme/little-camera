@@ -10,7 +10,7 @@ constexpr int WIDTH = 400;
 constexpr int HEIGHT = 240;
 constexpr int BYTES_PER_LINE = WIDTH / 8;  // 50 bytes
 
-void init(uint8_t sclk, uint8_t mosi, uint8_t cs);
+void init(uint8_t sclk, uint8_t mosi, uint8_t cs, uint8_t disp);
 void clear();
 void fillPattern(uint8_t pattern);
 void drawTestPattern();

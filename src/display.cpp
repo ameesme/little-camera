@@ -50,21 +50,30 @@ static uint8_t makeCommand(uint8_t cmd) {
     return cmd | (_vcom ? 0x40 : 0x00);
 }
 
-void init(uint8_t sclk, uint8_t mosi, uint8_t cs) {
+void init(uint8_t sclk, uint8_t mosi, uint8_t cs, uint8_t disp) {
     _cs = cs;
 
     pinMode(_cs, OUTPUT);
     digitalWrite(_cs, LOW);  // CS active-high, so LOW = deselected
 
+    // DISP is GPIO-driven on the Xiao_Shutter carrier (was tied high on the
+    // old board) — must be HIGH for the panel to show pixels
+    pinMode(disp, OUTPUT);
+    digitalWrite(disp, HIGH);
+
     // Use HSPI bus with custom pins
     _spi = new SPIClass(HSPI);
     _spi->begin(sclk, -1, mosi, -1);  // SCLK, MISO (unused), MOSI, SS (unused)
-    _spi->setFrequency(8000000);       // 8 MHz — Sharp LCD can handle this
+    // 8 MHz: 4x over the LS027B7DH01 datasheet max (2 MHz), but proven stable
+    // on this panel since the LilyGO board. Tradeoff: ~13ms vs ~50ms per full
+    // frame push — at 2 MHz the extra ~80ms/loop makes capture feel laggy.
+    // If the panel ever glitches on the PCB, drop back toward 2 MHz.
+    _spi->setFrequency(8000000);
     _spi->setDataMode(SPI_MODE0);
 
     _lastVcomToggle = millis();
 
-    Serial.printf("Display SPI on SCLK=%d, MOSI=%d, CS=%d\n", sclk, mosi, cs);
+    Serial.printf("Display SPI on SCLK=%d, MOSI=%d, CS=%d, DISP=%d\n", sclk, mosi, cs, disp);
 
     // Clear display on init
     clear();

@@ -1,8 +1,9 @@
 /**
- * Basic GPIO initialization for LilyGO S3_CAM_SIM v1.2
+ * little-camera on the Xiao_Shutter carrier (XIAO ESP32-S3 Sense).
  *
- * Pulls all project GPIO lines to known-safe states.
- * Does NOT initialize SD/SDMMC — those pins are repurposed for display/buzzer.
+ * Viewfinder + capture + sleep app. Cellular is not on this carrier
+ * revision, so no modem code. Camera comes from the Sense expansion
+ * over the B2B connector.
  */
 
 #include <Arduino.h>
@@ -12,32 +13,33 @@
 #include "camera.h"
 #include "display.h"
 
-// Display (Sharp Memory LCD) — directly driven, no SD conflict
-constexpr uint8_t PIN_DISP_SCLK = 39;
-constexpr uint8_t PIN_DISP_MOSI = 38;
-constexpr uint8_t PIN_DISP_CS   = 40;
+// Sharp Memory LCD (LS027B7DH01 / Adafruit 4694)
+constexpr uint8_t PIN_LCD_SCLK = 7;   // D8
+constexpr uint8_t PIN_LCD_MOSI = 9;   // D10
+constexpr uint8_t PIN_LCD_CS   = 44;  // D7 — ACTIVE HIGH
+constexpr uint8_t PIN_LCD_DISP = 3;   // D2 — display enable
 
-// Buzzer
-constexpr uint8_t PIN_BUZZER = 47;
+// Controls
+constexpr uint8_t PIN_BUZZ    = 2;    // D1
 
-// Button (active-low with external pull-up assumed)
-constexpr uint8_t PIN_BUTTON = 21;
+// D0. The netlist intended active-LOW (COM->SHUTTER, NO->GND), but on this
+// carrier the line idles at a solid LOW and goes HIGH on press — consistent
+// with the D2F's NC terminal being routed instead of NO. So: released = LOW
+// (hard GND through the closed contact), pressed = HIGH (line floats, internal
+// pull-up defines it). Polarity handled in shutterPressed(); fix on next spin.
+constexpr uint8_t PIN_SHUTTER = 1;
 
-// Modem (SIM7080G)
-constexpr uint8_t PIN_MODEM_TX  = 45;
-constexpr uint8_t PIN_MODEM_RX  = 46;
-constexpr uint8_t PIN_MODEM_PWR = 48;
+static inline bool shutterPressed() {
+    return digitalRead(PIN_SHUTTER) == HIGH;
+}
 
 // Timing constants
-constexpr uint32_t DEBOUNCE_MS = 100;
 constexpr uint32_t VIEWFINDER_PAUSE_MS = 3000;
 constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
 constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 
 // State variables
-static bool lastButtonState = HIGH;
-static uint32_t lastPressTime = 0;
-static uint32_t lastReleaseTime = 0;
+static bool lastPressed = false;
 static uint32_t viewfinderPauseUntil = 0;
 static uint32_t lastActivityTime = 0;
 static bool hintToastShowing = false;
@@ -46,18 +48,47 @@ static bool wasPreviewActive = false;
 // Forward declaration
 void enterSleepMode();
 
+// Boot/wake gate, not a debounce: light sleep wakes on a HIGH level, i.e. with
+// the button still held, so the loop would otherwise see it as a fresh press.
+// Block until the line has been continuously released for stableMs.
+static void waitForStableRelease(uint32_t stableMs) {
+    uint32_t stableStart = millis();
+    while (millis() - stableStart < stableMs) {
+        if (shutterPressed()) {
+            stableStart = millis();  // Bounce or still held — restart the window
+        }
+        delay(5);
+    }
+}
+
+// The only debounce. Pressed is held by the weak internal pull-up (~45k), so a
+// single sample can be noise; resampling over ~10ms rejects it. Measured on
+// this switch: real presses hold ~200ms, release bounce lasts ~1ms — 10ms sits
+// comfortably between the two, so no additional edge-timing window is needed.
+static bool confirmPressed() {
+    for (int i = 0; i < 5; i++) {
+        delay(2);
+        if (!shutterPressed()) return false;
+    }
+    return true;
+}
+
 void setup() {
+    // Shutter pull-up first — no external pull-up on the carrier, so give the
+    // line the whole boot sequence to settle before anyone reads it
+    pinMode(PIN_SHUTTER, INPUT_PULLUP);
+
     Serial.begin(115200);
 
     // Wait for USB-CDC to enumerate after flash
     delay(1000);
-    Serial.println("little-camera init");
+    Serial.println("little-camera init — Xiao_Shutter carrier");
 
     // Initialize buzzer early for splash melody
-    Audio::init(PIN_BUZZER);
+    Audio::init(PIN_BUZZ);
 
     // Initialize Sharp Memory LCD
-    Display::init(PIN_DISP_SCLK, PIN_DISP_MOSI, PIN_DISP_CS);
+    Display::init(PIN_LCD_SCLK, PIN_LCD_MOSI, PIN_LCD_CS, PIN_LCD_DISP);
     Serial.println("Display initialized");
 
     // Show splash screen with ta-da-da melody
@@ -72,25 +103,14 @@ void setup() {
         delay(10);
     }
 
-    // Initialize camera
+    // Initialize camera (OV2640 on the Sense B2B connector)
     if (!Camera::init()) {
         Serial.println("Camera init failed — halting");
         while (true) delay(1000);
     }
 
-    // Button — input with internal pull-up, wire to GND
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
-
-    // Modem power/reset — drive low (modem off)
-    pinMode(PIN_MODEM_PWR, OUTPUT);
-    digitalWrite(PIN_MODEM_PWR, LOW);
-
-    // Modem UART lines — TX as output low, RX as input
-    pinMode(PIN_MODEM_TX, OUTPUT);
-    pinMode(PIN_MODEM_RX, INPUT);
-    digitalWrite(PIN_MODEM_TX, LOW);
-
-    Serial.println("GPIO initialized — all outputs low");
+    // Don't enter the loop until the shutter line is quiet
+    waitForStableRelease(50);
 
     // Initialize activity timer
     lastActivityTime = millis();
@@ -113,8 +133,9 @@ void enterSleepMode() {
     // Draw sleep screen
     Display::drawSleep();
 
-    // Configure GPIO wakeup for light sleep (wake on LOW = button press)
-    gpio_wakeup_enable((gpio_num_t)PIN_BUTTON, GPIO_INTR_LOW_LEVEL);
+    // Configure GPIO wakeup for light sleep (wake on HIGH = button press,
+    // inverted polarity — see PIN_SHUTTER note)
+    gpio_wakeup_enable((gpio_num_t)PIN_SHUTTER, GPIO_INTR_HIGH_LEVEL);
     esp_sleep_enable_gpio_wakeup();
 
     // Small delay to let display finish and avoid immediate wake
@@ -124,7 +145,7 @@ void enterSleepMode() {
     esp_light_sleep_start();
 
     // Disable GPIO wakeup after waking
-    gpio_wakeup_disable((gpio_num_t)PIN_BUTTON);
+    gpio_wakeup_disable((gpio_num_t)PIN_SHUTTER);
 
     // Woke up! Reset activity timer and hint state
     Serial.println("Woke up from sleep!");
@@ -133,18 +154,18 @@ void enterSleepMode() {
     Display::clearToast();
 
     // Play click immediately after wake
-    Audio::init(PIN_BUZZER);
+    Audio::init(PIN_BUZZ);
     Audio::playClick();
 
-    // Wait for button release to avoid immediate re-trigger
-    while (digitalRead(PIN_BUTTON) == LOW) {
-        delay(10);
-    }
-    delay(50);  // Debounce
+    // Require a continuously-released line before resuming — a plain
+    // release-wait plus fixed delay still let release bounce re-trigger
+    // a capture right after wake
+    waitForStableRelease(100);
+    lastPressed = false;
 }
 
 void loop() {
-    bool buttonState = digitalRead(PIN_BUTTON);
+    bool pressed = shutterPressed();
     uint32_t now = millis();
 
     // Check for idle timeout
@@ -183,7 +204,7 @@ void loop() {
 
     // Press: capture with nice dither + ta-da-da + pause viewfinder
     // Blocked while preview is active to prevent rapid captures
-    if (!previewActive && buttonState == LOW && lastButtonState == HIGH && (now - lastPressTime) > DEBOUNCE_MS) {
+    if (!previewActive && pressed && !lastPressed && confirmPressed()) {
         Serial.println("Button pressed — capturing");
 
         // Clear hint toast if showing
@@ -201,14 +222,8 @@ void loop() {
         Audio::playClick();
         Audio::playMelody(Audio::Melody::TaDaDa);
         viewfinderPauseUntil = now + VIEWFINDER_PAUSE_MS;
-        lastPressTime = now;
         lastActivityTime = now;  // Reset idle timer on activity
     }
 
-    // Release: just update state
-    if (buttonState == HIGH && lastButtonState == LOW && (now - lastReleaseTime) > DEBOUNCE_MS) {
-        lastReleaseTime = now;
-    }
-
-    lastButtonState = buttonState;
+    lastPressed = pressed;
 }
