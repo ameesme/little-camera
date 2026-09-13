@@ -58,7 +58,7 @@ Treat each of these as a hard failure if violated:
 - **Display output:** source is 320×240; pillarbox to the 400×240 panel.
 - **UI mode machine** (`Mode` in main.cpp). One button drives everything, so what a press means depends entirely on the screen:
   - `Viewfinder` — live Bayer preview, sidebar on the left. Press shoots.
-  - `Capture` — frozen Floyd–Steinberg frame, same layout. Purely a dwell (`CAPTURE_DWELL_MS`) so the shot registers before the actions appear; this is where the slide-in animation goes.
+  - `Capture` — frozen Floyd–Steinberg frame, same layout. Holds for `CAPTURE_DWELL_MS`, then slides to the save layout over `SAVE_SLIDE_MS` (ease-out cubic, driven from main.cpp — `Display::drawSaveTransition(t)` takes a linear 0–1 position and knows nothing about the curve).
   - `Save` — photo shifts flush left, send/trash column takes the freed 80px on the right. Press = send, hold `TRASH_HOLD_MS` (800ms) = trash. The hold fires *on the threshold*, not on release, so it has an end you can feel.
   - Not a gallery. `Display::drawSave()` only ever acts on the frame you just shot; browsing stored photos is a separate future screen.
   - Sending has no destination on this carrier revision (no modem) — the send path is UI only.
@@ -99,11 +99,12 @@ make clean
 ```
 ./preview <scene> [options]
 
-scenes:   viewfinder  capture  save  toast  sleep  splash
+scenes:   viewfinder  capture  save  slide  toast  sleep  splash
   --out PATH   output BMP            (default preview.bmp)
   --scale N    integer upscale       (default 2 — 1:1 is unreadable on hidpi)
   --src FILE   320x240 binary PGM    (default: built-in synthetic test image)
   --at MS      virtual clock value   (default 0)
+  --t F        slide position 0-1     (default 0.5, 'slide' scene only)
 ```
 
 Layout:

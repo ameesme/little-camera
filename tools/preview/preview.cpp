@@ -115,6 +115,7 @@ static void usage(const char* argv0) {
         "  viewfinder   live viewfinder, Bayer dither\n"
         "  capture      captured frame, Floyd-Steinberg dither\n"
         "  save         captured frame with the send/trash actions\n"
+        "  slide        one frame of the capture -> save slide (see --t)\n"
         "  toast        viewfinder with the 'press to shoot' hint\n"
         "  sleep        sleep face\n"
         "  splash       boot splash\n"
@@ -123,7 +124,8 @@ static void usage(const char* argv0) {
         "  --out PATH   output BMP (default preview.bmp)\n"
         "  --scale N    integer upscale, default 2\n"
         "  --src FILE   320x240 binary PGM instead of the synthetic test image\n"
-        "  --at MS      virtual clock value at render time, default 0\n",
+        "  --at MS      virtual clock value at render time, default 0\n"
+        "  --t F        slide position 0.0-1.0 for the 'slide' scene, default 0.5\n",
         argv0);
 }
 
@@ -138,6 +140,7 @@ int main(int argc, char** argv) {
     const char* src = nullptr;
     int scale = 2;
     uint32_t at = 0;
+    float slideT = 0.5f;
 
     for (int i = 2; i < argc; i++) {
         bool hasValue = (i + 1 < argc);
@@ -147,6 +150,8 @@ int main(int argc, char** argv) {
             scale = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--src") && hasValue) {
             src = argv[++i];
+        } else if (!strcmp(argv[i], "--t") && hasValue) {
+            slideT = strtof(argv[++i], nullptr);
         } else if (!strcmp(argv[i], "--at") && hasValue) {
             at = (uint32_t)strtoul(argv[++i], nullptr, 10);
         } else {
@@ -175,6 +180,10 @@ int main(int argc, char** argv) {
         Display::drawCapture(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "save")) {
         Display::drawSave(g_source, Camera::WIDTH, Camera::HEIGHT);
+    } else if (!strcmp(scene, "slide")) {
+        // drawSaveTransition reuses the photo drawCapture dithered
+        Display::drawCapture(g_source, Camera::WIDTH, Camera::HEIGHT);
+        Display::drawSaveTransition(slideT);
     } else if (!strcmp(scene, "toast")) {
         Display::showToast("press to shoot", Display::ToastHAlign::Right,
                            Display::ToastVAlign::Top, false, 0);

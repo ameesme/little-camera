@@ -37,10 +37,16 @@ static inline bool shutterPressed() {
 constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
 constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 
-// How long the bare capture sits on screen before the send/trash column
-// appears. Long enough to read as "photo taken", short enough that it doesn't
-// feel like a stall. This is also where the slide-in animation will go.
-constexpr uint32_t CAPTURE_DWELL_MS = 600;
+// How long the bare capture holds before the layout starts sliding, and how
+// long the slide itself takes. The dwell exists so the shot registers as its
+// own moment instead of being swallowed by the animation.
+constexpr uint32_t CAPTURE_DWELL_MS = 350;
+constexpr uint32_t SAVE_SLIDE_MS = 280;
+// Point in the slide out where the frozen capture hands back to the live
+// camera. Grabbing a frame costs a sensor-frame wait, so the live half runs at
+// a lower frame rate than the frozen half — starting at the halfway mark keeps
+// most of the motion smooth while still masking the dither change.
+constexpr float DISMISS_LIVE_AT = 0.5f;
 
 // Save-screen gestures. 800ms is past anything you'd produce trying to tap, so
 // trash can't be hit by accident, but it's not a wait either.
@@ -50,8 +56,9 @@ constexpr uint32_t TRASH_HOLD_MS = 800;
 // meaning of a press depends entirely on which screen is up.
 enum class Mode {
     Viewfinder,  // Live preview; press shoots
-    Capture,     // Frozen frame, waiting out CAPTURE_DWELL_MS
+    Capture,     // Frozen frame: dwell, then slide into Save
     Save,        // Frame plus send/trash; press sends, hold trashes
+    Dismissing,  // Slide back out after an action, then resume the viewfinder
 };
 
 // State variables
@@ -69,6 +76,9 @@ static uint8_t* savedFrame = nullptr;
 static uint32_t pressStartedAt = 0;
 static bool gestureActive = false;
 static bool holdFired = false;
+// Dismiss slide: when it started and the toast to raise once it lands.
+static uint32_t dismissStartedAt = 0;
+static const char* pendingToast = nullptr;
 
 // Forward declaration
 void enterSleepMode();
@@ -153,6 +163,7 @@ void enterSleepMode() {
     // waking into a save screen pointing at freed memory.
     mode = Mode::Viewfinder;
     savedFrame = nullptr;
+    pendingToast = nullptr;
 
     // Play descending melody before sleep
     Audio::playMelody(Audio::Melody::DaDaTa);
@@ -221,14 +232,38 @@ void enterSleepMode() {
     lastPressed = false;
 }
 
-// Leave the save screen and go back to live preview, with a toast naming what
-// just happened.
-static void returnToViewfinder(const char* toast) {
+// Ease-out cubic. The panel only manages ~10 frames across a slide, and at that
+// frame count a linear ramp reads as a mechanical stutter — decelerating into
+// the resting layout hides it. Both slides end at rest, so both use it: the
+// dismiss just runs the position backwards.
+static float easeOutCubic(float p) {
+    float inv = 1.0f - p;
+    return 1.0f - inv * inv * inv;
+}
+
+// Start sliding the save layout back out. The toast waits until the slide
+// lands — raising it mid-slide would drop it on top of the columns still
+// moving underneath it.
+static void startDismiss(const char* toast) {
+    pendingToast = toast;
+    dismissStartedAt = millis();
+    mode = Mode::Dismissing;
+    // The slide renders from _photoBits, not from this pointer, and the live
+    // half calls Camera::capture() — which recycles the buffer it points at.
+    savedFrame = nullptr;
+}
+
+// Slide finished: back to live preview, with a toast naming what happened.
+static void returnToViewfinder() {
     savedFrame = nullptr;
     mode = Mode::Viewfinder;
     lastActivityTime = millis();
     hintToastShowing = false;
-    Display::showToast(toast, Display::ToastHAlign::Right, Display::ToastVAlign::Top, true);
+    if (pendingToast) {
+        Display::showToast(pendingToast, Display::ToastHAlign::Right,
+                           Display::ToastVAlign::Top);
+        pendingToast = nullptr;
+    }
 }
 
 void loop() {
@@ -287,17 +322,23 @@ void loop() {
         }
 
         case Mode::Capture: {
-            // Frame is frozen on screen; just wait, then bring in the actions.
-            if (now - captureShownAt >= CAPTURE_DWELL_MS) {
-                Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
-                mode = Mode::Save;
-                // Start the gesture from a clean slate. If the shutter is still
-                // held from the capture, lastPressed is already true and the
-                // edge test below won't fire until it's released — which is
-                // what we want: that press belongs to the capture.
-                gestureActive = false;
-                holdFired = false;
+            uint32_t elapsed = now - captureShownAt;
+            if (elapsed < CAPTURE_DWELL_MS) break;  // Frame frozen, nothing to do
+
+            uint32_t slid = elapsed - CAPTURE_DWELL_MS;
+            if (slid < SAVE_SLIDE_MS) {
+                Display::drawSaveTransition(easeOutCubic((float)slid / SAVE_SLIDE_MS));
+                break;
             }
+
+            Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+            mode = Mode::Save;
+            // Start the gesture from a clean slate. If the shutter is still
+            // held from the capture, lastPressed is already true and the edge
+            // test in Save won't fire until it's released — which is what we
+            // want: that press belongs to the capture.
+            gestureActive = false;
+            holdFired = false;
             break;
         }
 
@@ -315,17 +356,39 @@ void loop() {
                 Serial.println("Save: trash");
                 holdFired = true;
                 Audio::playMelody(Audio::Melody::DaDaTa);
-                returnToViewfinder("deleted");
+                startDismiss("deleted");
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
                 // Released before the threshold: a tap.
                 // No modem on this carrier revision, so "send" is UI only —
                 // there is nowhere to send to yet.
                 Serial.println("Save: send");
                 Audio::playClick();
-                returnToViewfinder("sent");
+                startDismiss("sent");
             }
 
             if (!pressed) gestureActive = false;
+            break;
+        }
+
+        case Mode::Dismissing: {
+            uint32_t slid = now - dismissStartedAt;
+            if (slid >= SAVE_SLIDE_MS) {
+                returnToViewfinder();
+                break;
+            }
+
+            float p = (float)slid / SAVE_SLIDE_MS;
+            // Same curve, run backwards: the columns swap places again and
+            // settle into the viewfinder layout.
+            float t = 1.0f - easeOutCubic(p);
+
+            // Hand the photo back to the live camera partway through rather
+            // than at the end. The dither switches Floyd-Steinberg -> Bayer at
+            // that instant, and doing it while everything is still sliding
+            // hides the change; doing it after the slide lands is a visible
+            // pop on an otherwise static screen.
+            uint8_t* live = (p >= DISMISS_LIVE_AT) ? Camera::capture() : nullptr;
+            Display::drawDismissTransition(live, Camera::WIDTH, Camera::HEIGHT, t);
             break;
         }
     }

@@ -22,6 +22,15 @@ void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight);  // Flo
 // right column. Not the (future) gallery — this only acts on the frame you
 // just shot.
 void drawSave(const uint8_t* grayscale, int srcWidth, int srcHeight);
+// One frame of the capture -> save slide. t=0 reproduces drawCapture(), t=1
+// reproduces drawSave(). Reuses the photo dithered by the last drawCapture()
+// call rather than re-dithering, so it must follow one.
+void drawSaveTransition(float t);
+// One frame of the save -> viewfinder slide out, same t convention. Bayer-
+// dithers a live frame instead of reusing the capture, so the viewfinder can
+// come back to life while the columns are still moving. Pass nullptr to keep
+// showing whatever was last dithered.
+void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight, float t);
 // VCOM must keep flipping or the panel accumulates DC bias and burns in. The
 // datasheet wants >=1Hz; 5s is a deliberate tradeoff — the panel tolerates it
 // and it sets how often we have to wake out of light sleep, which is the whole

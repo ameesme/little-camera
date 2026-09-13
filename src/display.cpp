@@ -167,6 +167,15 @@ constexpr int VF_CORNER_RADIUS = 10;
 static int16_t _errCurr[322];
 static int16_t _errNext[322];
 
+// The captured photo, dithered once and kept as 1-bit. The capture -> save
+// slide re-blits this at a new offset every frame; re-running Floyd-Steinberg
+// per frame would roughly double the cost of a frame for an identical result,
+// since the dither loop works in image coordinates and doesn't care where the
+// photo lands on the panel.
+constexpr int PHOTO_WIDTH = 320;
+constexpr int PHOTO_BYTES = PHOTO_WIDTH / 8;  // 40
+static uint8_t _photoBits[PHOTO_BYTES * HEIGHT];  // 9600 bytes
+
 // UI state
 static int _batteryPercent = 100;
 static int _inboxCount = 0;
@@ -193,7 +202,15 @@ constexpr int BOX_RADIUS = 10;
 // height exactly and the stack stays symmetric top to bottom.
 constexpr int ACTION_GAP = 6;
 constexpr int ACTION_BUTTON_HEIGHT = (INBOX_HEIGHT - ACTION_GAP) / 2;
-constexpr int ACTION_X = WIDTH - SIDEBAR_PADDING - BOX_WIDTH;
+
+// Photo card geometry. On the viewfinder and capture screens the photo starts
+// just right of the sidebar; on the save screen it sits at the left margin.
+// It keeps a 5px gap from whatever is on either side, so it travels 75px, not
+// the full 70px column plus both gaps.
+constexpr int PHOTO_X_CAPTURE = SIDEBAR_PADDING + BOX_WIDTH + SIDEBAR_PADDING;  // 80
+constexpr int SAVE_SLIDE_PX = PHOTO_X_CAPTURE - VF_PADDING_LEFT;               // 75
+// 320px of source minus the 5 columns cropped to leave a margin on the far side
+constexpr int CARD_WIDTH = PHOTO_WIDTH - VF_PADDING_RIGHT;                     // 315
 // The gesture line sits as low as the corner radius allows. It's centred
 // horizontally and every gesture word is far narrower than the box, so the
 // 10px corners never reach it.
@@ -336,6 +353,11 @@ static void drawTextCenteredAt(const char* text, int boxX, int boxW, int y, UI::
 // the save-screen actions so the two columns stay visually identical.
 static void drawBoxButton(int x, int y, int w, int h,
                           const uint8_t* icon, const char* label, const char* gesture) {
+    // setPixel clips, so drawing off-panel is harmless — but during the slide
+    // one column is always fully off-screen, and skipping it saves ~16k
+    // no-op setPixel calls per frame.
+    if (x + w <= 0 || x >= WIDTH) return;
+
     fillRoundedRect(x, y, w, h, BOX_RADIUS, false);
 
     // The icon is the anchor: it sits dead centre in the box, with the label
@@ -351,17 +373,18 @@ static void drawBoxButton(int x, int y, int w, int h,
     drawTextCenteredAt(gesture, x, w, gestureY, HINT_FONT, true);
 }
 
-// Viewfinder sidebar: single full-height inbox box
-static void drawSidebar() {
-    drawBoxButton(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, INBOX_HEIGHT,
+// Viewfinder sidebar: single full-height inbox box. x is a parameter so the
+// save slide can walk it off the left edge.
+static void drawSidebar(int x) {
+    drawBoxButton(x, SIDEBAR_PADDING, BOX_WIDTH, INBOX_HEIGHT,
                   UI::getMailIcon(), "inbox", "hold");
 }
 
 // Save-screen actions, stacked in the right-hand column
-static void drawActionBar() {
-    drawBoxButton(ACTION_X, SIDEBAR_PADDING, BOX_WIDTH, ACTION_BUTTON_HEIGHT,
+static void drawActionBar(int x) {
+    drawBoxButton(x, SIDEBAR_PADDING, BOX_WIDTH, ACTION_BUTTON_HEIGHT,
                   UI::getSendIcon(), "send", "press");
-    drawBoxButton(ACTION_X, SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
+    drawBoxButton(x, SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
                   BOX_WIDTH, ACTION_BUTTON_HEIGHT, UI::getTrashIcon(), "trash", "hold");
 }
 
@@ -543,30 +566,24 @@ static void flushFramebuffer() {
     digitalWrite(_cs, LOW);
 }
 
-void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
-    if (!grayscale) return;
-
+// Ordered-Bayer dither the source into _photoBits. Image only — placement on
+// the panel is blitPhoto()'s job.
+static void bayerPhoto(const uint8_t* grayscale, int srcWidth) {
     // Pre-compute Bayer thresholds as flat array
     static const uint8_t BAYER_FLAT[16] = {
         0, 128, 32, 160, 192, 64, 224, 96, 48, 176, 16, 144, 240, 112, 208, 80
     };
 
-    // Right-aligned: 80px left padding, 0px right padding
-    // Image is 320px = 40 bytes
+    int imgBytes = srcWidth / 8;
+    if (imgBytes > PHOTO_BYTES) imgBytes = PHOTO_BYTES;
 
-    // --- Phase 1: Render entire frame to buffer ---
-    uint8_t* fbPtr = _framebuffer;
+    uint8_t* fbPtr = _photoBits;
 
     for (int y = 0; y < HEIGHT; y++) {
         const int bayerRowOffset = (y & 3) << 2;
         const uint8_t* srcRow = grayscale + y * srcWidth;
 
-        // Left padding: 80px = 10 bytes of white
-        *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF;
-        *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF; *fbPtr++ = 0xFF;
-
-        // Image: 320px = 40 bytes
-        for (int byteIdx = 0; byteIdx < 40; byteIdx++) {
+        for (int byteIdx = 0; byteIdx < imgBytes; byteIdx++) {
             const int baseX = byteIdx << 3;
             uint8_t outByte = 0;
 
@@ -581,38 +598,22 @@ void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
 
             *fbPtr++ = outByte;
         }
-
-        // No right padding (right-aligned)
     }
-
-    // Apply 8px rounded corners
-    applyImagePaddingAndCorners(80, srcWidth, 80, WIDTH - VF_PADDING_RIGHT);
-
-    // Draw sidebar UI over the left padding area
-    drawSidebar();
-
-    // Draw toast if active
-    renderToast();
-
-    // --- Phase 2: Blast entire buffer to display ---
-    flushFramebuffer();
 }
 
-// Floyd-Steinberg dither the source into the framebuffer, with the image
-// placed leftPadBytes in from the left edge and the remainder filled white.
-static void ditherFloydSteinberg(const uint8_t* grayscale, int srcWidth, int leftPadBytes) {
+// Floyd-Steinberg dither the source into _photoBits. Image only — placement on
+// the panel is blitPhoto()'s job.
+static void ditherPhoto(const uint8_t* grayscale, int srcWidth) {
     memset(_errCurr, 0, sizeof(_errCurr));
     memset(_errNext, 0, sizeof(_errNext));
 
-    const int imgBytes = srcWidth / 8;
-    const int rightPadBytes = BYTES_PER_LINE - leftPadBytes - imgBytes;
+    int imgBytes = srcWidth / 8;
+    if (imgBytes > PHOTO_BYTES) imgBytes = PHOTO_BYTES;
 
-    uint8_t* fbPtr = _framebuffer;
+    uint8_t* fbPtr = _photoBits;
 
     for (int y = 0; y < HEIGHT; y++) {
         const uint8_t* srcRow = grayscale + y * srcWidth;
-
-        for (int i = 0; i < leftPadBytes; i++) *fbPtr++ = 0xFF;
 
         for (int byteIdx = 0; byteIdx < imgBytes; byteIdx++) {
             uint8_t outByte = 0;
@@ -643,38 +644,96 @@ static void ditherFloydSteinberg(const uint8_t* grayscale, int srcWidth, int lef
             *fbPtr++ = outByte;
         }
 
-        for (int i = 0; i < rightPadBytes; i++) *fbPtr++ = 0xFF;
-
         // Swap error buffers and clear next
         memcpy(_errCurr, _errNext, sizeof(_errCurr));
         memset(_errNext, 0, sizeof(_errNext));
     }
 }
 
-void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
-    if (!grayscale) return;
+// Copy _photoBits into the framebuffer with its left edge at destX, filling the
+// rest of each line white. destX is in pixels and need not be byte-aligned —
+// sub-byte offsets are handled by carrying bits between output bytes, which is
+// what lets the slide move smoothly instead of jumping 8px at a time.
+// Caller must keep destX within [0, WIDTH - PHOTO_WIDTH].
+static void blitPhoto(int destX) {
+    const int byteOff = destX >> 3;
+    const int shift = destX & 7;
+    const int endByte = byteOff + PHOTO_BYTES + (shift ? 1 : 0);
 
-    // Right-aligned: 80px (10 bytes) of sidebar to the left of the photo
-    ditherFloydSteinberg(grayscale, srcWidth, 10);
+    for (int y = 0; y < HEIGHT; y++) {
+        const uint8_t* src = _photoBits + y * PHOTO_BYTES;
+        uint8_t* line = _framebuffer + y * BYTES_PER_LINE;
 
-    applyImagePaddingAndCorners(80, srcWidth, 80, WIDTH - VF_PADDING_RIGHT);
-    drawSidebar();
+        memset(line, 0xFF, byteOff);
+
+        if (shift == 0) {
+            memcpy(line + byteOff, src, PHOTO_BYTES);
+        } else {
+            // bit7 is the leftmost pixel, so shifting the image right by
+            // `shift` pixels means each output byte takes the low bits of the
+            // previous source byte and the high bits of the current one.
+            uint8_t prev = 0xFF;  // White off the left edge
+            for (int k = 0; k < PHOTO_BYTES; k++) {
+                line[byteOff + k] = (uint8_t)((prev << (8 - shift)) | (src[k] >> shift));
+                prev = src[k];
+            }
+            line[byteOff + PHOTO_BYTES] = (uint8_t)((prev << (8 - shift)) | (0xFF >> shift));
+        }
+
+        memset(line + endByte, 0xFF, BYTES_PER_LINE - endByte);
+    }
+}
+
+// Render the photo card and both columns at an arbitrary point on the capture
+// -> save slide. t=0 is the capture layout (sidebar in place, actions parked
+// off the right edge), t=1 is the save layout (sidebar gone off the left,
+// actions in place). The whole layout moves as one block, so a single offset
+// drives all three elements — that's the "everything shifts over" effect.
+static void renderSaveLayout(float t) {
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    const int shift = (int)(SAVE_SLIDE_PX * t + 0.5f);
+
+    // The card is the leftmost 315 source columns, same as the viewfinder
+    // crops. Keeping the crop identical everywhere means the slide is a pure
+    // translation and the photo doesn't jump sideways relative to itself at
+    // either the capture moment or the end of the slide.
+    const int photoX = PHOTO_X_CAPTURE - shift;
+    blitPhoto(photoX);
+    applyImagePaddingAndCorners(photoX, PHOTO_WIDTH, photoX, photoX + CARD_WIDTH);
+
+    drawSidebar(SIDEBAR_PADDING - shift);
+    drawActionBar(WIDTH - shift);
+
     renderToast();
     flushFramebuffer();
 }
 
+void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
+    if (!grayscale) return;
+    bayerPhoto(grayscale, srcWidth);
+    renderSaveLayout(0.0f);
+}
+
+void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
+    if (!grayscale) return;
+    ditherPhoto(grayscale, srcWidth);
+    renderSaveLayout(0.0f);
+}
+
 void drawSave(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     if (!grayscale) return;
+    ditherPhoto(grayscale, srcWidth);
+    renderSaveLayout(1.0f);
+}
 
-    // Mirror of the capture layout: the photo goes flush left and the freed
-    // 80px column on the right carries the send/trash buttons. The photo
-    // keeps the same 315px visible width, so it just shifts across by 75px.
-    ditherFloydSteinberg(grayscale, srcWidth, 0);
+void drawSaveTransition(float t) {
+    renderSaveLayout(t);
+}
 
-    applyImagePaddingAndCorners(0, srcWidth, VF_PADDING_LEFT, srcWidth);
-    drawActionBar();
-    renderToast();
-    flushFramebuffer();
+void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight, float t) {
+    if (grayscale) bayerPhoto(grayscale, srcWidth);
+    renderSaveLayout(t);
 }
 
 void drawSplash() {
