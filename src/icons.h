@@ -1,7 +1,7 @@
 #pragma once
 
 // Auto-generated from Lucide SVG icons
-// Run: python3 convert_lucide_icons.py > ../src/icons.h
+// Run from artifacts/fonts: python3 convert_lucide_icons.py > ../../src/icons.h
 
 #include <stdint.h>
 

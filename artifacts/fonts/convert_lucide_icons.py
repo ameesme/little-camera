@@ -119,7 +119,7 @@ def main():
         print("#pragma once")
         print()
         print("// Auto-generated from Lucide SVG icons")
-        print("// Run: python3 convert_lucide_icons.py > ../src/icons.h")
+        print("// Run from artifacts/fonts: python3 convert_lucide_icons.py > ../../src/icons.h")
         print()
         print("#include <stdint.h>")
         print()
