@@ -56,6 +56,13 @@ Treat each of these as a hard failure if violated:
 - **Live viewfinder:** ordered **Bayer** dithering — stable and fast under motion, no shimmer.
 - **Received / stored images:** **Floyd–Steinberg** dithering for better static-image quality.
 - **Display output:** source is 320×240; pillarbox to the 400×240 panel.
+- **UI mode machine** (`Mode` in main.cpp). One button drives everything, so what a press means depends entirely on the screen:
+  - `Viewfinder` — live Bayer preview, sidebar on the left. Press shoots.
+  - `Capture` — frozen Floyd–Steinberg frame, same layout. Purely a dwell (`CAPTURE_DWELL_MS`) so the shot registers before the actions appear; this is where the slide-in animation goes.
+  - `Save` — photo shifts flush left, send/trash column takes the freed 80px on the right. Press = send, hold `TRASH_HOLD_MS` (800ms) = trash. The hold fires *on the threshold*, not on release, so it has an end you can feel.
+  - Not a gallery. `Display::drawSave()` only ever acts on the frame you just shot; browsing stored photos is a separate future screen.
+  - Sending has no destination on this carrier revision (no modem) — the send path is UI only.
+  - `Camera::capture()` hands back the driver's framebuffer and recycles it on the next call, so `Capture`/`Save` must never grab a new frame. Sleep frees it, hence the reset to `Viewfinder` in `enterSleepMode()`.
 - **Sleep:** light sleep, woken by the shutter (HIGH level) or a `Display::VCOM_INTERVAL_MS` timer. Two things are load-bearing — don't remove them:
   - The panel keeps showing the sleep face (DISP stays HIGH across light sleep), so the timer wake exists purely to flip VCOM. Without it the pixels sit at fixed DC polarity for the entire sleep and burn in.
   - `Camera::deinit()` before sleeping, `Camera::init()` after waking. PWDN and RESET are both `-1` on the Sense B2B connector, so light sleep only gates XCLK — the OV2640 stays powered and biased at milliamps, dominating the idle budget (sleeping S3 ~250µA, static panel ~50µA). Costs a few hundred ms of re-init on wake.
@@ -92,7 +99,7 @@ make clean
 ```
 ./preview <scene> [options]
 
-scenes:   viewfinder  capture  toast  sleep  splash
+scenes:   viewfinder  capture  save  toast  sleep  splash
   --out PATH   output BMP            (default preview.bmp)
   --scale N    integer upscale       (default 2 — 1:1 is unreadable on hidpi)
   --src FILE   320x240 binary PGM    (default: built-in synthetic test image)

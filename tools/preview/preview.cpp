@@ -114,6 +114,7 @@ static void usage(const char* argv0) {
         "scenes:\n"
         "  viewfinder   live viewfinder, Bayer dither\n"
         "  capture      captured frame, Floyd-Steinberg dither\n"
+        "  save         captured frame with the send/trash actions\n"
         "  toast        viewfinder with the 'press to shoot' hint\n"
         "  sleep        sleep face\n"
         "  splash       boot splash\n"
@@ -172,8 +173,8 @@ int main(int argc, char** argv) {
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "capture")) {
         Display::drawCapture(g_source, Camera::WIDTH, Camera::HEIGHT);
-    } else if (!strcmp(scene, "gallery")) {
-        Display::drawGallery(g_source, Camera::WIDTH, Camera::HEIGHT);
+    } else if (!strcmp(scene, "save")) {
+        Display::drawSave(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "toast")) {
         Display::showToast("press to shoot", Display::ToastHAlign::Right,
                            Display::ToastVAlign::Top, false, 0);

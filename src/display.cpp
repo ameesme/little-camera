@@ -195,10 +195,10 @@ constexpr int ACTION_GAP = 6;
 constexpr int ACTION_BUTTON_HEIGHT = (INBOX_HEIGHT - ACTION_GAP) / 2;
 constexpr int ACTION_X = WIDTH - SIDEBAR_PADDING - BOX_WIDTH;
 // The gesture line sits as low as the corner radius allows. It's centred
-// horizontally and both words are far narrower than the box, so the 10px
-// corners never reach it.
-constexpr int ACTION_PADDING_BOTTOM = 4;
-constexpr int ACTION_LABEL_GAP = 3;  // Icon to label
+// horizontally and every gesture word is far narrower than the box, so the
+// 10px corners never reach it.
+constexpr int BOX_PADDING_BOTTOM = 4;
+constexpr int BOX_LABEL_GAP = 3;  // Icon to label
 
 // Default font for sidebar UI
 constexpr UI::Font SIDEBAR_FONT = UI::Font::Large;
@@ -331,50 +331,38 @@ static void drawTextCenteredAt(const char* text, int boxX, int boxW, int y, UI::
     drawText(text, startX, y, font, white);
 }
 
-// Draw the sidebar UI (inbox box, full height)
-static void drawSidebar() {
-    int boxX = SIDEBAR_PADDING;
-    int boxY = SIDEBAR_PADDING;
-
-    int fontH = UI::fontHeight(SIDEBAR_FONT);
-
-    // Black fill (inbox)
-    fillRoundedRect(boxX, boxY, BOX_WIDTH, INBOX_HEIGHT, BOX_RADIUS, false);
-
-    // Inbox: icon + gap + "inbox", vertically centered
-    const uint8_t* mailIcon = UI::getMailIcon();
-    int textGap = 2;
-    int inboxContentH = UI::ICON_SIZE + textGap + fontH;
-    int inboxStartY = boxY + (INBOX_HEIGHT - inboxContentH) / 2;
-
-    drawIconCentered(mailIcon, UI::ICON_SIZE, UI::ICON_SIZE, boxX, BOX_WIDTH, inboxStartY, true);
-    drawTextCenteredAt("inbox", boxX, BOX_WIDTH, inboxStartY + UI::ICON_SIZE + textGap, SIDEBAR_FONT, true);
-}
-
-// One review action: filled box with icon, label and the gesture that triggers it
-static void drawActionButton(int y, const uint8_t* icon, const char* label, const char* gesture) {
-    fillRoundedRect(ACTION_X, y, BOX_WIDTH, ACTION_BUTTON_HEIGHT, BOX_RADIUS, false);
-
-    int gestureH = UI::fontHeight(HINT_FONT);
+// A filled box with a centred icon, a label hung under it, and the gesture that
+// triggers it pinned to the bottom edge. Shared by the viewfinder sidebar and
+// the save-screen actions so the two columns stay visually identical.
+static void drawBoxButton(int x, int y, int w, int h,
+                          const uint8_t* icon, const char* label, const char* gesture) {
+    fillRoundedRect(x, y, w, h, BOX_RADIUS, false);
 
     // The icon is the anchor: it sits dead centre in the box, with the label
     // hung directly under it. The gesture line is not part of that group — it's
     // pinned to the bottom edge, so it reads as a footnote on the button rather
     // than a third line of the title.
-    int iconY = y + (ACTION_BUTTON_HEIGHT - UI::ICON_SIZE) / 2;
-    int labelY = iconY + UI::ICON_SIZE + ACTION_LABEL_GAP;
-    int gestureY = y + ACTION_BUTTON_HEIGHT - ACTION_PADDING_BOTTOM - gestureH;
+    int iconY = y + (h - UI::ICON_SIZE) / 2;
+    int labelY = iconY + UI::ICON_SIZE + BOX_LABEL_GAP;
+    int gestureY = y + h - BOX_PADDING_BOTTOM - UI::fontHeight(HINT_FONT);
 
-    drawIconCentered(icon, UI::ICON_SIZE, UI::ICON_SIZE, ACTION_X, BOX_WIDTH, iconY, true);
-    drawTextCenteredAt(label, ACTION_X, BOX_WIDTH, labelY, SIDEBAR_FONT, true);
-    drawTextCenteredAt(gesture, ACTION_X, BOX_WIDTH, gestureY, HINT_FONT, true);
+    drawIconCentered(icon, UI::ICON_SIZE, UI::ICON_SIZE, x, w, iconY, true);
+    drawTextCenteredAt(label, x, w, labelY, SIDEBAR_FONT, true);
+    drawTextCenteredAt(gesture, x, w, gestureY, HINT_FONT, true);
 }
 
-// Review actions, stacked in the right-hand column
+// Viewfinder sidebar: single full-height inbox box
+static void drawSidebar() {
+    drawBoxButton(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, INBOX_HEIGHT,
+                  UI::getMailIcon(), "inbox", "hold");
+}
+
+// Save-screen actions, stacked in the right-hand column
 static void drawActionBar() {
-    drawActionButton(SIDEBAR_PADDING, UI::getSendIcon(), "send", "press");
-    drawActionButton(SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
-                     UI::getTrashIcon(), "trash", "hold");
+    drawBoxButton(ACTION_X, SIDEBAR_PADDING, BOX_WIDTH, ACTION_BUTTON_HEIGHT,
+                  UI::getSendIcon(), "send", "press");
+    drawBoxButton(ACTION_X, SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
+                  BOX_WIDTH, ACTION_BUTTON_HEIGHT, UI::getTrashIcon(), "trash", "hold");
 }
 
 // Render active toast onto framebuffer (call after image + sidebar are drawn)
@@ -675,11 +663,11 @@ void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     flushFramebuffer();
 }
 
-void drawGallery(const uint8_t* grayscale, int srcWidth, int srcHeight) {
+void drawSave(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     if (!grayscale) return;
 
     // Mirror of the capture layout: the photo goes flush left and the freed
-    // 80px column on the right carries the send/discard buttons. The photo
+    // 80px column on the right carries the send/trash buttons. The photo
     // keeps the same 315px visible width, so it just shifts across by 75px.
     ditherFloydSteinberg(grayscale, srcWidth, 0);
 

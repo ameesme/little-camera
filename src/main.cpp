@@ -34,16 +34,41 @@ static inline bool shutterPressed() {
 }
 
 // Timing constants
-constexpr uint32_t VIEWFINDER_PAUSE_MS = 3000;
 constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
 constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 
+// How long the bare capture sits on screen before the send/trash column
+// appears. Long enough to read as "photo taken", short enough that it doesn't
+// feel like a stall. This is also where the slide-in animation will go.
+constexpr uint32_t CAPTURE_DWELL_MS = 600;
+
+// Save-screen gestures. 800ms is past anything you'd produce trying to tap, so
+// trash can't be hit by accident, but it's not a wait either.
+constexpr uint32_t TRASH_HOLD_MS = 800;
+
+// One button drives everything, so the UI is a strict mode machine: the
+// meaning of a press depends entirely on which screen is up.
+enum class Mode {
+    Viewfinder,  // Live preview; press shoots
+    Capture,     // Frozen frame, waiting out CAPTURE_DWELL_MS
+    Save,        // Frame plus send/trash; press sends, hold trashes
+};
+
 // State variables
+static Mode mode = Mode::Viewfinder;
 static bool lastPressed = false;
-static uint32_t viewfinderPauseUntil = 0;
 static uint32_t lastActivityTime = 0;
 static bool hintToastShowing = false;
-static bool wasPreviewActive = false;
+static uint32_t captureShownAt = 0;
+// The frame being reviewed. Camera::capture() hands back the driver's
+// framebuffer and only recycles it on the next call, so this stays valid as
+// long as Capture/Save never grab a new frame — which they don't.
+static uint8_t* savedFrame = nullptr;
+// Save-screen gesture tracking: when the current press began, whether a press
+// is in progress, and whether it already crossed the hold threshold.
+static uint32_t pressStartedAt = 0;
+static bool gestureActive = false;
+static bool holdFired = false;
 
 // Forward declaration
 void enterSleepMode();
@@ -123,6 +148,12 @@ void enterSleepMode() {
     Display::clearToast();
     hintToastShowing = false;
 
+    // Camera::deinit() below frees the driver's framebuffer, so any frame we
+    // were reviewing dies with it. Drop back to the viewfinder rather than
+    // waking into a save screen pointing at freed memory.
+    mode = Mode::Viewfinder;
+    savedFrame = nullptr;
+
     // Play descending melody before sleep
     Audio::playMelody(Audio::Melody::DaDaTa);
     while (Audio::isPlaying()) {
@@ -190,65 +221,113 @@ void enterSleepMode() {
     lastPressed = false;
 }
 
+// Leave the save screen and go back to live preview, with a toast naming what
+// just happened.
+static void returnToViewfinder(const char* toast) {
+    savedFrame = nullptr;
+    mode = Mode::Viewfinder;
+    lastActivityTime = millis();
+    hintToastShowing = false;
+    Display::showToast(toast, Display::ToastHAlign::Right, Display::ToastVAlign::Top, true);
+}
+
 void loop() {
     bool pressed = shutterPressed();
     uint32_t now = millis();
 
-    // Check for idle timeout
+    // Idle timeout. Also applies on the save screen — an unanswered prompt is
+    // still an idle device, and nothing is persisted either way yet.
     if (now - lastActivityTime >= IDLE_TIMEOUT_MS) {
         enterSleepMode();
         return;  // After wake, restart loop fresh
     }
 
-    bool previewActive = now < viewfinderPauseUntil;
-
-    // Reset activity timer when preview ends (so hint timer starts fresh)
-    if (wasPreviewActive && !previewActive) {
-        lastActivityTime = now;
-    }
-    wasPreviewActive = previewActive;
-
-    // Update async melody (runs during preview so capture melody plays)
     Audio::update();
 
-    // Show hint toast after 5s of inactivity (but not during preview)
-    if (!previewActive && !hintToastShowing && (now - lastActivityTime) >= HINT_TOAST_DELAY_MS) {
-        Display::showToast("press to shoot", Display::ToastHAlign::Right, Display::ToastVAlign::Top, false, 0);
-        hintToastShowing = true;
-    }
-
-    // Only update viewfinder after pause expires
-    if (!previewActive) {
-        uint8_t* frame = Camera::capture();
-        if (frame) {
-            Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
-        }
-    }
-
-    // Toggle VCOM to prevent LCD burn-in
+    // Toggle VCOM to prevent LCD burn-in. Every mode needs this.
     Display::refresh();
 
-    // Press: capture with nice dither + ta-da-da + pause viewfinder
-    // Blocked while preview is active to prevent rapid captures
-    if (!previewActive && pressed && !lastPressed && confirmPressed()) {
-        Serial.println("Button pressed — capturing");
+    switch (mode) {
+        case Mode::Viewfinder: {
+            // Show hint toast after 5s of inactivity
+            if (!hintToastShowing && (now - lastActivityTime) >= HINT_TOAST_DELAY_MS) {
+                Display::showToast("press to shoot", Display::ToastHAlign::Right,
+                                   Display::ToastVAlign::Top, false, 0);
+                hintToastShowing = true;
+            }
 
-        // Clear hint toast if showing
-        if (hintToastShowing) {
-            Display::clearToast();
-            hintToastShowing = false;
+            uint8_t* frame = Camera::capture();
+            if (frame) {
+                Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
+            }
+
+            if (pressed && !lastPressed && confirmPressed()) {
+                Serial.println("Shutter — capturing");
+
+                if (hintToastShowing) {
+                    Display::clearToast();
+                    hintToastShowing = false;
+                }
+
+                // Re-grab so the saved frame is the one taken at the press, not
+                // the viewfinder frame from the top of this iteration.
+                savedFrame = Camera::capture();
+                if (savedFrame) {
+                    Display::drawCapture(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+                }
+
+                Audio::playClick();
+                Audio::playMelody(Audio::Melody::TaDaDa);
+
+                captureShownAt = millis();
+                lastActivityTime = captureShownAt;
+                mode = savedFrame ? Mode::Capture : Mode::Viewfinder;
+            }
+            break;
         }
 
-        // Capture and render with Floyd-Steinberg dithering
-        uint8_t* frame = Camera::capture();
-        if (frame) {
-            Display::drawCapture(frame, Camera::WIDTH, Camera::HEIGHT);
+        case Mode::Capture: {
+            // Frame is frozen on screen; just wait, then bring in the actions.
+            if (now - captureShownAt >= CAPTURE_DWELL_MS) {
+                Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+                mode = Mode::Save;
+                // Start the gesture from a clean slate. If the shutter is still
+                // held from the capture, lastPressed is already true and the
+                // edge test below won't fire until it's released — which is
+                // what we want: that press belongs to the capture.
+                gestureActive = false;
+                holdFired = false;
+            }
+            break;
         }
 
-        Audio::playClick();
-        Audio::playMelody(Audio::Melody::TaDaDa);
-        viewfinderPauseUntil = now + VIEWFINDER_PAUSE_MS;
-        lastActivityTime = now;  // Reset idle timer on activity
+        case Mode::Save: {
+            if (pressed && !lastPressed && confirmPressed()) {
+                pressStartedAt = millis();
+                gestureActive = true;
+                holdFired = false;
+            }
+
+            if (pressed && gestureActive && !holdFired &&
+                (now - pressStartedAt) >= TRASH_HOLD_MS) {
+                // Fire on the threshold rather than on release, so the hold has
+                // a definite end the user can feel instead of a silent wait.
+                Serial.println("Save: trash");
+                holdFired = true;
+                Audio::playMelody(Audio::Melody::DaDaTa);
+                returnToViewfinder("deleted");
+            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+                // Released before the threshold: a tap.
+                // No modem on this carrier revision, so "send" is UI only —
+                // there is nowhere to send to yet.
+                Serial.println("Save: send");
+                Audio::playClick();
+                returnToViewfinder("sent");
+            }
+
+            if (!pressed) gestureActive = false;
+            break;
+        }
     }
 
     lastPressed = pressed;
