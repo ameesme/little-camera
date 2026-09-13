@@ -182,9 +182,9 @@ static bool _toastActive = false;
 // Sidebar layout constants
 constexpr int SIDEBAR_PADDING = 5;
 constexpr int BOX_WIDTH = 70;
-constexpr int BOX1_HEIGHT = 32;
-constexpr int BOX2_HEIGHT = 193;  // 240 - 5 (top) - 32 (box1) - 5 (gap) - 5 (bottom) = 193
-constexpr int BOX_GAP = 5;
+// Inbox is the only sidebar box for now (battery/signal pulled until there's a
+// real source for either), so it spans the full panel height minus padding.
+constexpr int INBOX_HEIGHT = HEIGHT - SIDEBAR_PADDING * 2;
 constexpr int BOX_RADIUS = 10;
 
 // Default font for sidebar UI
@@ -316,41 +316,24 @@ static void drawTextCenteredAt(const char* text, int boxX, int boxW, int y, UI::
     drawText(text, startX, y, font, white);
 }
 
-// Draw the sidebar UI (battery box + inbox box)
+// Draw the sidebar UI (inbox box, full height)
 static void drawSidebar() {
-    int box1X = SIDEBAR_PADDING;
-    int box1Y = SIDEBAR_PADDING;
-    int box2X = SIDEBAR_PADDING;
-    int box2Y = SIDEBAR_PADDING + BOX1_HEIGHT + BOX_GAP;
+    int boxX = SIDEBAR_PADDING;
+    int boxY = SIDEBAR_PADDING;
 
     int fontH = UI::fontHeight(SIDEBAR_FONT);
 
-    // Box 1: White fill with black border (battery)
-    fillRoundedRect(box1X, box1Y, BOX_WIDTH, BOX1_HEIGHT, BOX_RADIUS, true);
-    drawRoundedRectBorder(box1X, box1Y, BOX_WIDTH, BOX1_HEIGHT, BOX_RADIUS, false);
-
-    // Battery + signal icons side by side, centered in box
-    const uint8_t* batIcon = UI::getBatteryIcon(UI::batteryPercentToLevel(_batteryPercent));
-    const uint8_t* sigIcon = UI::getSignalIcon(_signalLevel);
-    int iconGap = 2;
-    int contentW = UI::ICON_SIZE * 2 + iconGap;
-    int startX = box1X + (BOX_WIDTH - contentW) / 2;
-    int startY = box1Y + (BOX1_HEIGHT - UI::ICON_SIZE) / 2;
-
-    drawIcon(batIcon, UI::ICON_SIZE, UI::ICON_SIZE, startX, startY, false);
-    drawIcon(sigIcon, UI::ICON_SIZE, UI::ICON_SIZE, startX + UI::ICON_SIZE + iconGap, startY, false);
-
-    // Box 2: Black fill (inbox)
-    fillRoundedRect(box2X, box2Y, BOX_WIDTH, BOX2_HEIGHT, BOX_RADIUS, false);
+    // Black fill (inbox)
+    fillRoundedRect(boxX, boxY, BOX_WIDTH, INBOX_HEIGHT, BOX_RADIUS, false);
 
     // Inbox: icon + gap + "inbox", vertically centered
     const uint8_t* mailIcon = UI::getMailIcon();
     int textGap = 2;
     int inboxContentH = UI::ICON_SIZE + textGap + fontH;
-    int inboxStartY = box2Y + (BOX2_HEIGHT - inboxContentH) / 2;
+    int inboxStartY = boxY + (INBOX_HEIGHT - inboxContentH) / 2;
 
-    drawIconCentered(mailIcon, UI::ICON_SIZE, UI::ICON_SIZE, box2X, BOX_WIDTH, inboxStartY, true);
-    drawTextCenteredAt("inbox", box2X, BOX_WIDTH, inboxStartY + UI::ICON_SIZE + textGap, SIDEBAR_FONT, true);
+    drawIconCentered(mailIcon, UI::ICON_SIZE, UI::ICON_SIZE, boxX, BOX_WIDTH, inboxStartY, true);
+    drawTextCenteredAt("inbox", boxX, BOX_WIDTH, inboxStartY + UI::ICON_SIZE + textGap, SIDEBAR_FONT, true);
 }
 
 // Render active toast onto framebuffer (call after image + sidebar are drawn)
