@@ -118,12 +118,15 @@ make clean
 ```
 ./preview <scene> [options]
 
-scenes:   viewfinder  capture  save  slide  toast  sleep  splash
+scenes:   viewfinder  capture  save  slide  toast  sleep  splash  gallery  gallery-empty
   --out PATH   output BMP            (default preview.bmp)
   --scale N    integer upscale       (default 2 — 1:1 is unreadable on hidpi)
   --src FILE   320x240 binary PGM    (default: built-in synthetic test image)
   --at MS      virtual clock value   (default 0)
   --t F        slide position 0-1     (default 0.5, 'slide' scene only)
+  --pbm FILE   320x240 binary PBM     (a photo pulled off the camera, 'gallery' scene)
+  --index N    gallery counter position (default 2)
+  --total N    gallery counter total    (default 12)
 ```
 
 Layout:
@@ -150,7 +153,8 @@ Extending it: add a branch in `preview.cpp` for a new scene. The Arduino shim de
 Flag these if relevant to a change; don't silently assume they're resolved:
 
 - **Buzzer is dead in hardware** — firmware output on GPIO2 is verified (bit-bang square wave produced no sound; continuity check pointed at the BZ1 net/module). Fix the solder joint / module before trusting audio feedback.
-- **Cellular/modem** is not on this carrier revision — the previous SIM7080G integration (AT+CBC battery readout, AT+CPOWD power-down) is retired with the LilyGO board and needs a new home.
+- **Cellular/modem** is not on this carrier revision — the previous SIM7080G integration (AT+CBC battery readout, AT+CPOWD power-down) is retired with the LilyGO board and needs a new home. Until it lands, the iOS bridge app is the uplink (see `docs/protocol.md`).
+- **BLE sync is untested on hardware** — written against NimBLE-Arduino 2.x and checked on the host only. First things to verify with a board: `pio run` size line, pairing with the passkey toast, an end-to-end pull from the app, and that the stack comes back cleanly after a light-sleep cycle.
 - **Battery/power path** for the carrier (XIAO BAT pads vs. external charger) is undecided.
 - **Enclosure** is unresolved for the new board.
 - Cosmetic boot logs: `spiAttachMISO(): HSPI Does not have default pins on ESP32S3!` (we pass -1 for MISO — panel is write-only) and a one-shot `ledc_get_duty(): LEDC is not initialized` from the tone() HAL. Both harmless.

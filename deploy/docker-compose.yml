@@ -1,0 +1,55 @@
+# Little Camera micro-blog on one VPS.
+#
+#   cp .env.example .env   # fill in DOMAIN, SESSION_SECRET, SMTP_URL, DNS token
+#   docker compose up -d --build
+#
+# Caddy terminates TLS for the apex and every subdomain with one wildcard
+# certificate. Wildcards need the DNS-01 challenge, which needs a DNS provider
+# plugin: the Caddyfile assumes Cloudflare (CLOUDFLARE_API_TOKEN, zone:read +
+# dns:edit). Other providers: change the image build args and the tls block.
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      BASE_DOMAIN: ${DOMAIN}
+      PUBLIC_SCHEME: https
+      DATA_DIR: /data
+      SESSION_SECRET: ${SESSION_SECRET}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-Little Camera <camera@${DOMAIN}>}
+      DISPLAY_TZ: ${DISPLAY_TZ:-Europe/Amsterdam}
+    volumes:
+      - data:/data
+    expose:
+      - "3000"
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:

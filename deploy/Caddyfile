@@ -1,0 +1,13 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Apex (registration, /me, the camera API) and every blog subdomain share one
+# wildcard certificate. Host-based routing happens inside the Node server.
+{$DOMAIN}, *.{$DOMAIN} {
+	tls {
+		dns cloudflare {$CLOUDFLARE_API_TOKEN}
+	}
+	encode gzip
+	reverse_proxy server:3000
+}
