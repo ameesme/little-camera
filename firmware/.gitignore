@@ -8,3 +8,5 @@ tools/preview/out
 .vscode/ipch
 tools/hosttest/hosttest
 tools/hosttest/hosttest.dSYM
+tools/export/.venv/
+tools/export/backup/

@@ -19,8 +19,8 @@ Before flashing anything from this repo, pull the photos that are on the device 
 
 ```
 cd firmware/tools/export
-python3 -m pip install -r requirements.txt
-python3 dump_flash.py --port /dev/cu.usbmodem*      # writes backup/<timestamp>/NNNN.pbm + .png
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python dump_flash.py --port /dev/cu.usbmodem*      # writes backup/<timestamp>/NNNN.pbm + .png
 ```
 
 Then flash. New firmware keeps the same partition table and file format, so the photos stay on the device too; the first sync uploads all of them to your blog.

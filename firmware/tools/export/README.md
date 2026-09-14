@@ -3,8 +3,15 @@
 Two tools, both read-only as far as the camera is concerned.
 
 ```
-python3 -m pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
+
+Then run the tools with `.venv/bin/python`. (A venv rather than a plain
+`pip install`: on a Homebrew Python that is refused, and it keeps the script's
+interpreter and its packages together.) PlatformIO's own Python works too:
+`~/.platformio/penv/bin/pip install littlefs-python pyserial`, then run with
+`~/.platformio/penv/bin/python`.
 
 ## `dump_flash.py` — works with any firmware, run this first
 
@@ -13,7 +20,7 @@ it on the host. The camera does not need any particular firmware, and nothing is
 written to it.
 
 ```
-python3 dump_flash.py --port /dev/cu.usbmodem1101
+.venv/bin/python dump_flash.py --port /dev/cu.usbmodem1101
 # → backup/<timestamp>/NNNN.pbm + NNNN.png + littlefs.bin (raw image, keep it)
 ```
 
@@ -28,5 +35,5 @@ bootloader dance. The camera sleeps after 10 s idle; press the shutter to wake
 it just before running this.
 
 ```
-python3 pull_serial.py --port /dev/cu.usbmodem1101
+.venv/bin/python pull_serial.py --port /dev/cu.usbmodem1101
 ```
