@@ -146,3 +146,9 @@ export function orphanPhotosBefore(db: Db, cutoff: number): PhotoRow[] {
 export function deletePhoto(db: Db, id: number): void {
   db.prepare('DELETE FROM photos WHERE id = ?').run(id);
 }
+
+/** When this camera last uploaded anything, or null. Proof of possession for the typed-code fallback. */
+export function lastUploadAt(db: Db, cameraId: string): number | null {
+  const row = db.prepare('SELECT MAX(uploaded_at) AS t FROM photos WHERE camera_id = ?').get(cameraId) as { t: number | null };
+  return row.t ?? null;
+}

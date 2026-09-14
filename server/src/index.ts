@@ -4,12 +4,16 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { now, openDb } from './db.js';
 import type { Env } from './env.js';
+import { startNewsletterJob } from './jobs/newsletter.js';
+import { startPurgeJob } from './jobs/purge.js';
 import { startEmailDrainer } from './lib/email.js';
 
 const config = loadConfig();
 const env: Env = { db: openDb(join(config.dataDir, 'little-camera.sqlite')), config, now };
 
 startEmailDrainer(env);
+startNewsletterJob(env);
+startPurgeJob(env);
 
 serve({ fetch: createApp(env).fetch, port: config.port }, (info) => {
   console.log(`little camera server on ${config.publicScheme}://${config.baseDomain} (port ${info.port})`);

@@ -111,7 +111,7 @@ function asciiSlice(buf: Uint8Array, start: number, end: number): string {
  * empty object) the comment line is omitted, which is what older firmware
  * produced. Only keys that are present are written, in boot, up, t order.
  */
-export function encodePbm(width: number, height: number, rows: Uint8Array, meta?: PbmMeta): Uint8Array {
+export function encodePbm(width: number, height: number, rows: Uint8Array, meta?: PbmMeta): Uint8Array<ArrayBuffer> {
   const size = bytesPerRow(width) * height;
   if (rows.length !== size) throw new Error(`pbm: rows must be ${size} bytes, got ${rows.length}`);
   const parts: string[] = [];

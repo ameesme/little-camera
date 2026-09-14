@@ -38,7 +38,7 @@ function chunk(type: string, data: Uint8Array): Uint8Array {
 const SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /** Encode a PBM as a 1-bit greyscale PNG (black stays black). */
-export function pbmToPng(pbm: Pbm): Uint8Array {
+export function pbmToPng(pbm: Pbm): Uint8Array<ArrayBuffer> {
   const stride = bytesPerRow(pbm.width);
 
   const ihdr = new Uint8Array(13);
@@ -74,6 +74,6 @@ export function pbmToPng(pbm: Pbm): Uint8Array {
 }
 
 /** Nearest-neighbour upscale then encode; still 1-bit, still crisp. */
-export function pbmToPngScaled(pbm: Pbm, factor: number): Uint8Array {
+export function pbmToPngScaled(pbm: Pbm, factor: number): Uint8Array<ArrayBuffer> {
   return pbmToPng(scaleNearest(pbm, factor));
 }

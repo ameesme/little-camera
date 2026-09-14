@@ -5,15 +5,13 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { shortCode } from '@little-camera/pbm';
 import type { Env } from '../env.js';
-import { welcomeMail } from '../emails/index.js';
 import { batteryPercent } from '../lib/battery.js';
 import { boundInfo } from '../lib/bound.js';
-import { queueEmail } from '../lib/email.js';
 import { IngestError, MAX_PHOTO_BYTES, ingestPhoto } from '../lib/ingest.js';
-import { createToken } from '../lib/tokens.js';
+import { sendWelcome } from '../lib/welcome.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, hashSecret, secretMatches, type CameraVars } from '../middleware/cameraAuth.js';
 import { createCamera, findCamera, touchCamera } from '../repo/cameras.js';
-import { countFeedPhotos, newestFeedPhoto } from '../repo/photos.js';
+import { countFeedPhotos } from '../repo/photos.js';
 import { findProfileById, setAvatarRequested } from '../repo/profiles.js';
 import {
   approveSubscriber,
@@ -22,7 +20,6 @@ import {
   findSubscriberByEmail,
   findSubscriberById,
   listSubscribers,
-  type SubscriberRow,
 } from '../repo/subscribers.js';
 import { blogUrl } from '../config.js';
 
@@ -37,26 +34,6 @@ const subscriberSchema = z.object({
 });
 
 const error = (code: string, message: string) => ({ error: code, message });
-
-/**
- * Mail a subscriber a 48-hour link to the newest picture (or the blog root
- * when there is nothing yet). Used on approval and when the owner adds one.
- */
-export function sendWelcome(env: Env, subscriber: SubscriberRow): void {
-  const profile = findProfileById(env.db, subscriber.profile_id);
-  if (!profile) return;
-  const newest = newestFeedPhoto(env.db, profile.id);
-  const { token } = createToken(env, {
-    kind: 'subscriber',
-    profileId: profile.id,
-    subscriberId: subscriber.id,
-    photoId: newest?.id ?? null,
-  });
-  const url = newest
-    ? `${blogUrl(env.config, profile.handle)}/p/${newest.public_id}?t=${token}`
-    : `${blogUrl(env.config, profile.handle)}/?t=${token}`;
-  queueEmail(env, subscriber.email, welcomeMail({ ownerName: profile.name, url }));
-}
 
 export function cameraRoutes(env: Env): Hono<CameraVars> {
   const app = new Hono<CameraVars>();
