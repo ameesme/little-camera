@@ -8,6 +8,7 @@
 
 #include <Arduino.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include <driver/gpio.h>
 #include "audio.h"
 #include "camera.h"
@@ -144,6 +145,10 @@ void setup() {
     // Wait for USB-CDC to enumerate after flash
     delay(1000);
     Serial.println("little-camera init — Xiao_Shutter carrier");
+    // Why are we booting? A splash where a sleep face was expected means a
+    // reset; this line says which kind (1 power-on, 3 software, 4 panic,
+    // 5 interrupt watchdog, 6 task watchdog, 9 brownout, per esp_reset_reason_t).
+    Serial.printf("Reset reason: %d\n", (int)esp_reset_reason());
 
     // Initialize buzzer early for splash melody
     Audio::init(PIN_BUZZ);
@@ -179,7 +184,11 @@ void setup() {
 
     // Radio last: everything it advertises (photo counts, the secret) exists
     // by now, and the camera init above is the slow part of boot anyway.
+    // -DLC_NO_BLE in platformio.ini builds without the radio, to tell a BLE
+    // problem from everything else.
+#ifndef LC_NO_BLE
     Sync::begin();
+#endif
 
     // Don't enter the loop until the shutter line is quiet
     waitForStableRelease(50);
@@ -252,7 +261,9 @@ void enterSleepMode() {
     // Radio off before the camera: light sleep and a live BLE controller is
     // undefined territory in this Arduino core, and the phone is told nothing
     // — it reconnects when the camera advertises again after wake.
+#ifndef LC_NO_BLE
     Sync::end();
+#endif
 
     // The OV2640 has no PWDN or RESET pin wired on the Sense B2B connector, so
     // light sleep only stops its XCLK — the sensor stays powered and biased at
@@ -321,7 +332,9 @@ void enterSleepMode() {
         Serial.println("Camera re-init failed after wake");
     }
 
+#ifndef LC_NO_BLE
     Sync::begin();
+#endif
 
     // Require a continuously-released line before resuming — a plain
     // release-wait plus fixed delay still let release bounce re-trigger
