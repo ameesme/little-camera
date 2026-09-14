@@ -32,6 +32,8 @@ export const CSS = `
   .cell i{display:block;height:100%}
 
   button{font:inherit;touch-action:manipulation;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  /* Links inherit ink everywhere: the browser's default blue is the one colour that sneaks onto a page uninvited. */
+  a{color:inherit}
   .btn{border:var(--rule);background:var(--ink);color:var(--paper);font-size:10px;font-weight:700;
        letter-spacing:.1em;text-transform:uppercase;padding:7px 10px;white-space:nowrap;text-decoration:none;display:inline-block}
   .btn:active,.btn[aria-pressed="true"]{background:var(--paper);color:var(--ink)}

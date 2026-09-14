@@ -46,6 +46,8 @@ Gestures: press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, h
 pnpm install
 pnpm dev                      # http://localhost:3000, blogs at http://<handle>.localhost:3000
 pnpm test
+pnpm seed                     # demo blog with the mockup's pictures at http://mees.localhost:3000
+pnpm --filter @little-camera/server fake-camera --code LC:XXXXXX   # play the bridge app (see server/README.md)
 ```
 
 Without SMTP settings every email lands in `http://localhost:3000/dev/mailbox`. See `server/README.md` for the environment variables and `deploy/` for production.
