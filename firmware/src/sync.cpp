@@ -1,7 +1,9 @@
 #include "sync.h"
 
 #include <NimBLEDevice.h>
+#include <esp_bt.h>
 #include <esp_random.h>
+#include <esp_sleep.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -412,6 +414,14 @@ void end() {
     // than keeping server objects alive across a sleep and hoping the
     // controller agrees with them afterwards.
     NimBLEDevice::deinit(true);
+    // Belt and braces. NimBLE's deinit is supposed to take the controller
+    // down with the host, but a controller left enabled keeps its own
+    // light-sleep wake source armed, and the camera then wakes the instant
+    // it sleeps (wake cause BT, or the sleep call rejected outright). Make
+    // sure it is really off, and drop the wake source it may have left.
+    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) esp_bt_controller_disable();
+    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_INITED) esp_bt_controller_deinit();
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_BT);
     _server = nullptr;
     _info = _secret = _control = _data = nullptr;
     _connected = false;

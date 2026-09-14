@@ -273,14 +273,31 @@ void enterSleepMode() {
     // HIGH across light sleep, so VCOM has to keep flipping or the pixels take
     // a permanent DC bias. Nothing runs while esp_light_sleep_start() blocks,
     // so wake ourselves on a timer to do it and go straight back down.
+    //
+    // Only the shutter (GPIO) ends the sleep. Anything else — the BT
+    // controller's own wake source if the radio was not fully down, a
+    // rejected sleep call, an undefined cause — is not a person, and treating
+    // it as one is exactly how the camera "wakes by itself".
     for (;;) {
         esp_sleep_enable_timer_wakeup((uint64_t)Display::VCOM_INTERVAL_MS * 1000);
-        esp_light_sleep_start();
+        esp_err_t err = esp_light_sleep_start();
+        esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
 
-        if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) break;
-
-        // Keep-alive tick: one SPI command, no melody, no re-init.
-        Display::toggleVcom();
+        if (err != ESP_OK) {
+            // Refused to sleep at all (a wake source already pending). The
+            // cause is stale in that case, so don't read anything into it.
+            Serial.printf("Sleep: rejected (%d), retrying\n", (int)err);
+            delay(50);
+            continue;
+        }
+        if (cause == ESP_SLEEP_WAKEUP_GPIO) break;
+        if (cause == ESP_SLEEP_WAKEUP_TIMER) {
+            // Keep-alive tick: one SPI command, no melody, no re-init.
+            Display::toggleVcom();
+            continue;
+        }
+        Serial.printf("Sleep: ignoring wake cause %d\n", (int)cause);
+        delay(20);  // Don't spin hot if the source keeps firing
     }
 
     // Disable both wake sources after waking for real
