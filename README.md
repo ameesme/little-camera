@@ -38,9 +38,9 @@ Read `firmware/AGENTS.md` before changing anything hardware-facing. The UI can b
 cd firmware/tools/preview && make scenes   # BMPs in out/
 ```
 
-Gestures: press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, hold = back). On the review screen press = save, hold 1.5 s = trash. Asleep: hold 1 s to wake.
+Gestures: press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, hold = back). On the review screen press = save, hold 1.5 s = trash. Asleep: hold 1 s to wake; a tap only makes it chirp.
 
-The camera chirps when it wants attention (`docs/mood.md`). The sounds are composed, not recorded; listen to them without hardware:
+The camera has a mood (`docs/mood.md`): it sleeps with a smile after a photo, loses it over a week, and chirps for attention. The sounds are composed, not recorded; listen to them without hardware:
 
 ```
 cd firmware/tools/chirp && make bands       # out/band-{sad,glum,content,happy}.wav + out/ladder.wav

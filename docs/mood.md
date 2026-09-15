@@ -2,7 +2,7 @@
 
 The camera wants to be used. Left alone it gets a little anxious over the course of a week and asks for attention, the way a tamagotchi would, but quieter. Everything below keys off one number: **how long ago the last photo was taken.**
 
-Status: the **sound engine** exists (`firmware/src/chirp.h`, `Audio::playChirp`). The mood clock, the scheduler and the face changes are specified here and not built yet. Until they are, a tap in the gallery plays a chirp at a random happiness so the engine can be heard on hardware.
+Status: built. The sound engine (`firmware/src/chirp.h`, `Audio::playChirp`), the mood clock and scheduler (`firmware/src/mood.h`, glue in `main.cpp`, NVS in `mood_store.cpp`), the face (`Display::drawSleep`) and the tap response. Host-tested and previewed; the first real week on hardware is still ahead.
 
 ## Happiness
 
@@ -24,24 +24,34 @@ Taking a photo resets everything at once: face back to the smile, no chirps for 
 
 - Within one boot, exactly: `millis()` runs through light sleep, and every photo header carries `up=`.
 - Across a **reset**, still fine: the system clock survives a software reset, and the last photo's uptime and boot number are on disk.
-- Across a **power loss** (dead battery, cable pulled), unknown. The camera has no clock battery. Rule: mood state is persisted in NVS (`Preferences("mood")`: the last photo's unix time when the clock was known, otherwise the last computed happiness) and resumed on boot. Time spent powered off does not count. A camera that was sad when the battery died wakes up equally sad, not sadder.
-- The unix clock arrives from the phone over BLE (`SET_TIME`, `docs/protocol.md` §3). Until it has once, the camera knows durations but not the time of day.
+- Across a **power loss** (dead battery, cable pulled), unknown. The camera has no clock battery. Rule: mood state is persisted in NVS (`Preferences("mood")`, a 17-byte blob: the last photo's unix time if the clock was known, the seconds elapsed since it, and the two chirp appointments) and resumed on boot. Time spent powered off does not count until a clock says otherwise: once the phone has set the time and the last photo's epoch is known, the epoch difference wins. A camera that was sad when the battery died wakes up equally sad, not sadder, and catches up the moment a phone tells it the date.
+- The unix clock and the phone's UTC offset arrive over BLE (`SET_TIME`, `docs/protocol.md` §3). Until they have once, the camera knows durations but not the time of day. If the clock arrives after the photo, the photo's time is back-filled from the elapsed seconds.
 
 ## Sleep face
 
-The sleep face (`Display::drawSleep()`, bitmap in `firmware/src/sleep_data.h`) is redrawn on every entry to `Asleep` and on every VCOM tick while light-sleeping, so it can follow the mood without extra wakes.
+The sleep face is 16 px block art, white on black, drawn in code (`Display::drawSleep(happiness, breathIn, faceOnly)`), one face per band:
 
-Planned: the mouth is the only part that changes. Three states (smile, flat, down) drawn procedurally over the bitmap's mouth region, chosen from the happiness bands above; the eyes stay closed and everything else stays as it is. To be verified with `tools/preview` (`sleep --happiness N`) before touching hardware, as with every screen.
+| band | eyes | mouth |
+|---|---|---|
+| happy | ∪ closed, corners up | a three-block smile |
+| content | ∪ | the original single dot |
+| glum | ∪ | a flat line |
+| sad | ∩, turned over | a three-block frown |
+
+It **breathes**: every 5 s the other of two frames goes up, eyes two pixels higher and mouth four pixels lower, so the distance between them grows and shrinks. Awake behind the sleep face that is a timer in `loop()`; in light sleep it rides the 5 s VCOM wake that exists anyway. A breath pushes only the face rows to the panel; a full frame is sent when the face first goes up and when the band changes.
+
+Preview without hardware: `cd firmware/tools/preview && make scenes` renders `sleep`, `sleep-content`, `sleep-glum`, `sleep-sad` and `sleep-breath`.
 
 ## Sounds
 
 ### When
 
-- **The one-hour chirp.** About an hour (55–65 min, drawn once) after the last photo, one chirp at the current happiness. Once per photo, never repeated.
-- **Attention chirps.** From 24 h after the last photo: chirps at random intervals, **at most two per calendar day**, spaced at least four hours apart. The next chirp time is drawn when the previous one plays (or at boot), stored in NVS with the rest of the mood state so a reset does not re-roll it.
-- **Not at night.** No attention chirps between 22:00 and 08:00 local time **when the clock is known**. Without a clock (the phone has never connected this boot and nothing is persisted), the night rule is skipped and only the twice-a-day cap applies. Decision taken deliberately: a camera that has never met a phone should still be heard. The timezone comes with the clock; `SET_TIME` carries UTC today and needs a UTC offset added (open point below).
-- **Only while asleep or in the viewfinder.** A chirp never interrupts the save screen, the gallery, a melody or a transfer; it waits for the next opportunity.
-- **From light sleep:** the sleep loop already wakes every `Display::VCOM_INTERVAL_MS` (5 s) to flip VCOM. A due chirp plays on that wake (`Audio::init`, play, back to sleep), the same way the wake click is bit-banged so it is heard straight out of sleep.
+- **The one-hour chirp.** 55–65 min after the last photo (drawn once, at the photo), one chirp at the current happiness. Once per photo. If that moment falls at night it is dropped, not moved.
+- **Attention chirps.** From 24 h after the last photo. The first comes 0–8 h after the day mark; every next one is drawn 12–20 h after the previous, so **no 24-hour window ever holds more than two**, and the spacing is never the same twice. Appointments are stored in NVS with the rest of the mood state, so a reset does not re-roll them.
+- **Not at night.** No chirp between 22:00 and 08:00 local time **when the camera knows local time** (the phone sent the clock and its UTC offset). A chirp that comes due in that window is moved to 08:00 plus 0–2 h. Without a clock the night rule is skipped and only the two-a-day cap applies. Decided deliberately: a camera that has never met a phone should still be heard.
+- **Only on the viewfinder or the sleep face,** with the button up, no melody playing and no transfer running. A due chirp never interrupts the save screen, the gallery or a slide; it waits for the next opportunity.
+- **From light sleep:** the sleep loop wakes every `Display::VCOM_INTERVAL_MS` (5 s) to flip VCOM; the mood is serviced on that wake and a due chirp plays right there, radio and camera being down anyway.
+- **A tap on the sleeping camera** (released before the one-second wake hold), awake or in light sleep, answers with a chirp at a **random** happiness. It is feedback, not mood: it tells you that you pressed the button, it does not wake the camera and does not count as activity. Nothing else on the camera plays a chirp on purpose.
 
 ### What
 
@@ -58,8 +68,11 @@ Chirps come from a small procedural composer, not from a list of fixed melodies,
 
 Bit-banged square waves on the buzzer pin, like the shutter click, because the LEDC `tone()` path is unreliable for short sounds right after a wake. A chirp therefore blocks the main loop for its length (≤300 ms). That is accepted: the radio runs in its own task, the wake gesture is a one-second hold, and the screens a chirp is allowed on are static or a live preview.
 
+## Testing it
+
+`firmware/tools/hosttest` runs a simulated month through the state machine at the 5-second tick and checks every rule above. On the bench, `-DLC_MOOD_FAST` in `platformio.ini` makes the mood clock run 600× (an hour in six seconds, the week in about seventeen minutes) so the whole arc, faces included, plays out in one sitting. Every chirp and every state save is a line on the serial monitor (`Sleep: chirp happiness=…`, `Mood: saved (attention chirp) …`).
+
 ## Open points
 
-- `SET_TIME` needs a UTC offset (or the phone sends local time) before the night rule can work. Protocol change, small; the app is the only client.
-- The sleep face has no vector source; the mouth variants will be drawn in code over the bitmap.
+- The breath costs a partial frame push every 5 s in light sleep. There is no current sense on the board; if the idle draw turns out to matter, the breath period is one constant.
 - Whether the one-hour chirp should also play while the phone is actively syncing (currently: it waits).
