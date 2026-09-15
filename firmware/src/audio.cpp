@@ -27,10 +27,16 @@ static constexpr uint16_t MELODY2_FREQS[] = {1500, 2500};
 static constexpr uint16_t MELODY2_DURS[] = {0, 0};
 static constexpr uint16_t MELODY2_GAPS[] = {50, 50};
 
+// Saved (A5, A6, E6 — same tempo as ta-da-da)
+static constexpr uint16_t MELODY3_FREQS[] = {880, 1760, 1319};
+static constexpr uint16_t MELODY3_DURS[] = {30, 30, 30};
+static constexpr uint16_t MELODY3_GAPS[] = {150, 30, 30};
+
 static const MelodyData MELODIES[] = {
     {MELODY0_FREQS, MELODY0_DURS, MELODY0_GAPS, 3, false},  // TaDaDa
     {MELODY1_FREQS, MELODY1_DURS, MELODY1_GAPS, 3, false},  // DaDaTa
     {MELODY2_FREQS, MELODY2_DURS, MELODY2_GAPS, 2, true},   // ChirpChirp
+    {MELODY3_FREQS, MELODY3_DURS, MELODY3_GAPS, 3, false},  // Saved
 };
 static constexpr int NUM_MELODIES = 2;  // Random picks from TaDaDa and ChirpChirp only
 

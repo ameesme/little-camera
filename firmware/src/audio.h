@@ -8,6 +8,7 @@ enum class Melody {
     TaDaDa,
     DaDaTa,  // Reverse ta-da-da (descending) for sleep
     ChirpChirp,
+    Saved,   // A, A an octave up, E: the photo is on the flash
     Random
 };
 

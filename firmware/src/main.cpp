@@ -670,7 +670,10 @@ void loop() {
                                                        Display::PHOTO_HEIGHT);
                 Audio::playClick();
                 switch (r) {
-                    case Storage::Result::Ok:   startDismiss("saved"); break;
+                    case Storage::Result::Ok:
+                        Audio::playMelody(Audio::Melody::Saved);
+                        startDismiss("saved");
+                        break;
                     // Full means every photo on the flash is one the phone
                     // hasn't pulled yet; syncing frees the room.
                     case Storage::Result::Full: startDismiss("full, sync first"); break;
