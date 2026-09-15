@@ -78,12 +78,18 @@ void playClick(bool light) {
     // a random 85-115%, which shifts the whole click brighter or duller
     // while keeping its shape. A mechanical shutter never sounds the same
     // twice either.
-    const uint32_t scale = (uint32_t)random(85, 116);
     ledcDetachPin(_buzzerPin);
     pinMode(_buzzerPin, OUTPUT);
     if (light) {
-        for (int f = 8000; f > 4500; f -= 400) square((uint32_t)f * scale / 100, 700);
+        // The light tick is 6ms of 5-9kHz, where the piezo's own resonance
+        // flattens pitch differences, so it needs a wider spread than the
+        // shutter click to be heard to vary — and its step length varies too,
+        // which reads as a slightly longer or shorter tick.
+        const uint32_t scale = (uint32_t)random(70, 131);
+        const uint32_t step = (uint32_t)random(550, 900);
+        for (int f = 8000; f > 4500; f -= 400) square((uint32_t)f * scale / 100, step);
     } else {
+        const uint32_t scale = (uint32_t)random(85, 116);
         for (int f = 4000; f > 800; f -= 400) square((uint32_t)f * scale / 100, 800);
     }
     digitalWrite(_buzzerPin, LOW);
