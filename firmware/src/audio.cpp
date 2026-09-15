@@ -46,7 +46,7 @@ static int melodyStep = -1;
 static uint32_t melodyStepStart = 0;
 static bool noteStarted = false;
 
-static void playChirp(uint16_t startFreq) {
+static void legacySweep(uint16_t startFreq) {
     for (int f = startFreq; f < startFreq + 1500; f += 200) {
         tone(_buzzerPin, f);
         delayMicroseconds(600);
@@ -103,6 +103,35 @@ void playClick(bool light) {
     digitalWrite(_buzzerPin, LOW);
 }
 
+// Output policy for Chirp::play(): the pin, and a wait that busy-waits the
+// sub-millisecond half-periods but yields (delay) for the inter-segment gaps,
+// so the idle and BLE tasks get the silence even if not the sound. Chirps use
+// chirp.h's own xorshift rather than random() so a score renders identically
+// on the host — don't "unify" the two.
+struct PinOut {
+    void set(bool high) { digitalWrite(_buzzerPin, high ? HIGH : LOW); }
+    void wait(uint32_t us) {
+        if (us >= 2000) {
+            delay(us / 1000);
+            us %= 1000;
+        }
+        if (us) delayMicroseconds(us);
+    }
+};
+
+void playChirp(const Chirp::Score& score) {
+    if (melodyStep >= 0) {
+        noTone(_buzzerPin);
+        melodyStep = -1;
+        noteStarted = false;
+    }
+    ledcDetachPin(_buzzerPin);
+    pinMode(_buzzerPin, OUTPUT);
+    PinOut out;
+    Chirp::play(score, out);
+    digitalWrite(_buzzerPin, LOW);
+}
+
 void playMelody(Melody type) {
     if (melodyStep >= 0) return;  // Already playing
 
@@ -126,7 +155,7 @@ void update() {
 
     if (elapsed >= gap && !noteStarted) {
         if (m.noisy) {
-            playChirp(m.freqs[melodyStep]);
+            legacySweep(m.freqs[melodyStep]);
         } else {
             tone(_buzzerPin, m.freqs[melodyStep], m.durs[melodyStep]);
         }

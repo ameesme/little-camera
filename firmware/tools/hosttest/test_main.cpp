@@ -13,6 +13,7 @@
 #include "../../src/sha256.h"
 #include "../../src/shortcode.h"
 #include "../../src/sync_protocol.h"
+#include "../../src/chirp.h"
 
 static int failures = 0;
 static int checks = 0;
@@ -149,7 +150,136 @@ static void testSyncProtocol() {
     CHECK(estimateEpoch(0, 17, 48213, 17, 60213, 0, &f) == 0);                        // clock unset
 }
 
+
+// ---- chirp.h ---------------------------------------------------------------
+
+static bool sameScore(const Chirp::Score& a, const Chirp::Score& b) {
+    if (a.n != b.n || a.happiness != b.happiness || a.noiseSeed != b.noiseSeed) return false;
+    for (uint8_t i = 0; i < a.n; i++) {
+        const Chirp::Segment &x = a.seg[i], &y = b.seg[i];
+        if (x.kind != y.kind || x.f0 != y.f0 || x.f1 != y.f1 || x.ms != y.ms || x.gapMs != y.gapMs) return false;
+    }
+    return true;
+}
+
+// Output policy that only accumulates time: measures what play() really takes.
+struct TimingOut {
+    uint64_t us = 0;
+    uint32_t toggles = 0;
+    void set(bool) { toggles++; }
+    void wait(uint32_t u) { us += u; }
+};
+
+static void testChirp() {
+    // Detune arithmetic
+    CHECK(Chirp::detune(880, 0) == 880);
+    CHECK(Chirp::detune(880, 100) == 932);    // A#5 = 932.3
+    CHECK(Chirp::detune(1760, 50) == 1812);   // 1811.5
+    CHECK(Chirp::detune(3520, 100) == Chirp::F_MAX);  // 3729.7, clamped to the ceiling
+    CHECK(Chirp::detune(880, -100) == 831);   // 830.6
+    CHECK(Chirp::detune(880, 5) >= 882 && Chirp::detune(880, 5) <= 884);
+    CHECK(Chirp::detune(880, 300) == Chirp::detune(880, 100));  // Clamped
+    CHECK(Chirp::onScale(1319) && !Chirp::onScale(1320));
+
+    // Rng
+    Chirp::Rng z(0);
+    CHECK(z.next() != 0);
+    for (int i = 0; i < 100; i++) CHECK(z.below(7) < 7);
+
+    // Determinism: same seed, same score
+    for (uint32_t seed = 1; seed < 20; seed++) {
+        Chirp::Rng a(seed), b(seed);
+        CHECK(sameScore(Chirp::compose(100, a), Chirp::compose(100, b)));
+    }
+
+    // Variety at full happiness
+    {
+        uint32_t firsts[200];
+        int distinct = 0;
+        bool two = false, three = false;
+        for (uint32_t seed = 1; seed <= 200; seed++) {
+            Chirp::Rng r(seed);
+            Chirp::Score s = Chirp::compose(255, r);
+            uint32_t key = ((uint32_t)s.seg[0].f0 << 16) | s.seg[0].ms;
+            bool seen = false;
+            for (int i = 0; i < distinct; i++) if (firsts[i] == key) seen = true;
+            if (!seen) firsts[distinct++] = key;
+            if (s.n == 2) two = true;
+            if (s.n == 3) three = true;
+        }
+        CHECK(distinct >= 20);
+        CHECK(two && three);
+    }
+
+    // Invariants across every band
+    const uint8_t levels[] = {0, 63, 64, 127, 128, 191, 192, 255};
+    for (uint8_t h : levels) {
+        bool sawNoise = false, sawOffScale = false;
+        uint32_t pitched = 0, offScale = 0, sweeps = 0, rising = 0;
+        for (uint32_t seed = 1; seed <= 2000; seed++) {
+            Chirp::Rng r(seed * 2654435761u + h);
+            Chirp::Score s = Chirp::compose(h, r);
+            CHECK(s.n >= 1 && s.n <= Chirp::MAX_SEGMENTS);
+            CHECK(Chirp::totalMs(s) <= Chirp::MAX_TOTAL_MS);
+            CHECK(s.happiness == h);
+            bool anyPitched = false;
+            for (uint8_t i = 0; i < s.n; i++) {
+                const Chirp::Segment& g = s.seg[i];
+                CHECK(g.ms >= Chirp::MIN_SEG_MS && g.ms <= Chirp::MAX_SEG_MS);
+                if (i == s.n - 1) CHECK(g.gapMs == 0);
+                else CHECK(g.gapMs >= Chirp::BANDS[Chirp::band(h)].gapMin);
+                switch (g.kind) {
+                    case Chirp::Kind::Tone:
+                        CHECK(g.f0 >= Chirp::F_MIN && g.f0 <= Chirp::F_MAX && g.f1 == 0);
+                        anyPitched = true;
+                        pitched++;
+                        if (!Chirp::onScale(g.f0)) { offScale++; sawOffScale = true; }
+                        break;
+                    case Chirp::Kind::Sweep:
+                        CHECK(g.f0 >= Chirp::F_MIN && g.f0 <= Chirp::F_MAX);
+                        CHECK(g.f1 >= Chirp::F_MIN && g.f1 <= Chirp::F_MAX);
+                        CHECK(g.f0 != g.f1);
+                        anyPitched = true;
+                        pitched += 2;
+                        sweeps++;
+                        if (g.f1 > g.f0) rising++;
+                        if (!Chirp::onScale(g.f0)) { offScale++; sawOffScale = true; }
+                        if (!Chirp::onScale(g.f1)) { offScale++; sawOffScale = true; }
+                        break;
+                    case Chirp::Kind::Noise:
+                        CHECK(g.f0 >= 6000 && g.f0 <= 40000 && g.f1 == 0);
+                        CHECK(g.ms <= Chirp::NOISE_MAX_MS);
+                        sawNoise = true;
+                        break;
+                }
+            }
+            CHECK(anyPitched);
+            char desc[64];
+            CHECK(Chirp::describe(s, desc, sizeof(desc)) < 64);
+            CHECK(strlen(desc) > 0);
+
+            // Played duration: whole periods overrun by < 1 period per segment
+            TimingOut out;
+            Chirp::play(s, out);
+            CHECK(out.us <= (uint64_t)Chirp::MAX_TOTAL_MS * 1000 + (uint64_t)s.n * 1250);
+            CHECK(out.us >= (uint64_t)Chirp::totalMs(s) * 1000);
+            CHECK(out.toggles > 0);
+        }
+        if (Chirp::band(h) == 3) {
+            CHECK(!sawNoise);
+            CHECK(!sawOffScale);
+            CHECK(sweeps == 0 || rising * 10 >= sweeps * 7);
+        }
+        if (Chirp::band(h) == 0) {
+            CHECK(sawNoise);
+            CHECK(sawOffScale);
+            CHECK(offScale * 2 > pitched);
+        }
+    }
+}
+
 int main() {
+    testChirp();
     testSyncProtocol();
     testCrc32();
     testSha256();
