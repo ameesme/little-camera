@@ -40,6 +40,9 @@ static inline bool shutterPressed() {
 
 // Timing constants
 constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
+// Looking at a photo is slower than framing one: the gallery gets longer
+// before the sleep face comes up.
+constexpr uint32_t GALLERY_IDLE_TIMEOUT_MS = 30000;
 constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 
 // How long the bare capture holds before the layout starts sliding, and how
@@ -529,7 +532,8 @@ void loop() {
     // Idle timeout: sleep face up and radio still on first, light sleep later
     // from the Asleep case below. Also applies on the save screen: an
     // unanswered prompt is still an idle device.
-    if (mode != Mode::Asleep && now - lastActivityTime >= IDLE_TIMEOUT_MS) {
+    const uint32_t idleLimit = (mode == Mode::Gallery) ? GALLERY_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+    if (mode != Mode::Asleep && now - lastActivityTime >= idleLimit) {
         enterAsleep();
     }
 
