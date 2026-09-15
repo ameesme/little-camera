@@ -87,7 +87,7 @@ void playClick(bool light) {
         // which reads as a slightly longer or shorter tick.
         // Range sits below the original pitch: 100% was already the bright
         // end of what sounds good on this piezo.
-        const uint32_t scale = (uint32_t)random(55, 101);
+        const uint32_t scale = (uint32_t)random(75, 101);
         const uint32_t step = (uint32_t)random(550, 900);
         for (int f = 8000; f > 4500; f -= 400) square((uint32_t)f * scale / 100, step);
     } else {
