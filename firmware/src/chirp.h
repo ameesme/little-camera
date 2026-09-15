@@ -233,18 +233,19 @@ inline int describe(const Score& s, char* out, size_t cap) {
         const Segment& g = s.seg[i];
         int w = 0;
         switch (g.kind) {
-            case Kind::Tone: w = snprintf(out + used, cap - used, "%sT%u/%u", i ? " " : "", g.f0, g.ms); break;
+            case Kind::Tone: w = snprintf(out + used, cap - used, "%sT%u/%u", i ? " " : "", (unsigned)g.f0, (unsigned)g.ms); break;
             case Kind::Sweep:
-                w = snprintf(out + used, cap - used, "%sS%u>%u/%u", i ? " " : "", g.f0, g.f1, g.ms);
+                w = snprintf(out + used, cap - used, "%sS%u>%u/%u", i ? " " : "", (unsigned)g.f0, (unsigned)g.f1,
+                             (unsigned)g.ms);
                 break;
             case Kind::Noise:
-                w = snprintf(out + used, cap - used, "%sN%uk/%u", i ? " " : "", g.f0 / 1000, g.ms);
+                w = snprintf(out + used, cap - used, "%sN%uk/%u", i ? " " : "", (unsigned)(g.f0 / 1000), (unsigned)g.ms);
                 break;
         }
         if (w < 0) break;
         used += (size_t)w;
         if (g.gapMs && used < cap) {
-            w = snprintf(out + used, cap - used, " +%u", g.gapMs);
+            w = snprintf(out + used, cap - used, " +%u", (unsigned)g.gapMs);
             if (w < 0) break;
             used += (size_t)w;
         }
