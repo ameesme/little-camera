@@ -11,12 +11,16 @@
 #include <esp_system.h>
 #include <driver/gpio.h>
 #include <esp_random.h>
+#include <esp_timer.h>
+#include <time.h>
 #include "audio.h"
 #include "chirp.h"
 #include "camera.h"
 #include "console.h"
 #include "display.h"
 #include "identity.h"
+#include "mood.h"
+#include "mood_store.h"
 #include "storage.h"
 #include "sync.h"
 
@@ -118,7 +122,6 @@ static bool captureHeld = false;
 static int galleryOrdinal = 0;
 static bool galleryDirty = false;
 static bool galleryToastWasVisible = false;
-static bool galleryChirpPending = false;  // A tap's chirp, played after the repaint
 // Same for the save screen, which is also drawn once and then left alone.
 static bool saveToastWasVisible = false;
 // The decoded photo. Its own buffer rather than Display's: 9.6KB is noise next
@@ -132,6 +135,127 @@ static bool cameraReady = false;
 
 // Forward declaration
 void enterSleepMode();
+
+// ---- Mood (docs/mood.md) ---------------------------------------------------
+//
+// The state machine lives in mood.h and knows nothing about hardware; this is
+// its clock, its flash and its buzzer. Uptime comes from esp_timer: 64-bit,
+// runs through light sleep, never wraps. The wall clock only exists once a
+// phone has set it. -DLC_MOOD_FAST makes uptime run 600x — an hour in six
+// seconds, the whole week in about seventeen minutes — for bench testing.
+constexpr uint32_t BREATH_MS = 5000;  // Sleep face breath period, awake; asleep it is the VCOM tick
+
+static Mood::State moodState;
+static Chirp::Rng moodRng(1);
+static int16_t moodTzMin = 0;
+static bool moodTzKnown = false;
+static uint8_t sleepFaceBand = 0xFF;   // Band the face was last drawn for
+static bool sleepBreathIn = false;
+static uint32_t sleepFaceDrawnAt = 0;
+
+static Mood::Clock moodClock() {
+    Mood::Clock c;
+    uint64_t up = (uint64_t)esp_timer_get_time() / 1000000ULL;
+#ifdef LC_MOOD_FAST
+    up *= 600;
+#endif
+    c.uptimeS = (uint32_t)up;
+    time_t t = time(nullptr);
+    c.epoch = (t > 0 && (uint64_t)t >= Mood::EPOCH_VALID_FROM) ? (uint32_t)t : 0;
+    c.tzMin = moodTzMin;
+    c.tzKnown = moodTzKnown;
+    return c;
+}
+
+static void moodPersist(const char* why) {
+    Mood::Clock c = moodClock();
+    MoodStore::save(Mood::snapshot(moodState, c));
+    Mood::markPersisted(moodState, c);
+    Serial.printf("Mood: saved (%s) elapsed=%lus happiness=%u\n", why,
+                  (unsigned long)Mood::elapsed(moodState, c), Mood::happiness(moodState, c));
+}
+
+// After Storage::init(): the newest photo's header is the fallback when NVS
+// has no mood yet (first boot of this firmware on a camera with photos).
+static void moodBoot() {
+    moodRng = Chirp::Rng(esp_random());
+    moodTzKnown = MoodStore::loadTz(&moodTzMin);
+    Mood::Persisted p;
+    const bool have = MoodStore::load(&p);
+    uint32_t newestEpoch = 0;
+    Storage::PhotoInfo info;
+    const int newest = Storage::newestIndex();
+    if (newest > 0 && Storage::photoInfo(newest, &info)) newestEpoch = info.epoch;
+    Mood::Clock c = moodClock();
+    Mood::boot(moodState, c, have ? &p : nullptr, newestEpoch, moodRng);
+    Serial.printf("Mood: %s elapsed=%lus happiness=%u band=%u clock=%s tz=%s%d\n", have ? "resumed" : "fresh",
+                  (unsigned long)Mood::elapsed(moodState, c), Mood::happiness(moodState, c),
+                  Chirp::band(Mood::happiness(moodState, c)), c.epoch ? "set" : "unset",
+                  moodTzKnown ? "" : "unknown ", moodTzMin);
+    if (!have) moodPersist("first boot");
+}
+
+static void moodOnPhoto() {
+    Mood::onPhoto(moodState, moodClock(), moodRng);
+    moodPersist("photo");
+}
+
+// The phone set the clock (and maybe told us the timezone).
+static void moodOnClock(bool tzKnown, int16_t tzMin) {
+    if (tzKnown && (!moodTzKnown || moodTzMin != tzMin)) {
+        moodTzMin = tzMin;
+        moodTzKnown = true;
+        MoodStore::saveTz(tzMin);
+    }
+    Mood::onClockSet(moodState, moodClock());
+    moodPersist("clock");
+}
+
+// Compose, log, then play. The play blocks for up to 300ms, so the line is on
+// the monitor before the sound. Audio::init first: this is also called straight
+// out of light sleep, where the pin has to be claimed again.
+static void playMoodChirp(uint8_t happiness, const char* why) {
+    Chirp::Rng rng(esp_random());
+    Chirp::Score s = Chirp::compose(happiness, rng);
+    char desc[64];
+    Chirp::describe(s, desc, sizeof(desc));
+    Serial.printf("%s: chirp happiness=%u/255 band=%u %s = %lums\n", why, happiness,
+                  Chirp::band(happiness), desc, (unsigned long)Chirp::totalMs(s));
+    Audio::init(PIN_BUZZ);
+    Audio::playChirp(s);
+}
+
+// Ask the mood what it owes and pay it if this is a good moment. The state
+// machine never knows what screen is up; `quiet` is decided by the caller:
+// a screen a chirp may interrupt, button up, nothing else sounding, no
+// transfer running. A chirp that is not paid stays due for the next call.
+static void serviceMood(bool quiet, const char* why) {
+    Mood::Clock c = moodClock();
+    Mood::Due d = Mood::poll(moodState, c, moodRng);
+    if (d != Mood::Due::None && quiet) {
+        playMoodChirp(Mood::happiness(moodState, c), why);
+        Mood::onChirpPlayed(moodState, c, d, moodRng);
+        moodPersist(d == Mood::Due::HourChirp ? "hour chirp" : "attention chirp");
+    } else if (Mood::persistDue(moodState, c)) {
+        moodPersist("cadence");
+    }
+}
+
+// The sleep face for the current mood. A full frame when it first goes up or
+// the band moved; a breath (the other frame, face rows only) otherwise.
+static void showSleepFace(bool full) {
+    const uint8_t h = Mood::happiness(moodState, moodClock());
+    const uint8_t band = Chirp::band(h);
+    if (band != sleepFaceBand) full = true;
+    sleepFaceBand = band;
+    Display::drawSleep(h, sleepBreathIn, !full);
+    sleepFaceDrawnAt = millis();
+}
+
+static void breatheSleepFace() {
+    sleepBreathIn = !sleepBreathIn;
+    showSleepFace(false);
+}
 
 // Boot/wake gate, not a debounce: light sleep wakes on a HIGH level, i.e. with
 // the button still held, so the loop would otherwise see it as a fresh press.
@@ -197,6 +321,7 @@ void setup() {
     Storage::init();
 
     Identity::init();
+    moodBoot();
     Console::begin();
 
     // Initialize camera (OV2640 on the Sense B2B connector)
@@ -244,7 +369,8 @@ static void enterAsleep() {
     savedFrame = nullptr;
     captureHeld = false;
     Audio::playMelody(Audio::Melody::DaDaTa);
-    Display::drawSleep();
+    sleepBreathIn = false;
+    showSleepFace(true);
     // The sensor's work is done: tear the driver down as sleep does
     // (docs/camera_standby.md covers what that does and doesn't save).
     if (cameraReady) {
@@ -286,6 +412,11 @@ static void handleSyncEvents() {
         // Asleep means the sleep face stays up. The one exception is a
         // pairing code, which only appears because someone is actively
         // pairing and needs to read it: that wakes the camera.
+        if (ev.kind == Sync::Event::ClockSet) {
+            // Never a screen change: the mood just learns the time.
+            moodOnClock((ev.value & Sync::CLOCK_TZ_KNOWN) != 0, (int16_t)(uint16_t)(ev.value & 0xFFFF));
+            continue;
+        }
         if (mode == Mode::Asleep) {
             if (ev.kind != Sync::Event::Passkey) continue;
             wakeFromAsleep();
@@ -340,7 +471,7 @@ void enterSleepMode() {
         Audio::update();
         delay(10);
     }
-    Display::drawSleep();
+    showSleepFace(true);
 
     // Radio off before the camera: light sleep and a live BLE controller is
     // undefined territory in this Arduino core, and the phone is told nothing
@@ -393,12 +524,19 @@ void enterSleepMode() {
             // The button — but a tap is not enough. Hold to wake; a release
             // before WAKE_HOLD_MS goes straight back to sleep.
             if (heldToWake()) break;
-            Serial.println("Sleep: tap ignored, hold to wake");
+            // A tap does not wake, but it is answered: a chirp at a random
+            // happiness, so a press in a bag is heard for what it was.
+            Serial.println("Sleep: tap, hold to wake");
+            playMoodChirp((uint8_t)esp_random(), "Sleep tap");
             continue;
         }
         if (cause == ESP_SLEEP_WAKEUP_TIMER) {
-            // Keep-alive tick: one SPI command, no melody, no re-init.
+            // Keep-alive tick, and the mood's clock while asleep: flip VCOM,
+            // breathe (face rows only), pay a due chirp. Radio and camera
+            // are down here, so a 300ms chirp costs nothing but the sound.
             Display::toggleVcom();
+            breatheSleepFace();
+            serviceMood(true, "Sleep");
             continue;
         }
         Serial.printf("Sleep: ignoring wake cause %d\n", (int)cause);
@@ -484,19 +622,6 @@ static void showGalleryPhoto() {
     Display::drawGalleryEmpty();
 }
 
-// Compose, log, then play. The play blocks for up to 300ms, so the line is on
-// the monitor before the sound — the order you want when judging a chirp
-// against its happiness. Behaviour spec in docs/mood.md.
-static void playMoodChirp(uint8_t happiness, const char* why) {
-    Chirp::Rng rng(esp_random());
-    Chirp::Score s = Chirp::compose(happiness, rng);
-    char desc[64];
-    Chirp::describe(s, desc, sizeof(desc));
-    Serial.printf("%s: chirp happiness=%u/255 band=%u %s = %lums\n", why, happiness,
-                  Chirp::band(happiness), desc, (unsigned long)Chirp::totalMs(s));
-    Audio::playChirp(s);
-}
-
 // Open the gallery. Called while the shutter is still held, so lastPressed is
 // already true and the gallery's press-edge test can't fire until the button
 // is released — the hold that opened it doesn't also advance it.
@@ -510,7 +635,6 @@ static void enterGallery() {
     Display::clearToast();
     hintToastShowing = false;
     galleryToastWasVisible = false;
-    galleryChirpPending = false;
     mode = Mode::Gallery;
     lastActivityTime = millis();
     Audio::playClick(true);  // Light: into the gallery
@@ -537,7 +661,6 @@ static void enterGallery() {
 // Back to the viewfinder. Also called mid-hold, and the viewfinder's own
 // press-edge test likewise waits for a release, so leaving never shoots.
 static void leaveGallery() {
-    galleryChirpPending = false;
     Display::clearToast();
     Audio::playClick();  // Regular: back to the camera
     Serial.println("Gallery: close");
@@ -602,6 +725,13 @@ void loop() {
 
     // Toggle VCOM to prevent LCD burn-in. Every mode needs this.
     Display::refresh();
+
+    // The mood is serviced every iteration; a chirp only plays on a screen it
+    // may interrupt, with the button up (a 300ms chirp must not delay a
+    // shutter press), nothing else sounding and no transfer running.
+    serviceMood((mode == Mode::Viewfinder || mode == Mode::Asleep) && !pressed && !Audio::isPlaying() &&
+                    !Sync::busy(),
+                mode == Mode::Asleep ? "Asleep" : "Viewfinder");
 
     switch (mode) {
         case Mode::Viewfinder: {
@@ -721,6 +851,7 @@ void loop() {
                 Audio::playClick();
                 switch (r) {
                     case Storage::Result::Ok:
+                        moodOnPhoto();
                         Audio::playMelody(Audio::Melody::Saved);
                         startDismiss("saved");
                         break;
@@ -766,7 +897,7 @@ void loop() {
                     galleryOrdinal = (galleryOrdinal + 1) % total;
                     galleryDirty = true;
                 }
-                galleryChirpPending = true;
+                Audio::playClick(true);
             }
             if (!pressed) gestureActive = false;
 
@@ -776,14 +907,6 @@ void loop() {
             if (galleryDirty || toastNow != galleryToastWasVisible) {
                 galleryToastWasVisible = toastNow;
                 showGalleryPhoto();
-            }
-            if (galleryChirpPending) {
-                galleryChirpPending = false;
-                // Test bed for the mood engine until the scheduler exists
-                // (docs/mood.md): every tap chirps at a random happiness,
-                // after the repaint so the photo is never late for the sound.
-                // The light tick this replaces comes back with the scheduler.
-                playMoodChirp((uint8_t)esp_random(), "Gallery");
             }
             break;
         }
@@ -795,8 +918,16 @@ void loop() {
             } else if (pressed && gestureActive && (millis() - pressStartedAt) >= WAKE_HOLD_MS) {
                 wakeFromAsleep();
                 break;
+            } else if (!pressed && lastPressed && gestureActive) {
+                // Released before the hold: a tap. Answered with a chirp at a
+                // random happiness so an accidental press explains itself.
+                // Not activity: it must not stretch the radio window.
+                playMoodChirp((uint8_t)esp_random(), "Asleep tap");
             }
             if (!pressed) gestureActive = false;
+
+            // The face breathes: the other frame every BREATH_MS.
+            if (millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
 
             // Radio window over? A phone that is busy with us extends it; so
             // does console traffic (above). Fresh millis(): asleepSince may
