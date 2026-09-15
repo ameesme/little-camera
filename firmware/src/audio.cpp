@@ -72,26 +72,6 @@ void playClick(bool light) {
     noTone(_buzzerPin);
 }
 
-void playWake() {
-    // Same three notes as the boot melody, but driven by digitalWrite() and
-    // delayMicroseconds() alone: no tone task, no LEDC channel, no dependence
-    // on the peripheral state a light sleep leaves behind.
-    ledcDetachPin(_buzzerPin);
-    pinMode(_buzzerPin, OUTPUT);
-    for (int i = 0; i < 3; i++) {
-        const uint32_t freq = MELODY0_FREQS[i];
-        const uint32_t half = 500000UL / freq;   // Half period, microseconds
-        const uint32_t cycles = freq * 60 / 1000;  // 60ms per note
-        for (uint32_t c = 0; c < cycles; c++) {
-            digitalWrite(_buzzerPin, HIGH);
-            delayMicroseconds(half);
-            digitalWrite(_buzzerPin, LOW);
-            delayMicroseconds(half);
-        }
-        delay(30);
-    }
-}
-
 void playMelody(Melody type) {
     if (melodyStep >= 0) return;  // Already playing
 

@@ -122,6 +122,11 @@ static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 // Camera::deinit() is not idempotent, so the driver's state is tracked too.
 static uint32_t asleepSince = 0;
 static bool cameraReady = false;
+// The wake-up click waits for the first viewfinder frame. Played any earlier
+// it is inaudible: the click is a burst of tone() messages, Camera::init()
+// then hogs the CPU for a few hundred ms, and by the time the tone task runs
+// the closing noTone() is already queued right behind the sweep.
+static bool wakeClickPending = false;
 
 // Forward declaration
 void enterSleepMode();
@@ -257,7 +262,7 @@ static void enterAsleep() {
 static void wakeFromAsleep() {
     Serial.println("Woke (radio was on)");
     Audio::init(PIN_BUZZ);
-    Audio::playWake();
+    wakeClickPending = true;
     if (!cameraReady) {
         cameraReady = Camera::init();
         if (!cameraReady) Serial.println("Camera re-init failed after wake");
@@ -408,9 +413,9 @@ void enterSleepMode() {
     hintToastShowing = false;
     Display::clearToast();
 
-    // The wake-up sound, before the camera's re-init so it lands on the hold
+    // The wake-up click plays once the first frame is up (see wakeClickPending)
     Audio::init(PIN_BUZZ);
-    Audio::playWake();
+    wakeClickPending = true;
 
     // Bring the sensor back up (torn down before sleep). On failure the loop
     // just gets nullptr frames from capture() and keeps a stale viewfinder,
@@ -558,6 +563,11 @@ void loop() {
             uint8_t* frame = Camera::capture();
             if (frame) {
                 Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
+            }
+            if (wakeClickPending && (frame || !cameraReady)) {
+                // The screen is back (or never will be): now the click is heard.
+                wakeClickPending = false;
+                Audio::playClick();
             }
 
             if (pressed && !lastPressed && confirmPressed()) {
