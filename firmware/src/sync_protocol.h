@@ -20,7 +20,7 @@ constexpr const char* DATA_UUID    = "1C000005-4C43-4D52-8000-6C6974746C65";
 constexpr uint8_t VERSION = 1;
 
 // Control opcodes
-constexpr uint8_t OP_SET_TIME = 0x01;  // u32 epoch
+constexpr uint8_t OP_SET_TIME = 0x01;  // u32 epoch [, i16 utc_offset_min]
 constexpr uint8_t OP_LIST     = 0x02;  // u16 from_index, u8 flags (bit0 unsynced only)
 constexpr uint8_t OP_GET      = 0x03;  // u16 index, u32 offset
 constexpr uint8_t OP_ACK      = 0x04;  // u16 index

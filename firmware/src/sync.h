@@ -20,10 +20,13 @@
 namespace Sync {
 
 struct Event {
-    enum Kind { None, Connected, Disconnected, Passkey, PairingDone, Sent };
+    enum Kind { None, Connected, Disconnected, Passkey, PairingDone, Sent, ClockSet };
     Kind kind = None;
     uint32_t value = 0;   // Passkey: the 6 digits. PairingDone: 1 ok / 0 failed. Sent: count this connection.
+                          // ClockSet: low 16 bits the UTC offset in minutes (as int16), CLOCK_TZ_KNOWN set if the phone sent one.
 };
+
+constexpr uint32_t CLOCK_TZ_KNOWN = 0x80000000u;
 
 void begin();   // Init NimBLE, build the service, start advertising. Idempotent.
 void end();     // Stop advertising, drop the connection, deinit NimBLE.

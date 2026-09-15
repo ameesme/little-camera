@@ -233,7 +233,16 @@ void handleCommand(const uint8_t* b, size_t len) {
             tv.tv_sec = (time_t)get32(b + 1);
             tv.tv_usec = 0;
             settimeofday(&tv, nullptr);
-            Serial.printf("Sync: clock set to %lu\n", (unsigned long)tv.tv_sec);
+            // Optional UTC offset (minutes east) behind the epoch: local time
+            // is what the mood's night rule needs (docs/mood.md). A 4-byte
+            // write from an older app is still fine, it just brings no tz.
+            uint32_t ev = 0;
+            if (len >= 7) {
+                int16_t tz = (int16_t)get16(b + 5);
+                if (tz >= -720 && tz <= 840) ev = CLOCK_TZ_KNOWN | (uint16_t)tz;
+            }
+            pushEvent(Event::ClockSet, ev);
+            Serial.printf("Sync: clock set to %lu%s\n", (unsigned long)tv.tv_sec, len >= 7 ? " with tz" : "");
             return reply(op, STATUS_OK);
         }
         case OP_LIST: {

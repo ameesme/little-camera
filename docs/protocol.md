@@ -125,7 +125,7 @@ Read it after connecting and after every `ACK`; it is not notified.
 
 | op | Name | Args | Effect |
 |---|---|---|---|
-| `0x01` | `SET_TIME` | `u32 epoch` | Sets the camera clock. Photos taken afterwards carry `t=` |
+| `0x01` | `SET_TIME` | `u32 epoch` [, `i16 utc_offset_min`] | Sets the camera clock. Photos taken afterwards carry `t=`. The optional offset (minutes east of UTC, e.g. 120 for CEST) gives the camera local time for its night rule ([mood.md](mood.md)); a 4-byte write is still accepted and leaves any stored offset alone |
 | `0x02` | `LIST` | `u16 from_index`, `u8 flags` (bit0 = unsynced only) | Streams `LIST_DATA` frames, ascending index, starting at `from_index` (inclusive) |
 | `0x03` | `GET` | `u16 index`, `u32 offset` | Streams the raw file (header + raster) from `offset` as `PHOTO_DATA` frames |
 | `0x04` | `ACK` | `u16 index` | The phone has the file safely. Camera marks it synced (rename `/0007.pbm` → `/0007s.pbm`) |
@@ -163,7 +163,7 @@ Frame: `[u8 kind][u16 seq][payload]`
 
 ```
 connect → read Info → if Secret unknown: read Secret (pair)
-SET_TIME(now)
+SET_TIME(now, utc_offset_min)
 LIST(from_index = 1, flags = unsynced_only)
 for each entry ascending:
     GET(index, 0)                     # resume with offset after a disconnect
