@@ -504,7 +504,7 @@ static void leaveGallery() {
     lastActivityTime = millis();
     hintToastShowing = false;
     Display::clearToast();
-    Audio::playClick();  // Regular, like entering
+    Audio::playClick(true);  // Light: back to the camera is a step, not a shot
     Serial.println("Gallery: close");
 }
 
