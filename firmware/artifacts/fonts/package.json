@@ -1,0 +1,9 @@
+{
+  "name": "little-camera-icon-tools",
+  "private": true,
+  "type": "module",
+  "description": "npm install && node convert_lucide_icons.mjs > ../../src/icons.h",
+  "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2"
+  }
+}

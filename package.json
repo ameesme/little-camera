@@ -1,0 +1,21 @@
+{
+  "name": "little-camera",
+  "private": true,
+  "description": "A tiny black-and-white camera, its bridge app, and the micro-blog it posts to.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "dev": "pnpm --filter @little-camera/server dev",
+    "typecheck": "pnpm -r typecheck",
+    "seed": "pnpm --filter @little-camera/server seed"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+# XcodeGen spec. `xcodegen generate` writes LittleCamera.xcodeproj (git-ignored).
+name: LittleCamera
+options:
+  bundleIdPrefix: me.amees
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+
+targets:
+  LittleCamera:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: LittleCamera
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.amees.littlecamera
+        PRODUCT_NAME: LittleCamera
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # iPhone only; there is no iPad layout.
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: LittleCamera/Info.plist
+      properties:
+        CFBundleDisplayName: Little Camera
+        CFBundleName: LittleCamera
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        # bluetooth-central is what lets iOS relaunch us in the background when the
+        # camera advertises again and a connect is pending (see CameraLink.swift).
+        UIBackgroundModes:
+          - bluetooth-central
+        NSBluetoothAlwaysUsageDescription: Little Camera talks to your camera over Bluetooth to pull photos off it, also while the app is in the background.
+        # White launch screen, no storyboard. Paper is a white colour set in Assets.
+        UILaunchScreen:
+          UIColorName: Paper
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiresFullScreen: true
+        # The app is black on white and nothing else; do not let dark mode invert it.
+        UIUserInterfaceStyle: Light

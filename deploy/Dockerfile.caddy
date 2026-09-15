@@ -1,0 +1,8 @@
+# Caddy with the Cloudflare DNS module, needed for the wildcard certificate.
+# Swap the module for your DNS provider (github.com/caddy-dns/*) and adjust
+# the tls block in the Caddyfile.
+FROM caddy:2-builder AS builder
+RUN xcaddy build --with github.com/caddy-dns/cloudflare
+
+FROM caddy:2
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
