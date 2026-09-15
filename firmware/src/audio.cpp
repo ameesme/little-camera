@@ -85,7 +85,9 @@ void playClick(bool light) {
         // flattens pitch differences, so it needs a wider spread than the
         // shutter click to be heard to vary — and its step length varies too,
         // which reads as a slightly longer or shorter tick.
-        const uint32_t scale = (uint32_t)random(70, 131);
+        // Range sits below the original pitch: 100% was already the bright
+        // end of what sounds good on this piezo.
+        const uint32_t scale = (uint32_t)random(55, 101);
         const uint32_t step = (uint32_t)random(550, 900);
         for (int f = 8000; f > 4500; f -= 400) square((uint32_t)f * scale / 100, step);
     } else {
