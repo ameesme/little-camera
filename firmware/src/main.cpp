@@ -492,7 +492,7 @@ static void enterGallery() {
     galleryToastWasVisible = false;
     mode = Mode::Gallery;
     lastActivityTime = millis();
-    Audio::playClick(true);
+    Audio::playClick();  // Regular: a screen switch. The light tick is for stepping through photos.
     Serial.println("Gallery: open");
     showGalleryPhoto();
 }
@@ -504,7 +504,7 @@ static void leaveGallery() {
     lastActivityTime = millis();
     hintToastShowing = false;
     Display::clearToast();
-    Audio::playClick(true);
+    Audio::playClick();  // Regular, like entering
     Serial.println("Gallery: close");
 }
 
