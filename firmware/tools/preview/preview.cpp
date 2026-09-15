@@ -158,7 +158,8 @@ static void usage(const char* argv0) {
         "  save         captured frame with the send/trash actions\n"
         "  slide        one frame of the capture -> save slide (see --t)\n"
         "  toast        viewfinder with the 'press to shoot' hint\n"
-        "  sleep        sleep face\n"
+        "  sleep        sleep face (see --happiness/--breath)\n"
+        "  sleep-content, sleep-glum, sleep-sad, sleep-breath  the other faces and the breath frame\n"
         "  splash       boot splash\n"
         "  gallery      a stored photo with the browse column (see --index/--total/--pbm)\n"
         "  gallery-slide  one frame of the viewfinder -> gallery slide (see --t)\n"
@@ -173,7 +174,9 @@ static void usage(const char* argv0) {
         "  --pbm FILE   320x240 binary PBM from the camera for the 'gallery' scene\n"
         "               (default: the test image, Floyd-Steinberg dithered)\n"
         "  --index N    0-based position shown in the gallery counter, default 2\n"
-        "  --total N    total shown in the gallery counter, default 12\n",
+        "  --total N    total shown in the gallery counter, default 12\n"
+        "  --happiness N  mood 0-255 for the sleep face, default 255\n"
+        "  --breath     draw the second breath frame of the sleep face\n",
         argv0);
 }
 
@@ -190,6 +193,8 @@ int main(int argc, char** argv) {
     uint32_t at = 0;
     float slideT = 0.5f;
     const char* pbm = nullptr;
+    int happiness = 255;
+    bool breath = false;
     int galleryIndex = 2;
     int galleryTotal = 12;
 
@@ -209,6 +214,10 @@ int main(int argc, char** argv) {
             pbm = argv[++i];
         } else if (!strcmp(argv[i], "--index") && hasValue) {
             galleryIndex = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--happiness") && hasValue) {
+            happiness = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--breath")) {
+            breath = true;
         } else if (!strcmp(argv[i], "--total") && hasValue) {
             galleryTotal = atoi(argv[++i]);
         } else {
@@ -246,7 +255,15 @@ int main(int argc, char** argv) {
                            Display::ToastVAlign::Top, false, 0);
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "sleep")) {
-        Display::drawSleep();
+        Display::drawSleep((uint8_t)happiness, breath);
+    } else if (!strcmp(scene, "sleep-content")) {
+        Display::drawSleep(160, breath);
+    } else if (!strcmp(scene, "sleep-glum")) {
+        Display::drawSleep(96, breath);
+    } else if (!strcmp(scene, "sleep-sad")) {
+        Display::drawSleep(24, breath);
+    } else if (!strcmp(scene, "sleep-breath")) {
+        Display::drawSleep((uint8_t)happiness, true);
     } else if (!strcmp(scene, "splash")) {
         Display::drawSplash();
     } else if (!strcmp(scene, "gallery") || !strcmp(scene, "gallery-slide")) {

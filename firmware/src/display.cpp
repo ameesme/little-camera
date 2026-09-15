@@ -1,6 +1,6 @@
 #include "display.h"
 #include "splash_data.h"
-#include "sleep_data.h"
+#include "chirp.h"  // Chirp::band: the face follows the mood in the same four steps as the sounds
 #include "ui.h"
 #include <SPI.h>
 
@@ -586,15 +586,17 @@ static void applyImagePaddingAndCorners(int drawnX, int drawnW, int imgStartX, i
     }
 }
 
-// Push the whole framebuffer to the panel in one CS-high transaction.
-static void flushFramebuffer() {
+// Push framebuffer rows [fromY, toY) to the panel in one CS-high transaction.
+// The panel is addressed per line, so a partial update costs only the lines
+// sent — what the breathing sleep face relies on to stay cheap.
+static void flushLines(int fromY, int toY) {
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
 
     sendByte(makeCommand(CMD_WRITE));
 
-    uint8_t* fbPtr = _framebuffer;
-    for (int line = 1; line <= HEIGHT; line++) {
+    uint8_t* fbPtr = _framebuffer + fromY * BYTES_PER_LINE;
+    for (int line = fromY + 1; line <= toY; line++) {
         sendByte(line);
         _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
         fbPtr += BYTES_PER_LINE;
@@ -606,6 +608,8 @@ static void flushFramebuffer() {
     delayMicroseconds(2);
     digitalWrite(_cs, LOW);
 }
+
+static void flushFramebuffer() { flushLines(0, HEIGHT); }
 
 // Ordered-Bayer dither the source into _photoBits. Image only — placement on
 // the panel is blitPhoto()'s job.
@@ -861,14 +865,67 @@ void drawSplash() {
     digitalWrite(_cs, LOW);
 }
 
-void drawSleep() {
-    // Copy sleep bitmap to framebuffer
-    const uint8_t* ptr = SLEEP_BITMAP;
-    for (int y = 0; y < HEIGHT; y++) {
-        for (int x = 0; x < BYTES_PER_LINE; x++) {
-            _framebuffer[y * BYTES_PER_LINE + x] = pgm_read_byte(ptr++);
-        }
+// The sleeping face is 16px pixel art, white on black: two closed eyes and a
+// mouth, centred on the panel. It follows the mood (docs/mood.md) in the same
+// four bands as the chirps: happy sleeps with a smile, content is the original
+// face (a dot for a mouth), glum goes flat, sad turns the eyes over and the
+// mouth down. `breathIn` is the second frame of a two-frame breath: eyes up a
+// touch, mouth down a touch, so the distance between them grows and shrinks
+// every 5s while it sleeps.
+namespace Face {
+constexpr int B = 16;             // Block size
+constexpr int EYE_L_X = 96;       // Left eye's left corner block
+constexpr int EYE_R_X = 240;      // Right eye's left corner block
+constexpr int EYE_Y = 96;         // Corner row of a happy (u-shaped) eye
+constexpr int MOUTH_X = 176;      // Left block of a three-block mouth; the dot sits in the middle
+constexpr int MOUTH_Y = 144;
+constexpr int BREATH_EYES_DY = -2;
+constexpr int BREATH_MOUTH_DY = 4;
+
+static void block(int x, int y) { fillRoundedRect(x, y, B, B, 0, true); }
+
+// A closed eye: happy is a u (corners up, two blocks down in the middle),
+// sad is an n (the reverse).
+static void eye(int x, int y, bool happy) {
+    const int hi = y, lo = y + B;
+    block(x, happy ? hi : lo);
+    block(x + 3 * B, happy ? hi : lo);
+    block(x + B, happy ? lo : hi);
+    block(x + 2 * B, happy ? lo : hi);
+}
+
+static void mouth(int x, int y, uint8_t band) {
+    switch (band) {
+        case 3:  // Smile
+            block(x, y);
+            block(x + 2 * B, y);
+            block(x + B, y + B);
+            break;
+        case 2:  // The original dot
+            block(x + B, y);
+            break;
+        case 1:  // Flat
+            block(x, y);
+            block(x + B, y);
+            block(x + 2 * B, y);
+            break;
+        default:  // Frown
+            block(x, y + B);
+            block(x + 2 * B, y + B);
+            block(x + B, y);
+            break;
     }
+}
+}  // namespace Face
+
+void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly) {
+    memset(_framebuffer, 0, sizeof(_framebuffer));  // Black
+    const uint8_t band = Chirp::band(happiness);
+    const int eyeY = Face::EYE_Y + (breathIn ? Face::BREATH_EYES_DY : 0);
+    const int mouthY = Face::MOUTH_Y + (breathIn ? Face::BREATH_MOUTH_DY : 0);
+    Face::eye(Face::EYE_L_X, eyeY, band > 0);
+    Face::eye(Face::EYE_R_X, eyeY, band > 0);
+    Face::mouth(Face::MOUTH_X, mouthY, band);
 
     // Draw "hold to wake" top-right, inverted (white on black). A hold, not
     // a press: main.cpp ignores taps on the sleeping camera.
@@ -884,24 +941,10 @@ void drawSleep() {
     drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);  // White border
     drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);  // White text
 
-    // Send framebuffer to display
-    digitalWrite(_cs, HIGH);
-    delayMicroseconds(6);
-
-    sendByte(makeCommand(CMD_WRITE));
-
-    uint8_t* fbPtr = _framebuffer;
-    for (int line = 1; line <= HEIGHT; line++) {
-        sendByte(line);
-        _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
-        fbPtr += BYTES_PER_LINE;
-        sendByte(0x00);
-    }
-
-    sendByte(0x00);
-
-    delayMicroseconds(2);
-    digitalWrite(_cs, LOW);
+    // A breath frame only touches the face rows; the rest of the panel keeps
+    // what it has. The band spans both breath positions of eyes and mouth.
+    if (faceOnly) flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
+    else flushFramebuffer();
 }
 
 void toggleVcom() {
