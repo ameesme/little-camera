@@ -62,14 +62,13 @@ constexpr uint32_t TRASH_HOLD_MS = 1500;
 // and well short of TRASH_HOLD_MS so the two holds stay apart by feel.
 constexpr uint32_t GALLERY_HOLD_MS = 700;
 
-// After the idle timeout the camera dozes rather than sleeping outright: the
-// viewfinder stops, the panel keeps showing what it showed, and the radio
-// keeps advertising so a phone can still collect photos. Real light sleep
-// (radio off, sleep face) follows after this long, or later while a phone is
-// mid-transfer.
-constexpr uint32_t DOZE_MS = 30000;
-// Waking — from the doze or from light sleep — takes a hold, not a tap. A
-// camera in a bag gets tapped; a second of pressure is intent.
+// After the idle timeout the sleep face goes up at once, but the radio keeps
+// advertising behind it for this long so a phone can still collect photos.
+// Only then does the chip light-sleep (radio off). A phone mid-transfer
+// stretches the window.
+constexpr uint32_t RADIO_LINGER_MS = 30000;
+// Waking — with the radio still on or from light sleep — takes a hold, not a
+// tap. A camera in a bag gets tapped; a second of pressure is intent.
 constexpr uint32_t WAKE_HOLD_MS = 1000;
 
 // One button drives everything, so the UI is a strict mode machine: the
@@ -80,7 +79,7 @@ enum class Mode {
     Save,        // Frame plus send/trash; press sends, hold trashes
     Dismissing,  // Slide back out after an action, then resume the viewfinder
     Gallery,     // Stored photos, newest first; press = next, hold = back
-    Dozing,      // Looks asleep, panel frozen, still advertising; hold wakes
+    Asleep,      // Sleep face up, radio still advertising; hold wakes
 };
 
 // State variables
@@ -113,14 +112,15 @@ static bool captureHeld = false;
 static int galleryOrdinal = 0;
 static bool galleryDirty = false;
 static bool galleryToastWasVisible = false;
+// Same for the save screen, which is also drawn once and then left alone.
+static bool saveToastWasVisible = false;
 // The decoded photo. Its own buffer rather than Display's: 9.6KB is noise next
 // to the 77KB camera frame, and Display keeps its bitmaps-in, pixels-out
 // contract (which is what lets the preview tool render the gallery).
 static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
-// Doze: when it began, and which screen a wake returns to (the one that was
-// left on the panel). Camera::deinit() is not idempotent, so track the driver.
-static uint32_t dozeStartedAt = 0;
-static Mode dozeReturnMode = Mode::Viewfinder;
+// When the sleep face went up (the radio window counts from here).
+// Camera::deinit() is not idempotent, so the driver's state is tracked too.
+static uint32_t asleepSince = 0;
 static bool cameraReady = false;
 
 // Forward declaration
@@ -214,8 +214,6 @@ void setup() {
     lastActivityTime = millis();
 }
 
-static void showGalleryPhoto();
-
 // True if the shutter stays down for WAKE_HOLD_MS from now; false the moment
 // it is released. Polls, so only for the moments when nothing else runs.
 static bool heldToWake() {
@@ -227,51 +225,43 @@ static bool heldToWake() {
     return true;
 }
 
-// Idle timeout: look asleep, stay reachable. The screen being left up is
-// redrawn once without the hint toast — the gallery stays the gallery,
-// anything else becomes one last live frame — and that is what the panel
-// holds for the whole doze. A memory LCD keeps its image for free, so nothing
-// is drawn again until a hold wakes us. A photo under review is discarded:
-// walking away is not consent to keep it.
-static void enterDoze() {
-    Serial.println("Dozing");
+// Idle timeout: sleep face up, camera driver down, radio still on. To the
+// user this is sleep; to a phone it is another RADIO_LINGER_MS of chances to
+// collect photos before the chip really goes down (enterSleepMode). A photo
+// under review is discarded: walking away is not consent to keep it.
+static void enterAsleep() {
+    Serial.println("Asleep (radio on)");
     Display::clearToast();
     hintToastShowing = false;
     pendingToast = nullptr;
     savedFrame = nullptr;
     captureHeld = false;
-    if (mode == Mode::Gallery) {
-        dozeReturnMode = Mode::Gallery;
-        showGalleryPhoto();
-    } else {
-        dozeReturnMode = Mode::Viewfinder;
-        uint8_t* frame = cameraReady ? Camera::capture() : nullptr;
-        if (frame) Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
-    }
-    // The sensor's work is done for now: tear the driver down as sleep does
+    Audio::playMelody(Audio::Melody::DaDaTa);
+    Display::drawSleep();
+    // The sensor's work is done: tear the driver down as sleep does
     // (docs/camera_standby.md covers what that does and doesn't save).
     if (cameraReady) {
         Camera::deinit();
         cameraReady = false;
     }
-    dozeStartedAt = millis();
+    asleepSince = millis();
     gestureActive = false;
     holdFired = false;
-    mode = Mode::Dozing;
+    mode = Mode::Asleep;
 }
 
-// A one-second hold during the doze: back to the screen that was left up.
-// The shutter is still down on the way out, and both screens act on press
-// edges only, so the hold neither shoots nor advances the gallery.
-static void wakeFromDoze() {
-    Serial.println("Woke from doze");
+// A one-second hold on the sleeping camera: back to the viewfinder, at the
+// moment the hold completes rather than on release. The shutter is still
+// down on the way out and the viewfinder acts on press edges only, so the
+// hold does not shoot.
+static void wakeFromAsleep() {
+    Serial.println("Woke (radio was on)");
     Audio::playClick();
     if (!cameraReady) {
         cameraReady = Camera::init();
-        if (!cameraReady) Serial.println("Camera re-init failed after doze");
+        if (!cameraReady) Serial.println("Camera re-init failed after wake");
     }
-    mode = dozeReturnMode;
-    galleryDirty = true;
+    mode = Mode::Viewfinder;
     hintToastShowing = false;
     gestureActive = false;
     holdFired = false;
@@ -285,12 +275,12 @@ static void handleSyncEvents() {
     Sync::Event ev;
     while (Sync::nextEvent(&ev)) {
         char text[32];
-        // Dozing means the panel stays as it is. The one exception is a
+        // Asleep means the sleep face stays up. The one exception is a
         // pairing code, which only appears because someone is actively
         // pairing and needs to read it: that wakes the camera.
-        if (mode == Mode::Dozing) {
+        if (mode == Mode::Asleep) {
             if (ev.kind != Sync::Event::Passkey) continue;
-            wakeFromDoze();
+            wakeFromAsleep();
         }
         switch (ev.kind) {
             case Sync::Event::Connected:
@@ -336,14 +326,12 @@ void enterSleepMode() {
     pendingToast = nullptr;
     captureHeld = false;
 
-    // Play descending melody before sleep
-    Audio::playMelody(Audio::Melody::DaDaTa);
+    // Sleep face and melody are normally already done by enterAsleep(); this
+    // keeps the direct path (and the preview's expectations) intact.
     while (Audio::isPlaying()) {
         Audio::update();
         delay(10);
     }
-
-    // Draw sleep screen
     Display::drawSleep();
 
     // Radio off before the camera: light sleep and a live BLE controller is
@@ -358,7 +346,7 @@ void enterSleepMode() {
     // milliamps, dwarfing everything else on the board (~250uA for the sleeping
     // S3, ~50uA for the static panel). Tearing the driver down is the only lever
     // we have; it costs a few hundred ms of re-init on wake. (Usually already
-    // done by the doze that precedes this.)
+    // done by enterAsleep(), which precedes this.)
     if (cameraReady) {
         Camera::deinit();
         cameraReady = false;
@@ -435,11 +423,11 @@ void enterSleepMode() {
     Sync::begin();
 #endif
 
-    // Require a continuously-released line before resuming — a plain
-    // release-wait plus fixed delay still let release bounce re-trigger
-    // a capture right after wake
-    waitForStableRelease(100);
-    lastPressed = false;
+    // The shutter is still held (that is what woke us), and the viewfinder
+    // only acts on a press *edge*: marking it as already pressed means the
+    // hold that woke the camera doesn't also shoot, without making the user
+    // let go first. Release bounce is covered by confirmPressed() as usual.
+    lastPressed = true;
 }
 
 // Ease-out cubic. The panel only manages ~10 frames across a slide, and at that
@@ -455,6 +443,7 @@ static float easeOutCubic(float p) {
 // lands — raising it mid-slide would drop it on top of the columns still
 // moving underneath it.
 static void startDismiss(const char* toast) {
+    Display::clearToast();
     pendingToast = toast;
     dismissStartedAt = millis();
     mode = Mode::Dismissing;
@@ -523,6 +512,7 @@ static void returnToViewfinder() {
     mode = Mode::Viewfinder;
     lastActivityTime = millis();
     hintToastShowing = false;
+    Display::clearToast();
     if (pendingToast) {
         Display::showToast(pendingToast, Display::ToastHAlign::Right,
                            Display::ToastVAlign::Top);
@@ -534,22 +524,22 @@ void loop() {
     bool pressed = shutterPressed();
     uint32_t now = millis();
 
-    // Idle timeout: doze first (panel frozen, radio on), real sleep later
-    // from the Dozing case below. Also applies on the save screen: an
+    // Idle timeout: sleep face up and radio still on first, light sleep later
+    // from the Asleep case below. Also applies on the save screen: an
     // unanswered prompt is still an idle device.
-    if (mode != Mode::Dozing && now - lastActivityTime >= IDLE_TIMEOUT_MS) {
-        enterDoze();
+    if (mode != Mode::Asleep && now - lastActivityTime >= IDLE_TIMEOUT_MS) {
+        enterAsleep();
     }
 
     Audio::update();
     Sync::loop();
     handleSyncEvents();
 
-    // USB console: an export in progress is activity. It holds off the doze,
-    // and stretches a doze in progress, without waking the screen.
+    // USB console: an export in progress is activity. It holds off sleep,
+    // and keeps a sleeping camera's radio on, without waking the screen.
     if (Console::poll()) {
         lastActivityTime = millis();
-        dozeStartedAt = millis();
+        asleepSince = millis();
     }
 
     // Toggle VCOM to prevent LCD burn-in. Every mode needs this.
@@ -572,10 +562,11 @@ void loop() {
             if (pressed && !lastPressed && confirmPressed()) {
                 Serial.println("Shutter — capturing");
 
-                if (hintToastShowing) {
-                    Display::clearToast();
-                    hintToastShowing = false;
-                }
+                // A screen switch always drops the toast. A timed toast only
+                // expires when something re-renders, and the capture screen
+                // is drawn once — carried over, it would sit there for good.
+                Display::clearToast();
+                hintToastShowing = false;
 
                 // Re-grab so the saved frame is the one taken at the press, not
                 // the viewfinder frame from the top of this iteration.
@@ -625,6 +616,8 @@ void loop() {
                 break;
             }
 
+            Display::clearToast();
+            saveToastWasVisible = false;
             Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
             mode = Mode::Save;
             // Start the gesture from a clean slate. If the shutter is still
@@ -678,6 +671,16 @@ void loop() {
             }
 
             if (!pressed) gestureActive = false;
+
+            // Static screen: repaint only when a toast comes or goes, so a
+            // "phone connected" raised here also goes away again.
+            if (mode == Mode::Save) {
+                bool toastNow = Display::toastVisible();
+                if (toastNow != saveToastWasVisible) {
+                    saveToastWasVisible = toastNow;
+                    Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+                }
+            }
             break;
         }
 
@@ -716,20 +719,20 @@ void loop() {
             break;
         }
 
-        case Mode::Dozing: {
+        case Mode::Asleep: {
             if (pressed && !lastPressed && confirmPressed()) {
                 pressStartedAt = millis();
                 gestureActive = true;
             } else if (pressed && gestureActive && (millis() - pressStartedAt) >= WAKE_HOLD_MS) {
-                wakeFromDoze();
+                wakeFromAsleep();
                 break;
             }
             if (!pressed) gestureActive = false;
 
-            // Doze over? A phone that is busy with us extends it; so does
-            // console traffic (above). Fresh millis(): dozeStartedAt may have
-            // been set later in this very iteration than `now`.
-            if (millis() - dozeStartedAt >= DOZE_MS && !Sync::activeRecently(millis())) {
+            // Radio window over? A phone that is busy with us extends it; so
+            // does console traffic (above). Fresh millis(): asleepSince may
+            // have been set later in this very iteration than `now`.
+            if (millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
                 enterSleepMode();
                 return;  // After wake, restart loop fresh
             }

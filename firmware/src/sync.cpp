@@ -17,8 +17,8 @@ namespace {
 
 using namespace SyncProto;
 
-// A connected phone that has gone quiet for this long stops stretching the
-// doze. A stuck app cannot pin the battery; end() drops the link.
+// A connected phone that has gone quiet for this long stops holding the
+// radio on. A stuck app cannot pin the battery; end() drops the link.
 constexpr uint32_t BLE_ACTIVE_MS = 60000;
 // Notifications pushed per loop() call. Enough to saturate the link at a
 // 15-30ms connection interval, few enough that the viewfinder keeps drawing.
