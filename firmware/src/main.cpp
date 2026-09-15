@@ -256,7 +256,8 @@ static void enterAsleep() {
 // hold does not shoot.
 static void wakeFromAsleep() {
     Serial.println("Woke (radio was on)");
-    Audio::playClick();
+    Audio::init(PIN_BUZZ);
+    Audio::playWake();
     if (!cameraReady) {
         cameraReady = Camera::init();
         if (!cameraReady) Serial.println("Camera re-init failed after wake");
@@ -407,9 +408,9 @@ void enterSleepMode() {
     hintToastShowing = false;
     Display::clearToast();
 
-    // Play click immediately after wake
+    // The wake-up sound, before the camera's re-init so it lands on the hold
     Audio::init(PIN_BUZZ);
-    Audio::playClick();
+    Audio::playWake();
 
     // Bring the sensor back up (torn down before sleep). On failure the loop
     // just gets nullptr frames from capture() and keeps a stale viewfinder,
