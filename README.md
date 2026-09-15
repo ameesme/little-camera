@@ -8,7 +8,7 @@ ios/         Bridge app (SwiftUI + CoreBluetooth). Pulls photos off the camera, 
 server/      Micro-blog + API (TypeScript, Hono, SQLite). One subdomain per camera owner.
 packages/    Shared TypeScript: PBM parsing, PNG encoding, short codes.
 deploy/      Docker Compose + Caddy (wildcard TLS) for a VPS.
-docs/        protocol.md (BLE + HTTP contract), flows.md (who does what).
+docs/        protocol.md (BLE + HTTP contract), flows.md (who does what), mood.md (the camera as a small creature).
 ```
 
 Everything is black and white. Where a grey is unavoidable it is a 2 px checker.
@@ -39,6 +39,12 @@ cd firmware/tools/preview && make scenes   # BMPs in out/
 ```
 
 Gestures: press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, hold = back). On the review screen press = save, hold 1.5 s = trash. Asleep: hold 1 s to wake.
+
+The camera chirps when it wants attention (`docs/mood.md`). The sounds are composed, not recorded; listen to them without hardware:
+
+```
+cd firmware/tools/chirp && make bands       # out/band-{sad,glum,content,happy}.wav + out/ladder.wav
+```
 
 ## Server
 
