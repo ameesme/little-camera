@@ -782,18 +782,41 @@ void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight
     renderSaveLayout(t);
 }
 
-void drawGallery(const uint8_t* bits, int index, int total) {
+// Same slide as capture -> save, with the browse column entering instead of
+// the actions: one shift drives the card, the sidebar walking off the left,
+// and the gallery bar walking in from the right. Renders whatever is in
+// _photoBits.
+static void renderGalleryLayout(int index, int total, float t) {
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    const int shift = (int)(SAVE_SLIDE_PX * t + 0.5f);
+    renderPhotoCard(PHOTO_X_CAPTURE - shift);
+    drawSidebar(SIDEBAR_PADDING - shift);
+    drawGalleryBar(WIDTH - shift, index, total);
+    renderToast();
+    flushFramebuffer();
+}
+
+void drawGalleryTransition(const uint8_t* bits, int index, int total, float t) {
     if (!bits) return;
     // A copy rather than decoding straight into _photoBits: 9.6KB of memcpy is
     // microseconds against a 13ms panel flush, and it keeps Display's contract
     // one-directional (bitmaps in, pixels out), which is what the preview tool
     // relies on.
     memcpy(_photoBits, bits, sizeof(_photoBits));
-    // Same geometry as the save layout at rest: card flush left, column right.
-    renderPhotoCard(VF_PADDING_LEFT);
-    drawGalleryBar(WIDTH - SIDEBAR_PADDING - BOX_WIDTH, index, total);
-    renderToast();
-    flushFramebuffer();
+    renderGalleryLayout(index, total, t);
+}
+
+void drawGalleryDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight,
+                                  int index, int total, float t) {
+    if (grayscale) bayerPhoto(grayscale, srcWidth);
+    renderGalleryLayout(index, total, t);
+}
+
+void drawGallery(const uint8_t* bits, int index, int total) {
+    // The gallery at rest is the far end of the slide: card flush left at
+    // VF_PADDING_LEFT, sidebar fully off-screen, column at the right margin.
+    drawGalleryTransition(bits, index, total, 1.0f);
 }
 
 void drawGalleryEmpty() {

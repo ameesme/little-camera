@@ -46,6 +46,15 @@ void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight
 // Display knows nothing about files, which is what lets the preview tool hand
 // it any bitmap. index is 0-based, total >= 1.
 void drawGallery(const uint8_t* bits, int index, int total);
+// One frame of the viewfinder -> gallery slide, same t convention as
+// drawSaveTransition: t=0 has the photo in the viewfinder position with the
+// sidebar up, t=1 reproduces drawGallery(). Same `bits` contract.
+void drawGalleryTransition(const uint8_t* bits, int index, int total, float t);
+// One frame of the gallery -> viewfinder slide out, same convention as
+// drawDismissTransition: Bayer-dithers a live frame, or pass nullptr to keep
+// showing the gallery photo while the columns move.
+void drawGalleryDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight,
+                                  int index, int total, float t);
 // Gallery with nothing to show: an empty card and only the back button.
 void drawGalleryEmpty();
 

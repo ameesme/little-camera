@@ -161,6 +161,7 @@ static void usage(const char* argv0) {
         "  sleep        sleep face\n"
         "  splash       boot splash\n"
         "  gallery      a stored photo with the browse column (see --index/--total/--pbm)\n"
+        "  gallery-slide  one frame of the viewfinder -> gallery slide (see --t)\n"
         "  gallery-empty  the gallery with nothing on the flash\n"
         "\n"
         "options:\n"
@@ -248,7 +249,7 @@ int main(int argc, char** argv) {
         Display::drawSleep();
     } else if (!strcmp(scene, "splash")) {
         Display::drawSplash();
-    } else if (!strcmp(scene, "gallery")) {
+    } else if (!strcmp(scene, "gallery") || !strcmp(scene, "gallery-slide")) {
         if (pbm) {
             if (!loadPBM(pbm)) return 1;
         } else {
@@ -257,7 +258,11 @@ int main(int argc, char** argv) {
             Display::drawCapture(g_source, Camera::WIDTH, Camera::HEIGHT);
             memcpy(g_photo, Display::photoBits(), sizeof(g_photo));
         }
-        Display::drawGallery(g_photo, galleryIndex, galleryTotal);
+        if (!strcmp(scene, "gallery-slide")) {
+            Display::drawGalleryTransition(g_photo, galleryIndex, galleryTotal, slideT);
+        } else {
+            Display::drawGallery(g_photo, galleryIndex, galleryTotal);
+        }
     } else if (!strcmp(scene, "gallery-empty")) {
         Display::drawGalleryEmpty();
     } else {
