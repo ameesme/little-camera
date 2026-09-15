@@ -498,18 +498,50 @@ static void enterGallery() {
     lastActivityTime = millis();
     Audio::playClick(true);  // Light: into the gallery
     Serial.println("Gallery: open");
+    // Same slide as capture -> save, with the newest photo standing in for the
+    // viewfinder from the first frame. Blocking is fine here: the button is
+    // still held (the hold is what got us here) and the gallery ignores it
+    // until release anyway. If the newest photo won't load, skip the slide and
+    // let showGalleryPhoto()'s skip loop deal with it.
+    int total = Storage::photoCount();
+    int index = total > 0 ? Storage::photoAt(0) : 0;
+    if (index > 0 && Storage::loadPhoto(index, galleryBits, sizeof(galleryBits))) {
+        uint32_t start = millis();
+        uint32_t slid;
+        while ((slid = millis() - start) < SAVE_SLIDE_MS) {
+            Display::drawGalleryTransition(galleryBits, 0, total,
+                                           easeOutCubic((float)slid / SAVE_SLIDE_MS));
+            Audio::update();
+        }
+    }
     showGalleryPhoto();
 }
 
 // Back to the viewfinder. Also called mid-hold, and the viewfinder's own
 // press-edge test likewise waits for a release, so leaving never shoots.
 static void leaveGallery() {
-    mode = Mode::Viewfinder;
-    lastActivityTime = millis();
-    hintToastShowing = false;
     Display::clearToast();
     Audio::playClick();  // Regular: back to the camera
     Serial.println("Gallery: close");
+    // Slide back out like the save dismiss: the gallery photo rides the card
+    // for the first half, the live viewfinder takes over from DISMISS_LIVE_AT
+    // so the dither switch hides in the motion. The empty gallery got no
+    // slide in, so it gets none out.
+    if (Storage::photoCount() > 0) {
+        uint32_t start = millis();
+        uint32_t slid;
+        while ((slid = millis() - start) < SAVE_SLIDE_MS) {
+            float p = (float)slid / SAVE_SLIDE_MS;
+            uint8_t* live = (p >= DISMISS_LIVE_AT) ? Camera::capture() : nullptr;
+            Display::drawGalleryDismissTransition(live, Camera::WIDTH, Camera::HEIGHT,
+                                                  galleryOrdinal, Storage::photoCount(),
+                                                  1.0f - easeOutCubic(p));
+            Audio::update();
+        }
+    }
+    mode = Mode::Viewfinder;
+    lastActivityTime = millis();
+    hintToastShowing = false;
 }
 
 // Slide finished: back to live preview, with a toast naming what happened.
