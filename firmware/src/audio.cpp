@@ -57,19 +57,31 @@ void init(uint8_t buzzerPin) {
     noteStarted = false;
 }
 
-void playClick(bool light) {
-    if (light) {
-        for (int f = 8000; f > 4500; f -= 400) {
-            tone(_buzzerPin, f);
-            delayMicroseconds(700);
-        }
-    } else {
-        for (int f = 4000; f > 800; f -= 400) {
-            tone(_buzzerPin, f);
-            delayMicroseconds(800);
-        }
+// A square wave for `us` microseconds, driven by digitalWrite alone. Used for
+// the click instead of tone(): the click is a handful of sub-millisecond
+// steps, and after a wake the LEDC tone task produced nothing for it while a
+// bit-banged wave was heard every time. Blocking, but the whole click is
+// under 10ms.
+static void square(uint32_t freq, uint32_t us) {
+    const uint32_t half = 500000UL / freq;
+    for (uint32_t t = 0; t < us; t += 2 * half) {
+        digitalWrite(_buzzerPin, HIGH);
+        delayMicroseconds(half);
+        digitalWrite(_buzzerPin, LOW);
+        delayMicroseconds(half);
     }
-    noTone(_buzzerPin);
+}
+
+void playClick(bool light) {
+    // Same sweep and step timing as the original tone()-based click.
+    ledcDetachPin(_buzzerPin);
+    pinMode(_buzzerPin, OUTPUT);
+    if (light) {
+        for (int f = 8000; f > 4500; f -= 400) square((uint32_t)f, 700);
+    } else {
+        for (int f = 4000; f > 800; f -= 400) square((uint32_t)f, 800);
+    }
+    digitalWrite(_buzzerPin, LOW);
 }
 
 void playMelody(Melody type) {
