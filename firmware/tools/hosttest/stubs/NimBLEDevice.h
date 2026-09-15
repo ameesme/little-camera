@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <vector>
 
 
 #define BLE_HS_IO_DISPLAY_ONLY 0
@@ -71,6 +72,7 @@ public:
     void advertiseOnDisconnect(bool) {}
     NimBLEService* createService(const char*) { return nullptr; }
     bool disconnect(uint16_t, uint8_t = 0) { return true; }
+    std::vector<uint16_t> getPeerDevices() { return {}; }
 };
 
 class NimBLEAdvertising {

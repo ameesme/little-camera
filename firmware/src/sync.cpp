@@ -3,7 +3,6 @@
 #include <NimBLEDevice.h>
 #include <esp_bt.h>
 #include <esp_random.h>
-#include <esp_sleep.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -408,25 +407,36 @@ void begin() {
 
 void end() {
     if (!_running) return;
+    _running = false;
     _stream.active = false;
+
+    // Wind the stack down in order, and let the host task catch up between
+    // steps. Going straight from stopAdvertising() to deinit(true) crashed
+    // intermittently (InstrFetchProhibited, PC 0): the GAP "advertising
+    // complete" event was still in flight on the host task and landed on the
+    // advertising object deinit had just freed. delay() yields to that task.
+    if (_server) {
+        for (uint16_t handle : _server->getPeerDevices()) _server->disconnect(handle);
+        // The phone is told nothing more; it reconnects when we advertise again.
+        for (int i = 0; i < 30 && _connected; i++) delay(10);
+    }
     NimBLEDevice::stopAdvertising();
+    delay(100);
+
     // deinit(true) frees everything, so begin() rebuilds from scratch. Simpler
     // than keeping server objects alive across a sleep and hoping the
     // controller agrees with them afterwards.
     NimBLEDevice::deinit(true);
-    // Belt and braces. NimBLE's deinit is supposed to take the controller
-    // down with the host, but a controller left enabled keeps its own
-    // light-sleep wake source armed, and the camera then wakes the instant
-    // it sleeps (wake cause BT, or the sleep call rejected outright). Make
-    // sure it is really off, and drop the wake source it may have left.
+    // Belt and braces. NimBLE's deinit takes the controller down with the
+    // host on every core version seen so far, but a controller left enabled
+    // keeps its own light-sleep wake source armed, and the camera would then
+    // wake the instant it sleeps. Make sure it is really off.
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) esp_bt_controller_disable();
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_INITED) esp_bt_controller_deinit();
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_BT);
     _server = nullptr;
     _info = _secret = _control = _data = nullptr;
     _connected = false;
     _subscribed = false;
-    _running = false;
     Serial.println("Sync: stopped");
 }
 
