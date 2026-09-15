@@ -73,13 +73,18 @@ static void square(uint32_t freq, uint32_t us) {
 }
 
 void playClick(bool light) {
-    // Same sweep and step timing as the original tone()-based click.
+    // Same sweep and step timing as the original tone()-based click, but no
+    // two clicks are quite alike: every frequency in the sweep is scaled by
+    // a random 85-115%, which shifts the whole click brighter or duller
+    // while keeping its shape. A mechanical shutter never sounds the same
+    // twice either.
+    const uint32_t scale = (uint32_t)random(85, 116);
     ledcDetachPin(_buzzerPin);
     pinMode(_buzzerPin, OUTPUT);
     if (light) {
-        for (int f = 8000; f > 4500; f -= 400) square((uint32_t)f, 700);
+        for (int f = 8000; f > 4500; f -= 400) square((uint32_t)f * scale / 100, 700);
     } else {
-        for (int f = 4000; f > 800; f -= 400) square((uint32_t)f, 800);
+        for (int f = 4000; f > 800; f -= 400) square((uint32_t)f * scale / 100, 800);
     }
     digitalWrite(_buzzerPin, LOW);
 }
