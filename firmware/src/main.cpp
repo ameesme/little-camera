@@ -10,7 +10,9 @@
 #include <esp_sleep.h>
 #include <esp_system.h>
 #include <driver/gpio.h>
+#include <esp_random.h>
 #include "audio.h"
+#include "chirp.h"
 #include "camera.h"
 #include "console.h"
 #include "display.h"
@@ -116,6 +118,7 @@ static bool captureHeld = false;
 static int galleryOrdinal = 0;
 static bool galleryDirty = false;
 static bool galleryToastWasVisible = false;
+static bool galleryChirpPending = false;  // A tap's chirp, played after the repaint
 // Same for the save screen, which is also drawn once and then left alone.
 static bool saveToastWasVisible = false;
 // The decoded photo. Its own buffer rather than Display's: 9.6KB is noise next
@@ -481,6 +484,19 @@ static void showGalleryPhoto() {
     Display::drawGalleryEmpty();
 }
 
+// Compose, log, then play. The play blocks for up to 300ms, so the line is on
+// the monitor before the sound — the order you want when judging a chirp
+// against its happiness. Behaviour spec in docs/mood.md.
+static void playMoodChirp(uint8_t happiness, const char* why) {
+    Chirp::Rng rng(esp_random());
+    Chirp::Score s = Chirp::compose(happiness, rng);
+    char desc[64];
+    Chirp::describe(s, desc, sizeof(desc));
+    Serial.printf("%s: chirp happiness=%u/255 band=%u %s = %lums\n", why, happiness,
+                  Chirp::band(happiness), desc, (unsigned long)Chirp::totalMs(s));
+    Audio::playChirp(s);
+}
+
 // Open the gallery. Called while the shutter is still held, so lastPressed is
 // already true and the gallery's press-edge test can't fire until the button
 // is released — the hold that opened it doesn't also advance it.
@@ -494,6 +510,7 @@ static void enterGallery() {
     Display::clearToast();
     hintToastShowing = false;
     galleryToastWasVisible = false;
+    galleryChirpPending = false;
     mode = Mode::Gallery;
     lastActivityTime = millis();
     Audio::playClick(true);  // Light: into the gallery
@@ -504,6 +521,7 @@ static void enterGallery() {
 // Back to the viewfinder. Also called mid-hold, and the viewfinder's own
 // press-edge test likewise waits for a release, so leaving never shoots.
 static void leaveGallery() {
+    galleryChirpPending = false;
     mode = Mode::Viewfinder;
     lastActivityTime = millis();
     hintToastShowing = false;
@@ -716,7 +734,7 @@ void loop() {
                     galleryOrdinal = (galleryOrdinal + 1) % total;
                     galleryDirty = true;
                 }
-                Audio::playClick(true);
+                galleryChirpPending = true;
             }
             if (!pressed) gestureActive = false;
 
@@ -726,6 +744,14 @@ void loop() {
             if (galleryDirty || toastNow != galleryToastWasVisible) {
                 galleryToastWasVisible = toastNow;
                 showGalleryPhoto();
+            }
+            if (galleryChirpPending) {
+                galleryChirpPending = false;
+                // Test bed for the mood engine until the scheduler exists
+                // (docs/mood.md): every tap chirps at a random happiness,
+                // after the repaint so the photo is never late for the sound.
+                // The light tick this replaces comes back with the scheduler.
+                playMoodChirp((uint8_t)esp_random(), "Gallery");
             }
             break;
         }
