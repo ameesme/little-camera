@@ -847,8 +847,9 @@ void drawSleep() {
         }
     }
 
-    // Draw "press to wake" top-right, inverted (white on black)
-    const char* text = "press to wake";
+    // Draw "hold to wake" top-right, inverted (white on black). A hold, not
+    // a press: main.cpp ignores taps on the sleeping camera.
+    const char* text = "hold to wake";
     int textW = UI::textWidth(text, TOAST_FONT);
     int textH = UI::fontHeight(TOAST_FONT);
     int boxW = textW + TOAST_PADDING_H * 2;

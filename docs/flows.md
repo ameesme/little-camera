@@ -45,4 +45,4 @@ There is no battery sensing on the board. The blog shows a deterministic fake: 1
 
 ## Sleep vs Bluetooth
 
-The camera light-sleeps 10 s after the last activity and the radio dies with it. It stays awake while a phone is connected and active (60 s cap after the last BLE activity) and lingers 30 s after a wake when it has unsynced photos. Practical rule for the owner: take the picture, press send, and the phone in your pocket does the rest within half a minute.
+Ten seconds after the last activity the camera dozes: the screen freezes on whatever it showed, the camera looks asleep, and the radio keeps advertising for 30 s (longer while a phone is actively pulling). Then it light-sleeps and the radio dies with it. Waking, from the doze or from sleep, takes a one-second hold on the shutter; a tap does nothing. Practical rule for the owner: take the picture, press send, and the phone in your pocket does the rest within half a minute.

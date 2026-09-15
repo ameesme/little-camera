@@ -94,7 +94,7 @@ Base UUID `1C0000xx-4C43-4D52-8000-6C6974746C65` (`4C43 4D52` = "LCMR", suffix s
 | `04` | `Control` | WRITE (with response) | 1–7 bytes |
 | `05` | `Data` | NOTIFY | up to MTU − 3 |
 
-Advertising: connectable, 100 ms interval while awake, service UUID `…01` in the advertisement so iOS background scans match it. The camera advertises only while awake (see §3.6).
+Advertising: connectable, 100 ms interval, service UUID `…01` in the advertisement so iOS background scans match it. The camera advertises while awake and while dozing, not in light sleep (see §3.6).
 
 MTU: the camera requests 512. The usable notification payload is `MTU − 3` ATT bytes; the frame header takes 3, so `chunk = MTU − 6` (iOS typically grants 185 or 251 → 179 or 245-byte chunks; a 9.6 KB photo is ~40–55 notifications).
 
@@ -175,9 +175,9 @@ read Info; done when unsynced_count == 0
 
 ### 3.6 Power rules
 
-- The camera only runs the radio **while awake**. Light sleep tears the BLE stack down; wake brings it back.
-- While a phone is connected, the camera stays awake until 60 s after the last BLE activity (connect, write, notification, ACK).
-- When it wakes with unsynced photos it advertises for 30 s instead of the usual 10 s idle window, to give a backgrounded iPhone time to notice.
+- The camera runs the radio while awake and through the **doze** that follows the 10 s idle timeout: the panel freezes on its last image and the camera keeps advertising for 30 s, which gives a backgrounded iPhone time to notice.
+- While a phone is connected and active (connect, write, notification, ACK within the last 60 s) the doze stretches.
+- Then light sleep tears the BLE stack down; a one-second hold on the shutter wakes the camera and brings the radio back.
 - Pressing the shutter always wins; a transfer in progress simply continues alongside.
 
 ---

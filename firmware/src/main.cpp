@@ -62,6 +62,16 @@ constexpr uint32_t TRASH_HOLD_MS = 1500;
 // and well short of TRASH_HOLD_MS so the two holds stay apart by feel.
 constexpr uint32_t GALLERY_HOLD_MS = 700;
 
+// After the idle timeout the camera dozes rather than sleeping outright: the
+// viewfinder stops, the panel keeps showing what it showed, and the radio
+// keeps advertising so a phone can still collect photos. Real light sleep
+// (radio off, sleep face) follows after this long, or later while a phone is
+// mid-transfer.
+constexpr uint32_t DOZE_MS = 30000;
+// Waking — from the doze or from light sleep — takes a hold, not a tap. A
+// camera in a bag gets tapped; a second of pressure is intent.
+constexpr uint32_t WAKE_HOLD_MS = 1000;
+
 // One button drives everything, so the UI is a strict mode machine: the
 // meaning of a press depends entirely on which screen is up.
 enum class Mode {
@@ -70,6 +80,7 @@ enum class Mode {
     Save,        // Frame plus send/trash; press sends, hold trashes
     Dismissing,  // Slide back out after an action, then resume the viewfinder
     Gallery,     // Stored photos, newest first; press = next, hold = back
+    Dozing,      // Looks asleep, panel frozen, still advertising; hold wakes
 };
 
 // State variables
@@ -106,6 +117,11 @@ static bool galleryToastWasVisible = false;
 // to the 77KB camera frame, and Display keeps its bitmaps-in, pixels-out
 // contract (which is what lets the preview tool render the gallery).
 static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
+// Doze: when it began, and which screen a wake returns to (the one that was
+// left on the panel). Camera::deinit() is not idempotent, so track the driver.
+static uint32_t dozeStartedAt = 0;
+static Mode dozeReturnMode = Mode::Viewfinder;
+static bool cameraReady = false;
 
 // Forward declaration
 void enterSleepMode();
@@ -181,6 +197,7 @@ void setup() {
         Serial.println("Camera init failed — halting");
         while (true) delay(1000);
     }
+    cameraReady = true;
 
     // Radio last: everything it advertises (photo counts, the secret) exists
     // by now, and the camera init above is the slow part of boot anyway.
@@ -197,6 +214,70 @@ void setup() {
     lastActivityTime = millis();
 }
 
+static void showGalleryPhoto();
+
+// True if the shutter stays down for WAKE_HOLD_MS from now; false the moment
+// it is released. Polls, so only for the moments when nothing else runs.
+static bool heldToWake() {
+    uint32_t start = millis();
+    while (millis() - start < WAKE_HOLD_MS) {
+        if (!shutterPressed()) return false;
+        delay(10);
+    }
+    return true;
+}
+
+// Idle timeout: look asleep, stay reachable. The screen being left up is
+// redrawn once without the hint toast — the gallery stays the gallery,
+// anything else becomes one last live frame — and that is what the panel
+// holds for the whole doze. A memory LCD keeps its image for free, so nothing
+// is drawn again until a hold wakes us. A photo under review is discarded:
+// walking away is not consent to keep it.
+static void enterDoze() {
+    Serial.println("Dozing");
+    Display::clearToast();
+    hintToastShowing = false;
+    pendingToast = nullptr;
+    savedFrame = nullptr;
+    captureHeld = false;
+    if (mode == Mode::Gallery) {
+        dozeReturnMode = Mode::Gallery;
+        showGalleryPhoto();
+    } else {
+        dozeReturnMode = Mode::Viewfinder;
+        uint8_t* frame = cameraReady ? Camera::capture() : nullptr;
+        if (frame) Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
+    }
+    // The sensor's work is done for now: tear the driver down as sleep does
+    // (docs/camera_standby.md covers what that does and doesn't save).
+    if (cameraReady) {
+        Camera::deinit();
+        cameraReady = false;
+    }
+    dozeStartedAt = millis();
+    gestureActive = false;
+    holdFired = false;
+    mode = Mode::Dozing;
+}
+
+// A one-second hold during the doze: back to the screen that was left up.
+// The shutter is still down on the way out, and both screens act on press
+// edges only, so the hold neither shoots nor advances the gallery.
+static void wakeFromDoze() {
+    Serial.println("Woke from doze");
+    Audio::playClick();
+    if (!cameraReady) {
+        cameraReady = Camera::init();
+        if (!cameraReady) Serial.println("Camera re-init failed after doze");
+    }
+    mode = dozeReturnMode;
+    galleryDirty = true;
+    hintToastShowing = false;
+    gestureActive = false;
+    holdFired = false;
+    lastActivityTime = millis();
+}
+
 // Sync raises its events from loop() on the main thread, so drawing here is
 // safe. Toasts are the whole UI the radio gets: connect, the pairing code,
 // and a running count of what left the device.
@@ -204,6 +285,13 @@ static void handleSyncEvents() {
     Sync::Event ev;
     while (Sync::nextEvent(&ev)) {
         char text[32];
+        // Dozing means the panel stays as it is. The one exception is a
+        // pairing code, which only appears because someone is actively
+        // pairing and needs to read it: that wakes the camera.
+        if (mode == Mode::Dozing) {
+            if (ev.kind != Sync::Event::Passkey) continue;
+            wakeFromDoze();
+        }
         switch (ev.kind) {
             case Sync::Event::Connected:
                 Display::showToast("phone connected", Display::ToastHAlign::Right,
@@ -269,8 +357,12 @@ void enterSleepMode() {
     // light sleep only stops its XCLK — the sensor stays powered and biased at
     // milliamps, dwarfing everything else on the board (~250uA for the sleeping
     // S3, ~50uA for the static panel). Tearing the driver down is the only lever
-    // we have; it costs a few hundred ms of re-init on wake.
-    Camera::deinit();
+    // we have; it costs a few hundred ms of re-init on wake. (Usually already
+    // done by the doze that precedes this.)
+    if (cameraReady) {
+        Camera::deinit();
+        cameraReady = false;
+    }
 
     // Configure GPIO wakeup for light sleep (wake on HIGH = button press,
     // inverted polarity — see PIN_SHUTTER note)
@@ -301,7 +393,13 @@ void enterSleepMode() {
             delay(50);
             continue;
         }
-        if (cause == ESP_SLEEP_WAKEUP_GPIO) break;
+        if (cause == ESP_SLEEP_WAKEUP_GPIO) {
+            // The button — but a tap is not enough. Hold to wake; a release
+            // before WAKE_HOLD_MS goes straight back to sleep.
+            if (heldToWake()) break;
+            Serial.println("Sleep: tap ignored, hold to wake");
+            continue;
+        }
         if (cause == ESP_SLEEP_WAKEUP_TIMER) {
             // Keep-alive tick: one SPI command, no melody, no re-init.
             Display::toggleVcom();
@@ -328,7 +426,8 @@ void enterSleepMode() {
     // Bring the sensor back up (torn down before sleep). On failure the loop
     // just gets nullptr frames from capture() and keeps a stale viewfinder,
     // which beats halting a device the user just woke up.
-    if (!Camera::init()) {
+    cameraReady = Camera::init();
+    if (!cameraReady) {
         Serial.println("Camera re-init failed after wake");
     }
 
@@ -435,23 +534,23 @@ void loop() {
     bool pressed = shutterPressed();
     uint32_t now = millis();
 
-    // Idle timeout. Also applies on the save screen: an unanswered prompt is
-    // still an idle device, and the photo is discarded rather than saved —
-    // walking away is not consent to keep it. A phone mid-transfer, or one
-    // that may be about to connect, stretches it (Sync::keepAwake).
-    const uint32_t idleFor = now - lastActivityTime;
-    if (idleFor >= IDLE_TIMEOUT_MS && !Sync::keepAwake(now, idleFor)) {
-        enterSleepMode();
-        return;  // After wake, restart loop fresh
+    // Idle timeout: doze first (panel frozen, radio on), real sleep later
+    // from the Dozing case below. Also applies on the save screen: an
+    // unanswered prompt is still an idle device.
+    if (mode != Mode::Dozing && now - lastActivityTime >= IDLE_TIMEOUT_MS) {
+        enterDoze();
     }
 
     Audio::update();
     Sync::loop();
     handleSyncEvents();
 
-    // USB console: an export in progress is activity, so it holds off sleep the
-    // same way a button press does.
-    if (Console::poll()) lastActivityTime = millis();
+    // USB console: an export in progress is activity. It holds off the doze,
+    // and stretches a doze in progress, without waking the screen.
+    if (Console::poll()) {
+        lastActivityTime = millis();
+        dozeStartedAt = millis();
+    }
 
     // Toggle VCOM to prevent LCD burn-in. Every mode needs this.
     Display::refresh();
@@ -613,6 +712,26 @@ void loop() {
             if (galleryDirty || toastNow != galleryToastWasVisible) {
                 galleryToastWasVisible = toastNow;
                 showGalleryPhoto();
+            }
+            break;
+        }
+
+        case Mode::Dozing: {
+            if (pressed && !lastPressed && confirmPressed()) {
+                pressStartedAt = millis();
+                gestureActive = true;
+            } else if (pressed && gestureActive && (millis() - pressStartedAt) >= WAKE_HOLD_MS) {
+                wakeFromDoze();
+                break;
+            }
+            if (!pressed) gestureActive = false;
+
+            // Doze over? A phone that is busy with us extends it; so does
+            // console traffic (above). Fresh millis(): dozeStartedAt may have
+            // been set later in this very iteration than `now`.
+            if (millis() - dozeStartedAt >= DOZE_MS && !Sync::activeRecently(millis())) {
+                enterSleepMode();
+                return;  // After wake, restart loop fresh
             }
             break;
         }

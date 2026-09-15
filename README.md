@@ -38,7 +38,7 @@ Read `firmware/AGENTS.md` before changing anything hardware-facing. The UI can b
 cd firmware/tools/preview && make scenes   # BMPs in out/
 ```
 
-Gestures: press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, hold = back). On the review screen press = save, hold 1.5 s = trash.
+Gestures: press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, hold = back). On the review screen press = save, hold 1.5 s = trash. Asleep or dozing: hold 1 s to wake.
 
 ## Server
 

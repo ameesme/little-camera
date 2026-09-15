@@ -17,14 +17,9 @@ namespace {
 
 using namespace SyncProto;
 
-// A connected phone that has gone quiet for this long stops holding the
-// camera awake. A stuck app cannot pin the battery; end() drops the link.
-constexpr uint32_t BLE_KEEPAWAKE_MS = 60000;
-// After a wake with photos to send, advertise this long instead of the usual
-// 10s idle window. iOS background scanning can take several seconds to notice
-// an advertiser, and the whole point is that the phone in the pocket gets the
-// photo without being asked.
-constexpr uint32_t UNSYNCED_LINGER_MS = 30000;
+// A connected phone that has gone quiet for this long stops stretching the
+// doze. A stuck app cannot pin the battery; end() drops the link.
+constexpr uint32_t BLE_ACTIVE_MS = 60000;
 // Notifications pushed per loop() call. Enough to saturate the link at a
 // 15-30ms connection interval, few enough that the viewfinder keeps drawing.
 constexpr int CHUNKS_PER_LOOP = 8;
@@ -469,10 +464,8 @@ bool nextEvent(Event* out) {
 bool connected() { return _connected; }
 bool busy() { return _stream.active; }
 
-bool keepAwake(uint32_t now, uint32_t idleForMs) {
-    if (!_running) return false;
-    if (_connected) return now - _lastBleActivity < BLE_KEEPAWAKE_MS;
-    return Storage::unsyncedCount() > 0 && idleForMs < UNSYNCED_LINGER_MS;
+bool activeRecently(uint32_t now) {
+    return _running && _connected && now - _lastBleActivity < BLE_ACTIVE_MS;
 }
 
 }
