@@ -348,6 +348,26 @@ static void drawText(const char* text, int x, int y, UI::Font font, bool white) 
 }
 
 // Draw text centered in box at given Y position
+// Each glyph pixel becomes a scale x scale block. For the pairing screen,
+// where the code has to be readable at arm's length on a phone's terms.
+static void drawTextScaled(const char* text, int x, int y, UI::Font font, bool white, int scale) {
+    const int charW = UI::fontWidth(font);
+    const int charH = UI::fontHeight(font);
+    for (int i = 0; text[i]; i++) {
+        const uint8_t* glyph = UI::getGlyph(text[i], font);
+        for (int row = 0; row < charH; row++) {
+            const uint8_t rowData = glyph[row];
+            for (int col = 0; col < charW; col++) {
+                if (!(rowData & (1 << (7 - col)))) continue;
+                const int px = x + (i * (charW + 1) + col) * scale;
+                const int py = y + row * scale;
+                for (int dy = 0; dy < scale; dy++)
+                    for (int dx = 0; dx < scale; dx++) setPixel(px + dx, py + dy, white);
+            }
+        }
+    }
+}
+
 static void drawTextCenteredAt(const char* text, int boxX, int boxW, int y, UI::Font font, bool white) {
     int textW = UI::textWidth(text, font);
     int startX = boxX + (boxW - textW) / 2;
@@ -840,6 +860,34 @@ void drawGalleryEmpty() {
     flushFramebuffer();
 }
 
+// Pairing gets a screen of its own rather than a toast: the code has to stay
+// readable while the phone asks for it, and the viewfinder's own hint used to
+// paint straight over it. `big` is scaled to fit, so both the six digits and
+// the outcome line use one call.
+void drawPairing(const char* big, const char* hint) {
+    memset(_framebuffer, 0xFF, sizeof(_framebuffer));  // White paper, like every screen but sleep
+
+    const int inset = 12;
+    drawRoundedRectBorder(inset, inset, WIDTH - 2 * inset, HEIGHT - 2 * inset, VF_CORNER_RADIUS, false);
+
+    const int avail = WIDTH - 2 * (inset + 16);
+    const int unitW = UI::textWidth(big, UI::Font::Large);
+    int scale = 4;
+    while (scale > 1 && unitW * scale > avail) scale--;
+
+    const int bigW = unitW * scale;
+    const int bigH = UI::fontHeight(UI::Font::Large) * scale;
+    const bool hasHint = hint && hint[0];
+    const int hintH = hasHint ? UI::fontHeight(HINT_FONT) : 0;
+    const int gap = hasHint ? 20 : 0;
+
+    const int y = (HEIGHT - bigH - gap - hintH) / 2;
+    drawTextScaled(big, (WIDTH - bigW) / 2, y, UI::Font::Large, false, scale);
+    if (hasHint) drawTextCenteredAt(hint, 0, WIDTH, y + bigH + gap, HINT_FONT, false);
+
+    flushFramebuffer();
+}
+
 void drawSplash() {
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
@@ -876,40 +924,37 @@ namespace Face {
 constexpr int B = 16;             // Block size
 constexpr int EYE_L_X = 96;       // Left eye's left corner block
 constexpr int EYE_R_X = 240;      // Right eye's left corner block
-constexpr int EYE_Y = 96;         // Corner row of a happy (u-shaped) eye
-constexpr int MOUTH_X = 176;      // Left block of a three-block mouth; the dot sits in the middle
+constexpr int EYE_Y = 96;         // Top row of a happy (u-shaped) eye; a flat eye sits a block lower
+constexpr int MOUTH_X = 176;      // Left block of a three-block mouth; the square sits in the middle
 constexpr int MOUTH_Y = 144;
-constexpr int BREATH_EYES_DY = -2;
-constexpr int BREATH_MOUTH_DY = 4;
+constexpr int BREATH_EYES_DY = -4;
+constexpr int BREATH_MOUTH_DY = 8;
 
 static void block(int x, int y) { fillRoundedRect(x, y, B, B, 0, true); }
 
-// A closed eye: happy is a u (corners up, two blocks down in the middle),
-// sad is an n (the reverse).
+// A closed eye. Happy is a u, corners lifted off the line; everything else is
+// the same four blocks flat. The eyes carry the happiness, which is why the
+// happy face needs no smile.
 static void eye(int x, int y, bool happy) {
-    const int hi = y, lo = y + B;
-    block(x, happy ? hi : lo);
-    block(x + 3 * B, happy ? hi : lo);
-    block(x + B, happy ? lo : hi);
-    block(x + 2 * B, happy ? lo : hi);
+    const int lo = y + B;
+    block(x, happy ? y : lo);
+    block(x + 3 * B, happy ? y : lo);
+    block(x + B, lo);
+    block(x + 2 * B, lo);
 }
 
 static void mouth(int x, int y, uint8_t band) {
     switch (band) {
-        case 3:  // Smile
-            block(x, y);
-            block(x + 2 * B, y);
-            block(x + B, y + B);
-            break;
-        case 2:  // The original dot
+        case 3:  // Happy: a square, and lifted eyes above it
+        case 2:  // Content: the same square under flat eyes
             block(x + B, y);
             break;
-        case 1:  // Flat
+        case 1:  // Glum: the square stretches into a line
             block(x, y);
             block(x + B, y);
             block(x + 2 * B, y);
             break;
-        default:  // Frown
+        default:  // Sad: corners down
             block(x, y + B);
             block(x + 2 * B, y + B);
             block(x + B, y);
@@ -923,8 +968,8 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly) {
     const uint8_t band = Chirp::band(happiness);
     const int eyeY = Face::EYE_Y + (breathIn ? Face::BREATH_EYES_DY : 0);
     const int mouthY = Face::MOUTH_Y + (breathIn ? Face::BREATH_MOUTH_DY : 0);
-    Face::eye(Face::EYE_L_X, eyeY, band > 0);
-    Face::eye(Face::EYE_R_X, eyeY, band > 0);
+    Face::eye(Face::EYE_L_X, eyeY, band == 3);
+    Face::eye(Face::EYE_R_X, eyeY, band == 3);
     Face::mouth(Face::MOUTH_X, mouthY, band);
 
     // Draw "hold to wake" top-right, inverted (white on black). A hold, not

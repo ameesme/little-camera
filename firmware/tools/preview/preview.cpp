@@ -161,6 +161,7 @@ static void usage(const char* argv0) {
         "  sleep        sleep face (see --happiness/--breath)\n"
         "  sleep-content, sleep-glum, sleep-sad, sleep-breath  the other faces and the breath frame\n"
         "  splash       boot splash\n"
+        "  pairing, pairing-done  the pairing code screen and its outcome\n"
         "  gallery      a stored photo with the browse column (see --index/--total/--pbm)\n"
         "  gallery-slide  one frame of the viewfinder -> gallery slide (see --t)\n"
         "  gallery-empty  the gallery with nothing on the flash\n"
@@ -264,6 +265,10 @@ int main(int argc, char** argv) {
         Display::drawSleep(24, breath);
     } else if (!strcmp(scene, "sleep-breath")) {
         Display::drawSleep((uint8_t)happiness, true);
+    } else if (!strcmp(scene, "pairing")) {
+        Display::drawPairing("418302", "type this on your phone");
+    } else if (!strcmp(scene, "pairing-done")) {
+        Display::drawPairing("paired", nullptr);
     } else if (!strcmp(scene, "splash")) {
         Display::drawSplash();
     } else if (!strcmp(scene, "gallery") || !strcmp(scene, "gallery-slide")) {
