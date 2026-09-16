@@ -220,8 +220,9 @@ static void testChirp() {
         for (uint32_t seed = 1; seed <= 2000; seed++) {
             Chirp::Rng r(seed * 2654435761u + h);
             Chirp::Score s = Chirp::compose(h, r);
-            CHECK(s.n >= 1 && s.n <= Chirp::MAX_SEGMENTS);
+            CHECK(s.n >= 2 && s.n <= Chirp::MAX_SEGMENTS);  // Never a single beep
             CHECK(Chirp::totalMs(s) <= Chirp::MAX_TOTAL_MS);
+            CHECK(Chirp::totalMs(s) >= Chirp::MIN_TOTAL_MS);
             CHECK(s.happiness == h);
             bool anyPitched = false;
             for (uint8_t i = 0; i < s.n; i++) {

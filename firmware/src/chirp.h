@@ -20,6 +20,10 @@
 namespace Chirp {
 
 constexpr uint32_t MAX_TOTAL_MS = 300;  // Hard ceiling incl. gaps; ta-da-da is exactly this
+// A single beep is a notification; a chirp is a little phrase. Every score has
+// at least two segments and runs at least this long, guaranteed by
+// construction in compose() rather than by rejecting and redrawing.
+constexpr uint16_t MIN_TOTAL_MS = 100;
 constexpr uint16_t MIN_SEG_MS = 15;
 constexpr uint16_t MAX_SEG_MS = 120;
 constexpr uint16_t NOISE_MAX_MS = 60;  // A longer hiss reads as a fault, not a mood
@@ -102,7 +106,7 @@ inline uint8_t band(uint8_t happiness) { return happiness >> 6; }
 
 struct Band {
     uint8_t pTone, pSweep;         // Percent; noise gets the rest
-    uint8_t pOne, pTwo;            // Percent for n = 1, n = 2; n = 3 gets the rest
+    uint8_t pTwo;                  // Percent for n = 2; n = 3 gets the rest
     uint8_t segMax;                // ms; sad notes drag, happy ones are snappy
     uint8_t gapMin, gapMax;        // ms between segments
     uint8_t detMin, detMax;        // Cents on every pitched endpoint, random sign
@@ -118,12 +122,12 @@ struct Band {
 // long notes, wide gaps, detuned, half the notes a semitone off, falling,
 // noisy. Band 3 never gets noise or detune — that is the band the tests pin
 // to "scale only".
-//                                 tone swp  n1  n2  segMax gap    detune  semi  up  idx   clk kHz
+//                                 tone swp  n2  segMax gap    detune  semi  up  idx   clk kHz
 constexpr Band BANDS[4] = {
-    /* 0 sad       0- 63 */ {25, 35, 35, 40, 120, 20, 80, 30, 100, 50, 15, 0, 8, 8, 16},
-    /* 1 glum     64-127 */ {40, 30, 30, 45, 120, 15, 60, 15, 45, 25, 35, 2, 10, 14, 24},
-    /* 2 content 128-191 */ {60, 30, 30, 45, 100, 10, 40, 0, 10, 0, 70, 3, 10, 20, 32},
-    /* 3 happy   192-255 */ {75, 25, 20, 45, 80, 10, 40, 0, 0, 0, 85, 4, 11, 0, 0},
+    /* 0 sad       0- 63 */ {25, 35, 55, 120, 20, 80, 30, 100, 50, 15, 0, 8, 8, 16},
+    /* 1 glum     64-127 */ {40, 30, 55, 120, 15, 60, 15, 45, 25, 35, 2, 10, 14, 24},
+    /* 2 content 128-191 */ {60, 30, 60, 100, 10, 40, 0, 10, 0, 70, 3, 10, 20, 32},
+    /* 3 happy   192-255 */ {75, 25, 60, 80, 10, 40, 0, 0, 0, 85, 4, 11, 0, 0},
 };
 
 // ---- Composer --------------------------------------------------------------
@@ -153,25 +157,50 @@ inline Score compose(uint8_t happiness, Rng& rng) {
     const Band& b = BANDS[band(happiness)];
     Score s;
     s.happiness = happiness;
-    s.n = rng.chance(b.pOne) ? 1 : (rng.chance(b.pTwo) ? 2 : 3);
+    s.n = rng.chance(b.pTwo) ? 2 : 3;
     s.noiseSeed = rng.next();
 
+    // Kinds first: a segment's ceiling depends on its kind (noise is capped
+    // shorter, a long hiss reads as a fault), and the duration loop below needs
+    // every ceiling up front to hit MIN_TOTAL_MS without ever backtracking.
+    Kind kinds[MAX_SEGMENTS];
+    bool pitched = false;
+    for (uint8_t i = 0; i < s.n; i++) {
+        uint32_t r = rng.below(100);
+        kinds[i] = r < b.pTone ? Kind::Tone : (r < (uint32_t)b.pTone + b.pSweep ? Kind::Sweep : Kind::Noise);
+        if (kinds[i] != Kind::Noise) pitched = true;
+        if (!pitched && i == s.n - 1) kinds[i] = Kind::Tone;  // A chirp is never noise alone
+    }
+
     uint8_t idx = rng.between(b.idxLo, b.idxHi);
-    bool pitchedSeen = false;
     int32_t budget = (int32_t)MAX_TOTAL_MS;
+    int32_t spent = 0;
 
     for (uint8_t i = 0; i < s.n; i++) {
         Segment& g = s.seg[i];
+        g.kind = kinds[i];
         const int rest = s.n - 1 - i;
-        // Room the remaining segments need at their minimums, so the cap for
-        // this one can never squeeze a later one below MIN_SEG_MS. Budgeting
-        // by construction: no rescaling afterwards, no rounding surprises.
-        const int32_t reserve = rest ? rest * (int32_t)MIN_SEG_MS + (rest - 1) * (int32_t)b.gapMin : 0;
+        const int32_t capHere = g.kind == Kind::Noise ? (int32_t)NOISE_MAX_MS : (int32_t)b.segMax;
+
+        // What the segments after this one will take at their shortest (so
+        // this one can't crowd them out of MIN_SEG_MS) and at their longest
+        // (so this one knows how much of MIN_TOTAL_MS they can still cover).
+        int32_t reserve = rest ? (rest - 1) * (int32_t)b.gapMin : 0;
+        int32_t maxAfter = rest * (int32_t)b.gapMin;
+        for (uint8_t j = (uint8_t)(i + 1); j < s.n; j++) {
+            reserve += MIN_SEG_MS;
+            maxAfter += kinds[j] == Kind::Noise ? (int32_t)NOISE_MAX_MS : (int32_t)b.segMax;
+        }
         const int32_t gapLo = rest ? b.gapMin : 0;
+
         int32_t segCap = budget - gapLo - reserve;
-        if (segCap > b.segMax) segCap = b.segMax;
+        if (segCap > capHere) segCap = capHere;
         if (segCap < MIN_SEG_MS) segCap = MIN_SEG_MS;
-        g.ms = rng.between(MIN_SEG_MS, (uint16_t)segCap);
+        int32_t segLo = (int32_t)MIN_TOTAL_MS - spent - maxAfter;  // The floor this segment has to carry
+        if (segLo < MIN_SEG_MS) segLo = MIN_SEG_MS;
+        if (segLo > segCap) segLo = segCap;
+        g.ms = rng.between((uint16_t)segLo, (uint16_t)segCap);
+
         if (rest) {
             int32_t gapCap = budget - g.ms - reserve;
             if (gapCap > b.gapMax) gapCap = b.gapMax;
@@ -181,11 +210,7 @@ inline Score compose(uint8_t happiness, Rng& rng) {
             g.gapMs = 0;
         }
         budget -= g.ms + g.gapMs;
-
-        uint32_t r = rng.below(100);
-        g.kind = r < b.pTone ? Kind::Tone : (r < (uint32_t)b.pTone + b.pSweep ? Kind::Sweep : Kind::Noise);
-        // A chirp is never noise alone.
-        if (g.kind == Kind::Noise && rest == 0 && !pitchedSeen) g.kind = Kind::Tone;
+        spent += g.ms + g.gapMs;
 
         switch (g.kind) {
             case Kind::Tone:
@@ -198,7 +223,6 @@ inline Score compose(uint8_t happiness, Rng& rng) {
                     if (next == idx) next = detail::moveIdx(idx, 1, idx < SCALE_LEN / 2);
                     idx = next;
                 }
-                pitchedSeen = true;
                 break;
             case Kind::Sweep: {
                 uint8_t target = detail::moveIdx(idx, (uint8_t)rng.between(2, 5), rng.chance(b.pUp));
@@ -207,13 +231,11 @@ inline Score compose(uint8_t happiness, Rng& rng) {
                 g.f1 = detail::pitch(b, target, rng);
                 if (g.f1 == g.f0) g.f1 = detune(g.f0, g.f0 < 2000 ? 100 : -100);
                 idx = target;
-                pitchedSeen = true;
                 break;
             }
             case Kind::Noise:
                 g.f0 = (uint16_t)(1000u * rng.between(b.clkMinKHz, b.clkMaxKHz));
                 g.f1 = 0;
-                if (g.ms > NOISE_MAX_MS) g.ms = NOISE_MAX_MS;  // The budget stays spent; shorter only helps
                 break;
         }
     }
