@@ -51,6 +51,11 @@ constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
 // face comes up.
 constexpr uint32_t REVIEW_IDLE_TIMEOUT_MS = 30000;
 constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
+// Pairing holds the screen until the phone is done with it. The timeout is the
+// escape hatch for a phone that walks away mid-dialog; the result lingers just
+// long enough to be read.
+constexpr uint32_t PAIRING_TIMEOUT_MS = 60000;
+constexpr uint32_t PAIRING_RESULT_MS = 1500;
 
 // How long the bare capture holds before the layout starts sliding, and how
 // long the slide itself takes. The dwell exists so the shot registers as its
@@ -90,6 +95,7 @@ enum class Mode {
     Dismissing,  // Slide back out after an action, then resume the viewfinder
     Gallery,     // Stored photos, newest first; press = next, hold = back
     Asleep,      // Sleep face up, radio still advertising; hold wakes
+    Pairing,     // The phone is asking for the passkey; the code owns the screen
 };
 
 // State variables
@@ -132,6 +138,11 @@ static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 // Camera::deinit() is not idempotent, so the driver's state is tracked too.
 static uint32_t asleepSince = 0;
 static bool cameraReady = false;
+// Pairing: where to go back to, when it started, and when it ended (0 = still
+// waiting on the phone).
+static Mode modeBeforePairing = Mode::Viewfinder;
+static uint32_t pairingStartedAt = 0;
+static uint32_t pairingDoneAt = 0;
 
 // Forward declaration
 void enterSleepMode();
@@ -194,6 +205,8 @@ static void moodBoot() {
                   moodTzKnown ? "" : "unknown ", moodTzMin);
     if (!have) moodPersist("first boot");
 }
+
+static uint8_t moodHappiness() { return Mood::happiness(moodState, moodClock()); }
 
 static void moodOnPhoto() {
     Mood::onPhoto(moodState, moodClock(), moodRng);
@@ -402,51 +415,72 @@ static void wakeFromAsleep() {
     lastActivityTime = millis();
 }
 
+// The passkey takes the whole screen. As a toast it was both too small to read
+// out and too easy to lose: the viewfinder's own "press to shoot" hint painted
+// straight over it. The camera does not wake for this — pairing needs the
+// radio and the panel, not the sensor — so a sleeping camera pairs and goes
+// back to its face.
+static void enterPairing(uint32_t code) {
+    char text[16];
+    snprintf(text, sizeof(text), "%06lu", (unsigned long)code);
+    if (mode != Mode::Pairing) modeBeforePairing = mode;
+    Display::clearToast();
+    hintToastShowing = false;
+    savedFrame = nullptr;
+    captureHeld = false;
+    gestureActive = false;
+    holdFired = false;
+    mode = Mode::Pairing;
+    pairingStartedAt = millis();
+    pairingDoneAt = 0;
+    Display::drawPairing(text, "type this on your phone");
+    Serial.printf("Pairing: code %s\n", text);
+}
+
+// Back to whatever was up before. A photo under review is not worth restoring
+// through a pairing dialog, so anything that was not the sleep face resumes as
+// the viewfinder.
+static void leavePairing() {
+    if (modeBeforePairing == Mode::Asleep) {
+        mode = Mode::Asleep;
+        // The phone that just paired is about to sync: give the radio its full
+        // window again rather than whatever was left of the old one.
+        asleepSince = millis();
+        sleepBreathIn = false;
+        showSleepFace(true);
+    } else {
+        mode = Mode::Viewfinder;
+        lastActivityTime = millis();
+    }
+    hintToastShowing = false;
+    gestureActive = false;
+    holdFired = false;
+    Serial.println("Pairing: over");
+}
+
 // Sync raises its events from loop() on the main thread, so drawing here is
-// safe. Toasts are the whole UI the radio gets: connect, the pairing code,
-// and a running count of what left the device.
+// safe. Only pairing has a screen: connecting and transferring are the phone's
+// business, and it shows its own progress.
 static void handleSyncEvents() {
     Sync::Event ev;
     while (Sync::nextEvent(&ev)) {
-        char text[32];
-        // Asleep means the sleep face stays up. The one exception is a
-        // pairing code, which only appears because someone is actively
-        // pairing and needs to read it: that wakes the camera.
-        if (ev.kind == Sync::Event::ClockSet) {
-            // Never a screen change: the mood just learns the time.
-            moodOnClock((ev.value & Sync::CLOCK_TZ_KNOWN) != 0, (int16_t)(uint16_t)(ev.value & 0xFFFF));
-            continue;
-        }
-        if (mode == Mode::Asleep) {
-            if (ev.kind != Sync::Event::Passkey) continue;
-            wakeFromAsleep();
-        }
         switch (ev.kind) {
-            case Sync::Event::Connected:
-                Display::showToast("phone connected", Display::ToastHAlign::Right,
-                                   Display::ToastVAlign::Top);
-                break;
-            case Sync::Event::Disconnected:
+            case Sync::Event::ClockSet:
+                // Never a screen change: the mood just learns the time.
+                moodOnClock((ev.value & Sync::CLOCK_TZ_KNOWN) != 0, (int16_t)(uint16_t)(ev.value & 0xFFFF));
                 break;
             case Sync::Event::Passkey:
-                // Indefinite: it stays until pairing finishes one way or the other.
-                snprintf(text, sizeof(text), "pair %06lu", (unsigned long)ev.value);
-                Display::showToast(text, Display::ToastHAlign::Right, Display::ToastVAlign::Top,
-                                   true, 0);
+                enterPairing(ev.value);
                 break;
             case Sync::Event::PairingDone:
-                Display::showToast(ev.value ? "paired" : "pairing failed",
-                                   Display::ToastHAlign::Right, Display::ToastVAlign::Top);
-                break;
-            case Sync::Event::Sent:
-                snprintf(text, sizeof(text), "sent %lu", (unsigned long)ev.value);
-                Display::showToast(text, Display::ToastHAlign::Right, Display::ToastVAlign::Top);
+                if (mode == Mode::Pairing) {
+                    pairingDoneAt = millis();
+                    Display::drawPairing(ev.value ? "paired" : "pairing failed", nullptr);
+                }
                 break;
             default:
-                continue;
+                break;  // Connected, Disconnected, Sent: no screen of their own
         }
-        // The gallery only repaints on change; a new toast text is a change.
-        galleryDirty = true;
     }
 }
 
@@ -527,7 +561,7 @@ void enterSleepMode() {
             // A tap does not wake, but it is answered: a chirp at a random
             // happiness, so a press in a bag is heard for what it was.
             Serial.println("Sleep: tap, hold to wake");
-            playMoodChirp((uint8_t)esp_random(), "Sleep tap");
+            playMoodChirp(moodHappiness(), "Sleep tap");
             continue;
         }
         if (cause == ESP_SLEEP_WAKEUP_TIMER) {
@@ -708,7 +742,9 @@ void loop() {
     // unanswered prompt is still an idle device.
     const uint32_t idleLimit =
         (mode == Mode::Gallery || mode == Mode::Save) ? REVIEW_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
-    if (mode != Mode::Asleep && now - lastActivityTime >= idleLimit) {
+    // Pairing is the phone's moment, not an idle camera: it runs on its own
+    // timeout in the mode switch below.
+    if (mode != Mode::Asleep && mode != Mode::Pairing && now - lastActivityTime >= idleLimit) {
         enterAsleep();
     }
 
@@ -919,10 +955,11 @@ void loop() {
                 wakeFromAsleep();
                 break;
             } else if (!pressed && lastPressed && gestureActive) {
-                // Released before the hold: a tap. Answered with a chirp at a
-                // random happiness so an accidental press explains itself.
-                // Not activity: it must not stretch the radio window.
-                playMoodChirp((uint8_t)esp_random(), "Asleep tap");
+                // Released before the hold: a tap. Answered with a chirp in
+                // the camera's current mood, so an accidental press explains
+                // itself and says how the camera is doing. Not activity: it
+                // must not stretch the radio window.
+                playMoodChirp(moodHappiness(), "Asleep tap");
             }
             if (!pressed) gestureActive = false;
 
@@ -936,6 +973,14 @@ void loop() {
                 enterSleepMode();
                 return;  // After wake, restart loop fresh
             }
+            break;
+        }
+
+        case Mode::Pairing: {
+            // The button does nothing here; the phone drives. The screen ends
+            // on the result (after a beat to read it) or on the timeout.
+            const uint32_t waited = pairingDoneAt ? (millis() - pairingDoneAt) : (millis() - pairingStartedAt);
+            if (waited >= (pairingDoneAt ? PAIRING_RESULT_MS : PAIRING_TIMEOUT_MS)) leavePairing();
             break;
         }
 
