@@ -8,7 +8,7 @@ Who does what, in order. Byte-level details live in [protocol.md](protocol.md).
 2. Server emails a verification link (`email_verify` token, 24 h).
 3. Clicking it marks the email verified, logs the owner in (signed `owner` cookie) and lands on `/me`.
 4. `/me` shows the **verification picture**: a large QR code (`LC:XXXXXX`, 15 min) and the instruction to photograph it with the camera. Below it, a small form: "Camera not recognised? Type the code from the app."
-5. Meanwhile the owner installs the bridge app, which finds the camera (`lc-XXXX`), pairs (passkey shown on the camera), reads the secret and calls `POST /api/camera/hello`.
+5. Meanwhile the owner installs the bridge app, which finds the camera (`lc-XXXX`), pairs (the camera puts the six-digit passkey on its screen; a sleeping camera shows it without waking), reads the secret and calls `POST /api/camera/hello`.
 6. The owner photographs the phone screen with the camera and presses send on the camera. The app pulls the photo and uploads it. The server decodes the QR, **binds the camera to the profile**, tags the photo `verification`, moves any earlier photos from that camera onto the profile, and emails "your camera is linked".
 7. `/me` polls `/me/status` every 3 s and flips to "linked" with the blog URL. The blog is live at `https://<handle>.<apex>`.
 

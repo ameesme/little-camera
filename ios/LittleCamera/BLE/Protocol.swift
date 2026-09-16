@@ -104,7 +104,7 @@ struct CameraInfo: Equatable {
 // MARK: - Control (§3.3)
 
 enum ControlOp {
-    case setTime(epoch: UInt32)
+    case setTime(epoch: UInt32, utcOffsetMin: Int16)
     case list(from: UInt16, unsyncedOnly: Bool)
     case get(index: UInt16, offset: UInt32)
     case ack(index: UInt16)
@@ -137,8 +137,9 @@ enum ControlOp {
     var encoded: Data {
         var d = Data([code])
         switch self {
-        case .setTime(let epoch):
+        case .setTime(let epoch, let utcOffsetMin):
             d.lcAppend(epoch)
+            d.lcAppend(UInt16(bitPattern: utcOffsetMin))  // Local time for the camera's night rule
         case .list(let from, let unsyncedOnly):
             d.lcAppend(from)
             d.append(unsyncedOnly ? 0x01 : 0x00)
