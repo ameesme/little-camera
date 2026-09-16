@@ -117,7 +117,7 @@ Read it after connecting and after every `ACK`; it is not notified.
 
 ### 3.2 `Secret` (READ, encrypted)
 
-16 raw bytes. Reading it triggers pairing on first contact: the camera uses **passkey display** (it shows `pair 123456` on its screen), the phone asks the user to type it. After bonding the read succeeds silently on every reconnect. The phone stores the secret in the Keychain and never asks again.
+16 raw bytes. Reading it triggers pairing on first contact: the camera uses **passkey display** — the six digits take over its screen (`Display::drawPairing`, not a toast) until the phone reports the outcome or a minute passes — and the phone asks the user to type them. After bonding the read succeeds silently on every reconnect. The phone stores the secret in the Keychain and never asks again.
 
 ### 3.3 `Control` (WRITE)
 

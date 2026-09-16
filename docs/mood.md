@@ -10,15 +10,15 @@ Status: built. The sound engine (`firmware/src/chirp.h`, `Audio::playChirp`), th
 
 | Since last photo | Happiness | Face | Sound |
 |---|---|---|---|
-| 0 – 1 h | 1.0 – 0.99 | asleep, smiling | none |
+| 0 – 1 h | 1.0 – 0.99 | asleep, eyes lifted | none |
 | ~1 h | | | **one** chirp, happy |
-| 1 h – 24 h | 0.99 – 0.86 | smiling | none |
-| 1 – 3 d | 0.86 – 0.57 | smile flattening | chirps, harmonic with the odd slide |
-| 3 – 5 d | 0.57 – 0.29 | flat | chirps go off-scale, a sweep or a short hiss creeps in |
+| 1 h – 24 h | 0.99 – 0.86 | eyes lifted | none |
+| 1 – 3 d | 0.86 – 0.57 | eyes go flat | chirps, harmonic with the odd slide |
+| 3 – 5 d | 0.57 – 0.29 | mouth stretches flat | chirps go off-scale, a sweep or a short hiss creeps in |
 | 5 – 7 d | 0.29 – 0.0 | mouth turned down | dissonant, noisy, sweeps in both directions |
 | > 7 d | 0.0 | as sad as it gets | same, no further escalation |
 
-Taking a photo resets everything at once: face back to the smile, no chirps for an hour.
+Taking a photo resets everything at once: eyes lifted again, no chirps for an hour.
 
 ### What "time since last photo" can and cannot know
 
@@ -33,12 +33,14 @@ The sleep face is 16 px block art, white on black, drawn in code (`Display::draw
 
 | band | eyes | mouth |
 |---|---|---|
-| happy | ∪ closed, corners up | a three-block smile |
-| content | ∪ | the original single dot |
-| glum | ∪ | a flat line |
-| sad | ∩, turned over | a three-block frown |
+| happy | closed, corners lifted | a square |
+| content | flat | a square |
+| glum | flat | the square stretched into a line |
+| sad | flat | corners down |
 
-It **breathes**: every 5 s the other of two frames goes up, eyes two pixels higher and mouth four pixels lower, so the distance between them grows and shrinks. Awake behind the sleep face that is a timer in `loop()`; in light sleep it rides the 5 s VCOM wake that exists anyway. A breath pushes only the face rows to the panel; a full frame is sent when the face first goes up and when the band changes.
+The eyes carry the happiness: the happy face needs no smile, it just has lifted eyes over the same square mouth. Below the top band the eyes go flat and stay flat, and the mouth does the rest of the work.
+
+It **breathes**: every 5 s the other of two frames goes up, eyes four pixels higher and mouth eight pixels lower, so the distance between them grows and shrinks. Awake behind the sleep face that is a timer in `loop()`; in light sleep it rides the 5 s VCOM wake that exists anyway. A breath pushes only the face rows to the panel; a full frame is sent when the face first goes up and when the band changes.
 
 Preview without hardware: `cd firmware/tools/preview && make scenes` renders `sleep`, `sleep-content`, `sleep-glum`, `sleep-sad` and `sleep-breath`.
 
@@ -51,15 +53,15 @@ Preview without hardware: `cd firmware/tools/preview && make scenes` renders `sl
 - **Not at night.** No chirp between 22:00 and 08:00 local time **when the camera knows local time** (the phone sent the clock and its UTC offset). A chirp that comes due in that window is moved to 08:00 plus 0–2 h. Without a clock the night rule is skipped and only the two-a-day cap applies. Decided deliberately: a camera that has never met a phone should still be heard.
 - **Only on the viewfinder or the sleep face,** with the button up, no melody playing and no transfer running. A due chirp never interrupts the save screen, the gallery or a slide; it waits for the next opportunity.
 - **From light sleep:** the sleep loop wakes every `Display::VCOM_INTERVAL_MS` (5 s) to flip VCOM; the mood is serviced on that wake and a due chirp plays right there, radio and camera being down anyway.
-- **A tap on the sleeping camera** (released before the one-second wake hold), awake or in light sleep, answers with a chirp at a **random** happiness. It is feedback, not mood: it tells you that you pressed the button, it does not wake the camera and does not count as activity. Nothing else on the camera plays a chirp on purpose.
+- **A tap on the sleeping camera** (released before the one-second wake hold), awake or in light sleep, answers with a chirp **in the camera's current mood**, so a press in a bag both explains itself and says how the camera is doing. It does not wake the camera and does not count as activity. Nothing else on the camera plays a chirp on purpose.
 
 ### What
 
 Chirps come from a small procedural composer, not from a list of fixed melodies, so no two are the same.
 
 - **At most 300 ms** in total, the length of the existing ta-da-da. Most are shorter.
-- A chirp is **1–3 segments**, each a **tone**, a **sweep** (glide from one frequency to another) or a **noise** burst, each with its own random length (tones 20–120 ms, sweeps 40–150 ms, noise 10–60 ms) and a random gap after it (0–40 ms).
-- **Happy (happiness near 1):** tones only, or one sweep between two notes. All pitches are on the **A major scale** between A5 and A7 (880–3520 Hz, where the piezo is loudest). Successive notes move by a step, a third or a fifth, so a chirp is a tiny motif rather than random pitches.
+- A chirp is a little phrase, never a single beep: **2–3 segments** and **at least 100 ms** long, each segment a **tone**, a **sweep** (glide from one frequency to another) or a **noise** burst, with its own random length (15–120 ms, noise at most 60 ms because a longer hiss reads as a fault) and a random gap after it (10–80 ms). Both bounds are met by construction, not by rejecting scores.
+- **Happy (happiness near 1):** tones, or a sweep between two notes. All pitches are on the **A major scale** between A5 and A7 (880–3520 Hz, where the piezo is loudest). Successive notes move by a step, a third or a fifth, so a chirp is a tiny motif rather than random pitches.
 - **Getting sad:** with a probability that grows with sadness, notes are pushed off the scale by a semitone, or detuned by up to ±50 cents; sweeps get longer and may fall as well as rise; noise bursts appear once happiness is below ~0.75.
 - **Sad (happiness near 0):** most segments are sweeps or noise, spans up to an octave in either direction, few notes on the scale.
 - The whole score is a pure function of a random seed and the happiness, so a chirp can be reproduced on the host. `firmware/tools/chirp` renders scores to WAV files for listening on a laptop; `firmware/tools/hosttest` checks the invariants (length cap, pitch range, scale membership when happy).
