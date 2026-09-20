@@ -6,8 +6,9 @@ dropped on any static host or served by Caddy with a two-line site block.
 
 The device is a placeholder: a rounded grey slab at roughly the real
 dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass, and a
-3 mm bezel all round puts the whole thing at 63.6 x 40.6 x 7 mm. It is all
-screen: no button, and a blank back. Replace it when the
+1.75 mm bezel all round puts the whole thing at 61.1 x 38.1 x 7 mm. It is all
+screen: no button, and a blank back. The glass radius is the shell's less the
+bezel, so the corners stay concentric. Replace it when the
 industrial design lands; every proportion is derived from that rectangle, so
 changing `--w`, `--h`, `--d` and `--r` at the top of the stylesheet is enough.
 
