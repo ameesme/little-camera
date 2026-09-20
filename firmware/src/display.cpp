@@ -1,6 +1,6 @@
 #include "display.h"
 #include "splash_data.h"
-#include "sleep_data.h"
+#include "chirp.h"  // Chirp::band: the face follows the mood in the same four steps as the sounds
 #include "ui.h"
 #include <SPI.h>
 
@@ -348,6 +348,26 @@ static void drawText(const char* text, int x, int y, UI::Font font, bool white) 
 }
 
 // Draw text centered in box at given Y position
+// Each glyph pixel becomes a scale x scale block. For the pairing screen,
+// where the code has to be readable at arm's length on a phone's terms.
+static void drawTextScaled(const char* text, int x, int y, UI::Font font, bool white, int scale) {
+    const int charW = UI::fontWidth(font);
+    const int charH = UI::fontHeight(font);
+    for (int i = 0; text[i]; i++) {
+        const uint8_t* glyph = UI::getGlyph(text[i], font);
+        for (int row = 0; row < charH; row++) {
+            const uint8_t rowData = glyph[row];
+            for (int col = 0; col < charW; col++) {
+                if (!(rowData & (1 << (7 - col)))) continue;
+                const int px = x + (i * (charW + 1) + col) * scale;
+                const int py = y + row * scale;
+                for (int dy = 0; dy < scale; dy++)
+                    for (int dx = 0; dx < scale; dx++) setPixel(px + dx, py + dy, white);
+            }
+        }
+    }
+}
+
 static void drawTextCenteredAt(const char* text, int boxX, int boxW, int y, UI::Font font, bool white) {
     int textW = UI::textWidth(text, font);
     int startX = boxX + (boxW - textW) / 2;
@@ -586,15 +606,17 @@ static void applyImagePaddingAndCorners(int drawnX, int drawnW, int imgStartX, i
     }
 }
 
-// Push the whole framebuffer to the panel in one CS-high transaction.
-static void flushFramebuffer() {
+// Push framebuffer rows [fromY, toY) to the panel in one CS-high transaction.
+// The panel is addressed per line, so a partial update costs only the lines
+// sent — what the breathing sleep face relies on to stay cheap.
+static void flushLines(int fromY, int toY) {
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
 
     sendByte(makeCommand(CMD_WRITE));
 
-    uint8_t* fbPtr = _framebuffer;
-    for (int line = 1; line <= HEIGHT; line++) {
+    uint8_t* fbPtr = _framebuffer + fromY * BYTES_PER_LINE;
+    for (int line = fromY + 1; line <= toY; line++) {
         sendByte(line);
         _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
         fbPtr += BYTES_PER_LINE;
@@ -606,6 +628,8 @@ static void flushFramebuffer() {
     delayMicroseconds(2);
     digitalWrite(_cs, LOW);
 }
+
+static void flushFramebuffer() { flushLines(0, HEIGHT); }
 
 // Ordered-Bayer dither the source into _photoBits. Image only — placement on
 // the panel is blitPhoto()'s job.
@@ -836,6 +860,34 @@ void drawGalleryEmpty() {
     flushFramebuffer();
 }
 
+// Pairing gets a screen of its own rather than a toast: the code has to stay
+// readable while the phone asks for it, and the viewfinder's own hint used to
+// paint straight over it. `big` is scaled to fit, so both the six digits and
+// the outcome line use one call.
+void drawPairing(const char* big, const char* hint) {
+    memset(_framebuffer, 0xFF, sizeof(_framebuffer));  // White paper, like every screen but sleep
+
+    const int inset = 12;
+    drawRoundedRectBorder(inset, inset, WIDTH - 2 * inset, HEIGHT - 2 * inset, VF_CORNER_RADIUS, false);
+
+    const int avail = WIDTH - 2 * (inset + 16);
+    const int unitW = UI::textWidth(big, UI::Font::Large);
+    int scale = 4;
+    while (scale > 1 && unitW * scale > avail) scale--;
+
+    const int bigW = unitW * scale;
+    const int bigH = UI::fontHeight(UI::Font::Large) * scale;
+    const bool hasHint = hint && hint[0];
+    const int hintH = hasHint ? UI::fontHeight(HINT_FONT) : 0;
+    const int gap = hasHint ? 20 : 0;
+
+    const int y = (HEIGHT - bigH - gap - hintH) / 2;
+    drawTextScaled(big, (WIDTH - bigW) / 2, y, UI::Font::Large, false, scale);
+    if (hasHint) drawTextCenteredAt(hint, 0, WIDTH, y + bigH + gap, HINT_FONT, false);
+
+    flushFramebuffer();
+}
+
 void drawSplash() {
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
@@ -861,14 +913,64 @@ void drawSplash() {
     digitalWrite(_cs, LOW);
 }
 
-void drawSleep() {
-    // Copy sleep bitmap to framebuffer
-    const uint8_t* ptr = SLEEP_BITMAP;
-    for (int y = 0; y < HEIGHT; y++) {
-        for (int x = 0; x < BYTES_PER_LINE; x++) {
-            _framebuffer[y * BYTES_PER_LINE + x] = pgm_read_byte(ptr++);
-        }
+// The sleeping face is 16px pixel art, white on black: two closed eyes and a
+// mouth, centred on the panel. It follows the mood (docs/mood.md) in the same
+// four bands as the chirps: happy sleeps with a smile, content is the original
+// face (a dot for a mouth), glum goes flat, sad turns the eyes over and the
+// mouth down. `breathIn` is the second frame of a two-frame breath: eyes up a
+// touch, mouth down a touch, so the distance between them grows and shrinks
+// every 5s while it sleeps.
+namespace Face {
+constexpr int B = 16;             // Block size
+constexpr int EYE_L_X = 96;       // Left eye's left corner block
+constexpr int EYE_R_X = 240;      // Right eye's left corner block
+constexpr int EYE_Y = 96;         // Top row of a happy (u-shaped) eye; a flat eye sits a block lower
+constexpr int MOUTH_X = 176;      // Left block of a three-block mouth; the square sits in the middle
+constexpr int MOUTH_Y = 144;
+constexpr int BREATH_EYES_DY = -4;
+constexpr int BREATH_MOUTH_DY = 8;
+
+static void block(int x, int y) { fillRoundedRect(x, y, B, B, 0, true); }
+
+// A closed eye. Happy is a u, corners lifted off the line; everything else is
+// the same four blocks flat. The eyes carry the happiness, which is why the
+// happy face needs no smile.
+static void eye(int x, int y, bool happy) {
+    const int lo = y + B;
+    block(x, happy ? y : lo);
+    block(x + 3 * B, happy ? y : lo);
+    block(x + B, lo);
+    block(x + 2 * B, lo);
+}
+
+static void mouth(int x, int y, uint8_t band) {
+    switch (band) {
+        case 3:  // Happy: a square, and lifted eyes above it
+        case 2:  // Content: the same square under flat eyes
+            block(x + B, y);
+            break;
+        case 1:  // Glum: the square stretches into a line
+            block(x, y);
+            block(x + B, y);
+            block(x + 2 * B, y);
+            break;
+        default:  // Sad: corners down
+            block(x, y + B);
+            block(x + 2 * B, y + B);
+            block(x + B, y);
+            break;
     }
+}
+}  // namespace Face
+
+void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly) {
+    memset(_framebuffer, 0, sizeof(_framebuffer));  // Black
+    const uint8_t band = Chirp::band(happiness);
+    const int eyeY = Face::EYE_Y + (breathIn ? Face::BREATH_EYES_DY : 0);
+    const int mouthY = Face::MOUTH_Y + (breathIn ? Face::BREATH_MOUTH_DY : 0);
+    Face::eye(Face::EYE_L_X, eyeY, band == 3);
+    Face::eye(Face::EYE_R_X, eyeY, band == 3);
+    Face::mouth(Face::MOUTH_X, mouthY, band);
 
     // Draw "hold to wake" top-right, inverted (white on black). A hold, not
     // a press: main.cpp ignores taps on the sleeping camera.
@@ -884,24 +986,10 @@ void drawSleep() {
     drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);  // White border
     drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);  // White text
 
-    // Send framebuffer to display
-    digitalWrite(_cs, HIGH);
-    delayMicroseconds(6);
-
-    sendByte(makeCommand(CMD_WRITE));
-
-    uint8_t* fbPtr = _framebuffer;
-    for (int line = 1; line <= HEIGHT; line++) {
-        sendByte(line);
-        _spi->transferBytes(fbPtr, nullptr, BYTES_PER_LINE);
-        fbPtr += BYTES_PER_LINE;
-        sendByte(0x00);
-    }
-
-    sendByte(0x00);
-
-    delayMicroseconds(2);
-    digitalWrite(_cs, LOW);
+    // A breath frame only touches the face rows; the rest of the panel keeps
+    // what it has. The band spans both breath positions of eyes and mouth.
+    if (faceOnly) flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
+    else flushFramebuffer();
 }
 
 void toggleVcom() {

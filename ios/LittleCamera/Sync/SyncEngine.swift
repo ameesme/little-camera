@@ -135,8 +135,9 @@ final class SyncEngine {
         }
 
         let now = UInt32(Date().timeIntervalSince1970)
-        try await link.write(.setTime(epoch: now))
-        log.add("SET_TIME \(now)")
+        let tz = Int16(clamping: TimeZone.current.secondsFromGMT() / 60)
+        try await link.write(.setTime(epoch: now, utcOffsetMin: tz))
+        log.add("SET_TIME \(now) tz=\(tz)")
 
         let listPayload = try await stream(.list(from: 1, unsyncedOnly: true), expecting: .listData)
         let entries = try ListEntry.parseAll(listPayload)

@@ -5,7 +5,7 @@
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O1 -g -Wall -Wextra -Wno-unused-parameter
 
-HEADERS = ../../src/pbm_header.h ../../src/crc32.h ../../src/sha256.h ../../src/shortcode.h ../../src/sync_protocol.h
+HEADERS = ../../src/mood.h ../../src/chirp.h ../../src/pbm_header.h ../../src/crc32.h ../../src/sha256.h ../../src/shortcode.h ../../src/sync_protocol.h
 
 hosttest: test_main.cpp $(HEADERS)
 	$(CXX) $(CXXFLAGS) test_main.cpp -o hosttest
@@ -22,7 +22,7 @@ clean:
 # build (storage, console, identity, main). Arduino/ESP-IDF headers are stubbed
 # under stubs/; this catches typos and API mismatches without PlatformIO. It
 # is not a substitute for a real build.
-CHECK_SRCS = ../../src/storage.cpp ../../src/console.cpp ../../src/identity.cpp ../../src/sync.cpp ../../src/main.cpp
+CHECK_SRCS = ../../src/audio.cpp ../../src/mood_store.cpp ../../src/storage.cpp ../../src/console.cpp ../../src/identity.cpp ../../src/sync.cpp ../../src/main.cpp
 
 check:
 	@for f in $(CHECK_SRCS); do \

@@ -22,7 +22,14 @@ void clear();
 void fillPattern(uint8_t pattern);
 void drawTestPattern();
 void drawSplash();
-void drawSleep();
+// The pairing screen: one big line (the six digits, or how it ended) scaled to
+// fit, with an optional hint under it. Its own screen because a toast is both
+// too small for a code and too easy for another toast to paint over.
+void drawPairing(const char* big, const char* hint = nullptr);
+// The sleep face for a mood (docs/mood.md; bands as Chirp::band) and one of
+// two breath frames. drawSleep() alone is the happy face at rest.
+// faceOnly pushes just the face rows (a breath frame on a face already up).
+void drawSleep(uint8_t happiness = 255, bool breathIn = false, bool faceOnly = false);
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight);
 void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight);  // Floyd-Steinberg dither
 // Post-capture save prompt: photo shifts left, send/trash buttons take the
