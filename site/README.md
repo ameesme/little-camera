@@ -51,7 +51,8 @@ tracked capitals are right at 10px and wrong at 90. Leading is 0.72, tight
 enough that the ascenders of one line cross the baseline of the one above:
 the dot of "is" falls into the "a" of "camera".
 
-The font files are licensed and are not in the repository; see `fonts/README.md`.
+The font files are licensed; they live in `fonts/` and are covered by Amaranth
+Studio's webfont licence. See `fonts/README.md`.
 The studio's accent (`#f2385a`) is deliberately unused: this project is black
 and white. Its dark ground (`#111`) is unused too, the page being light only.
 

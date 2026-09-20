@@ -11,6 +11,13 @@
 <meta property="og:description" content="A small black-and-white camera that sleeps, breathes and posts to its own tiny blog.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://lttl.cam/">
+<!-- The headline is fitted by measuring the font that actually resolved, so a
+     late-arriving PP Neue Montreal makes it visibly re-fit. Preloading the two
+     faces costs 125 KB up front and removes that jump; `crossorigin` is
+     required even same-origin, since fonts are fetched in CORS mode and
+     without it the browser fetches each file twice. -->
+<link rel="preload" href="fonts/ppneuemontreal-bold.woff" as="font" type="font/woff" crossorigin>
+<link rel="preload" href="fonts/ppneuemontreal-book.woff" as="font" type="font/woff" crossorigin>
 <style>
 /* lttl.cam — teaser.
    Ground and type are Amaranth Studio's: #ddd paper, PP Neue Montreal. The
