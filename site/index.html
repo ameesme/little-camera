@@ -310,13 +310,13 @@ const vec2  SCR    = vec2(0.4714, 0.2828);        // 57.6 x 34.56 mm of glass
 const float SCR_R  = 0.0287;                      // 1.75 mm, the bezel's own width
 const float ALBEDO = 0.88;
 const float AMB    = 0.58;
-// Paper for the middle half, then a straight ramp to VIG darker at the
+// Paper for the middle 70 per cent, then a straight ramp to VIG darker at the
 // corners. An ordered dither lays each new dot exactly on the 8x8 lattice, so
 // a linear ramp bands into evenly spaced rings -- which is the point. Distance
-// is measured against the half-diagonal, so the ramp starts halfway to the
-// corners and the nearest edges are already well into it.
+// is measured against the half-diagonal, so on a wide window the ramp only
+// reaches the top and bottom edges at all in the corners.
 const float VIG    = 0.30;                        // how much darker the corners
-const float VIG_IN = 0.50;                        // and where the ramp starts
+const float VIG_IN = 0.70;                        // and where the ramp starts
 
 // The back. The lens sits at the dead centre; the L runs from it out to the
 // left edge, where the piezo hole is, still on the centre line; the shutter is
@@ -641,7 +641,7 @@ function placeGL(){
 // dithered with the same matrix on the same page-aligned grid. It only changes
 // when the window does, so a per-pixel pass in JS is cheap enough.
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const VIG = 0.30, VIG_IN = 0.50;
+const VIG = 0.30, VIG_IN = 0.70;
 const bayer = (x, y) =>
   (4 * BAYER4[((y & 3) << 2) | (x & 3)] +
    [[0, 2], [3, 1]][(y >> 2) & 1][(x >> 2) & 1] + 0.5) / 64;

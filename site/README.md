@@ -128,12 +128,12 @@ what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
 re-read every frame, because the sheet moves under the canvas whenever the
 headline is refitted.
 
-The gradient is paper for the middle half and then a straight ramp to 0.30
-darker at the corners. An ordered dither lays each new dot exactly on the
+The gradient is paper for the middle 70 per cent and then a straight ramp to
+0.30 darker at the corners. An ordered dither lays each new dot exactly on the
 lattice, so a linear ramp bands into evenly spaced rings — which is the point:
 the rings are the gradient, the same way the camera's own pictures are made of
-them. Distance is measured against the half-diagonal, so the ramp begins
-halfway to the corners and the nearest edges are already well into it.
+them. Distance is measured against the half-diagonal, so on a wide window the
+ramp reaches the top and bottom edges only towards the corners.
 `VIG` and `VIG_IN` at the top of the shader set the two numbers, and
 `paintVignette()` repeats them for the page behind.
 
