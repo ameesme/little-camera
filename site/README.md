@@ -60,8 +60,14 @@ composition scales as one object and can never be wider than the screen:
 | camera | `--sheet` x 0.63 |
 | gap between them | `--sheet` x 0.12 |
 
-The headline factor is set so its longest line fills the measure exactly:
-"IS COMING." is 5.49 em, and Helvetica Bold and Arial Bold share metrics, so
-the fit holds on the fallback too. The three lines are hard breaks, not
-wrapping, so they hold at every width. The block is centred on the page with
+The headline is fitted at runtime rather than calculated. Predicting the line
+width from font metrics was wrong on real devices: iOS renders Helvetica Neue,
+whose Bold is fractionally wider than Helvetica or Arial, so the longest line
+wrapped there and the three lines became four. The script now measures the
+lines in whatever font actually resolved and sets the size so the widest one
+fills the measure exactly. The 0.168 factor in the stylesheet is only the
+pre-script fallback, deliberately short of the measure.
+
+Each line is its own block with `white-space: nowrap`, so three lines stay
+three lines whatever the font does. The block is centred on the page with
 the text left aligned inside it, and the camera centred beneath.

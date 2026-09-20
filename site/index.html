@@ -24,9 +24,11 @@
   --glass:#fff; --cast:0,0,0;
   --pad-x:clamp(20px, 5vw, 72px);
   /* The block: as wide as the screen allows, capped so it stays whole above
-     the fold on a laptop. 0.18 of it sets the headline, whose longest line
-     ("IS COMING." = 5.49 em in Helvetica and Arial Bold alike) then just
-     fills the measure. */
+     the fold on a laptop. The headline is fitted to it at runtime (see the
+     script): sizing it by calculation meant guessing the font's metrics, and
+     Helvetica Neue Bold on iOS is a shade wider than Helvetica or Arial, so
+     its longest line wrapped there and the three lines became four. The
+     factor below is only the pre-script fallback, deliberately short. */
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
   /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. A 1.75 mm bezel all
      round makes the device 61.1 x 38.1 x 7 mm: all screen, no button, and one
@@ -54,8 +56,11 @@ img{max-width:100%}
        gap:calc(var(--sheet) * 0.12)}
 
 h1{margin:0; text-align:left;
-   font-size:calc(var(--sheet) * 0.18); line-height:.95; font-weight:700;
+   font-size:calc(var(--sheet) * 0.168); line-height:.95; font-weight:700;
    letter-spacing:-.012em; text-transform:uppercase}
+/* Each line is its own block and never wraps, so three lines stay three lines
+   whatever the font turns out to be. */
+h1 span{display:block; white-space:nowrap}
 
 /* ---- the void ---- */
 .stage{position:relative; width:var(--w); align-self:center;
@@ -117,7 +122,7 @@ h1{margin:0; text-align:left;
 <body>
 
 <main class="sheet">
-  <h1>a little<br>camera<br>is coming.</h1>
+  <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
 
   <div class="stage">
     <div class="rig">
@@ -177,6 +182,29 @@ const STATES = [
   { label: 'viewfinder', screen: 'viewfinder', hold: 3400 },
   { label: 'posted',     screen: 'gallery',    hold: 3400 },
 ];
+
+// Fit the headline by measuring it rather than predicting it: the widest line
+// is set to exactly the block's width in whatever font actually resolved.
+// Runs before the first paint, again once fonts settle, and on resize.
+const h1 = document.querySelector('h1');
+function fitHeadline() {
+  const avail = h1.parentElement.clientWidth;
+  if (!avail) return;
+  const probe = document.createElement('span');
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:100px';
+  h1.appendChild(probe);
+  let widest = 0;
+  for (const line of h1.children) {
+    if (line === probe) continue;
+    probe.textContent = line.textContent;
+    widest = Math.max(widest, probe.getBoundingClientRect().width);
+  }
+  h1.removeChild(probe);
+  if (widest > 0) h1.style.fontSize = 100 * avail / widest + 'px';
+}
+fitHeadline();
+addEventListener('resize', fitHeadline);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitHeadline);
 
 const box = document.getElementById('box');
 const screen = document.getElementById('screen');
