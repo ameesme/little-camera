@@ -92,7 +92,7 @@ composition scales as one object and can never be wider than the screen:
 | Part | Size |
 |---|---|
 | headline | `--sheet` x 0.18 |
-| camera | `--sheet` x 0.63 |
+| camera | `--sheet` x 0.76 |
 | gap between them | `--sheet` x 0.12 |
 
 The headline is fitted at runtime rather than calculated. Predicting the line
@@ -104,5 +104,6 @@ fills the measure exactly. The 0.168 factor in the stylesheet is only the
 pre-script fallback, deliberately short of the measure.
 
 Each line is its own block with `white-space: nowrap`, so three lines stay
-three lines whatever the font does. The block is centred on the page with
-the text left aligned inside it, and the camera centred beneath.
+three lines whatever the font does. The block is centred horizontally with the text
+left aligned inside it and the camera centred beneath, and sits high on the
+page rather than in the middle, so the headline leads.
