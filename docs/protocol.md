@@ -213,7 +213,9 @@ them to flash from its main loop, and a phone that outruns it would lose the
 overflow. `UPDATE_BEGIN` answers with the `chunk` and `window` the camera can
 take; the phone may have `window` bytes outstanding beyond the last
 `next_offset` it was told, and the camera sends an unsolicited `UPDATE_STATUS`
-(`op = 0x00`) roughly every half window to move it along.
+(`op = 0x00`) roughly every half window to move it along — and always on the
+last byte of the image, however little of a window it took, since that is the
+one the phone is waiting for before it sends `UPDATE_END`.
 
 `UPDATE_STATUS` payload (15 bytes):
 
@@ -238,8 +240,16 @@ while next_offset < size:
     status=offset → rewind to the next_offset it reports
 UPDATE_END
 → UPDATE_STATUS(status=ok, state=ready)    # then the camera reboots; the link drops
+   status=offset → the camera is short after all; fill the gap and end again
 reconnect, read Info, check fw_* is the new version
 ```
+
+An `UPDATE_END` that arrives before every byte did is answered `offset`, not
+`bad image`: a gap at the end is worth going back for, and the image on the
+camera is only incomplete, not wrong. A session the phone abandons is not
+ended by a disconnect either — the camera holds the half-written slot for 90
+seconds, so reconnecting and repeating `UPDATE_BEGIN` with the same digest
+resumes it rather than starting a megabyte again.
 
 The camera's side of the bargain, which is what keeps a partial flash from
 bricking it:

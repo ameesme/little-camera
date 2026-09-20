@@ -4,15 +4,15 @@ Who does what, in order. Byte-level details live in [protocol.md](protocol.md).
 
 ## Registering a blog
 
-1. Owner opens `https://<apex>/register` on their phone, enters **name**, **email**, and a **handle** (the subdomain).
+1. Owner opens `https://lttl.cam/app/register` on their phone, enters **name**, **email**, and a **handle** (the subdomain).
 2. Server emails a verification link (`email_verify` token, 24 h).
-3. Clicking it marks the email verified, logs the owner in (signed `owner` cookie) and lands on `/me`.
-4. `/me` shows the **verification picture**: a large QR code (`LC:XXXXXX`, 15 min) and the instruction to photograph it with the camera. Below it, a small form: "Camera not recognised? Type the code from the app."
+3. Clicking it marks the email verified, logs the owner in (signed `owner` cookie) and lands on `/app/me`.
+4. `/app/me` shows the **verification picture**: a large QR code (`LC:XXXXXX`, 15 min) and the instruction to photograph it with the camera. Below it, a small form: "Camera not recognised? Type the code from the app."
 5. Meanwhile the owner installs the bridge app, which finds the camera (`lc-XXXX`), pairs (the camera puts the six-digit passkey on its screen; a sleeping camera shows it without waking), reads the secret and calls `POST /api/camera/hello`.
 6. The owner photographs the phone screen with the camera and presses send on the camera. The app pulls the photo and uploads it. The server decodes the QR, **binds the camera to the profile**, tags the photo `verification`, moves any earlier photos from that camera onto the profile, and emails "your camera is linked".
-7. `/me` polls `/me/status` every 3 s and flips to "linked" with the blog URL. The blog is live at `https://<handle>.<apex>`.
+7. `/app/me` polls `/app/me/status` every 3 s and flips to "linked" with the blog URL. The blog is live at `https://<handle>.lttl.cam`.
 
-Fallback for step 6: the app shows the camera's short code; typing it on `/me` binds the camera if it uploaded something in the last 10 minutes.
+Fallback for step 6: the app shows the camera's short code; typing it on `/app/me` binds the camera if it uploaded something in the last 10 minutes.
 
 ## Profile picture
 
@@ -30,7 +30,7 @@ Fallback for step 6: the app shows the camera's short code; typing it on `/me` b
 
 - **Self**: a visitor enters their email in the blog's Join form → `subscribers(status = pending, added_by = self)`; the owner gets an email and sees them in the app.
 - **Owner**: adds an email in the app → approved immediately.
-- **Approve**: from the app (or `/me/subscribers` on the web) → the subscriber receives a welcome email with a 48-hour link.
+- **Approve**: from the app (or `/app/me/subscribers` on the web) → the subscriber receives a welcome email with a 48-hour link.
 
 ## Reading the blog
 
@@ -38,6 +38,34 @@ Fallback for step 6: the app shows the camera's short code; typing it on `/me` b
 - **With a link**: `/p/<photo>?t=<token>` verifies the token (48 h from sending), sets a cookie that expires with the token, shows the whole feed scrolled to that photo, and allows commenting.
 - **Expired**: the page says the link has expired and offers "Send me a fresh link" (email field prefilled if known) → a new 48-hour link, only to approved subscribers; the response is the same either way.
 - **Commenting**: the first comment asks for a name inline; it is remembered on the subscriber.
+
+## Updating the firmware
+
+1. The app asks the server what it has: `GET /api/firmware/latest?installed=<what Info reported>`.
+   The server's answer carries the size, the SHA-256 and a URL; the owner sees
+   "firmware 0.2.0 → 0.3.0 available" and a button.
+2. The app downloads the image over HTTPS and checks it against that digest
+   before touching the camera — a megabyte over Bluetooth is a minute, and a
+   bad download should cost none of it.
+3. `UPDATE_BEGIN` with the size and the digest, then the image in ~500-byte
+   chunks that each carry their own offset, keeping inside the window the
+   camera grants (protocol §3.7). The camera writes them to its **other** app
+   slot from its main loop and reports progress every half window.
+4. The camera shows a progress bar the whole time and refuses to fall asleep.
+   Dropped chunk → it says which offset it wants and the phone rewinds. Phone
+   walks off → it holds the half-written slot for 90 s so a reconnect can
+   resume where it stopped.
+5. `UPDATE_END`. The camera checks the SHA-256 of everything it received, lets
+   the bootloader check the image's own digest, and only then points the
+   bootloader at the new slot and reboots.
+6. The new firmware has twenty seconds of running to confirm itself. If it
+   cannot — crash, hang, panic — the camera goes back to the firmware it came
+   from by itself. Nothing in this flow can leave it unbootable, and nothing in
+   it touches the photos.
+
+Back the other way, over USB: `ota revert` on the serial console, because a
+`pio run -t upload` writes the first app slot while the bootloader is still
+pointed at the second.
 
 ## Battery
 
