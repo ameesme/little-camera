@@ -41,6 +41,10 @@ final class AppModel {
     private(set) var serverError: String?
     private(set) var avatarPending = false
 
+    // Firmware (protocol §3.7, §4.7)
+    private(set) var release: FirmwareRelease?
+    private(set) var updatePhase: FirmwareUpdater.Phase = .idle
+
     let log = SyncLog()
 
     // `let`s are never observed; the vars below are plumbing, not UI state.
@@ -48,7 +52,9 @@ final class AppModel {
     private let server: ServerClient
     @ObservationIgnored private var link: CameraLink?
     @ObservationIgnored private var sync: SyncEngine?
+    @ObservationIgnored private var updater: FirmwareUpdater?
     @ObservationIgnored private var sessionTask: Task<Void, Never>?
+    @ObservationIgnored private var updateTask: Task<Void, Never>?
 
     init() {
         isSetUp = settings.pairedPeripheralId != nil
@@ -87,6 +93,44 @@ final class AppModel {
         }
     }
 
+    /// What the firmware card says, in one line.
+    var firmwareLine: String {
+        switch updatePhase {
+        case .downloading: return "DOWNLOADING NEW FIRMWARE"
+        case .sending(let sent, let total):
+            return "SENDING \(sent * 100 / max(total, 1))% — KEEP THE PHONE CLOSE"
+        case .verifying: return "CAMERA IS CHECKING THE IMAGE"
+        case .restarting: return "CAMERA IS RESTARTING"
+        case .failed(let why): return "UPDATE FAILED — \(why.uppercased())"
+        case .idle:
+            guard let installed = info?.firmware else { return "FIRMWARE \u{2014} THIS CAMERA CANNOT SAY" }
+            guard let release = release, release.version != installed else { return "FIRMWARE \(installed) \u{2014} UP TO DATE" }
+            return "FIRMWARE \(installed) \u{2192} \(release.version) AVAILABLE"
+        }
+    }
+
+    /// An update is worth offering only when the camera can actually take it:
+    /// new enough to say what it runs, with room in its spare slot (§3.7).
+    var canUpdateFirmware: Bool {
+        // Offered again after a failure: the camera is untouched, so trying
+        // once more is exactly as safe as the first time.
+        guard let updater = updater, !updater.isRunning else { return false }
+        guard let info = info, let release = release else { return false }
+        guard let installed = info.firmware, info.canTake(imageOf: release.size) else { return false }
+        guard let link = link, link.isReady, link.canUpdate else { return false }
+        if sync?.isRunning == true { return false }
+        return release.version != installed
+    }
+
+    var updateFraction: Double {
+        if case .sending(let sent, let total) = updatePhase, total > 0 {
+            return Double(sent) / Double(total)
+        }
+        if case .verifying = updatePhase { return 1 }
+        if case .restarting = updatePhase { return 1 }
+        return 0
+    }
+
     var progressFraction: Double {
         if case .syncing(let done, let total) = linkState, total > 0 {
             return Double(done) / Double(total)
@@ -107,6 +151,11 @@ final class AppModel {
             self?.handle(event)
         }
         self.sync = sync
+        let updater = FirmwareUpdater(link: link, server: server, log: log)
+        updater.onPhase = { [weak self] phase in
+            self?.updatePhase = phase
+        }
+        self.updater = updater
         link.start()
         if server.credentials != nil {
             refreshStatus()
@@ -149,6 +198,11 @@ final class AppModel {
                 let s = try await self.server.status()
                 self.status = s
                 self.serverError = nil
+                // The server looked up the release while it was answering, so
+                // take it from here rather than asking twice.
+                if let firmware = s.firmware {
+                    self.release = firmware.latest
+                }
                 // Pending = the server has a request and no avatar yet. A re-request
                 // on top of an existing avatar is tracked by the local flag alone.
                 if s.avatar.requestedAt == nil {
@@ -195,6 +249,33 @@ final class AppModel {
             } catch {
                 self.serverError = error.localizedDescription
             }
+        }
+    }
+
+    /// Fetch the newest release for whatever the camera says it is running.
+    func refreshFirmware() {
+        Task {
+            do {
+                self.release = try await self.server.latestFirmware(installed: self.info?.firmware)
+            } catch {
+                // Not worth a banner: a camera that cannot be updated is still
+                // a camera, and the line just keeps saying what it knows.
+                self.log.add("firmware check failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Push the available release to the camera. The camera reboots into it by
+    /// itself; the link re-arms and the next session reads the new version.
+    func updateFirmware() {
+        guard canUpdateFirmware, let updater = updater, let release = release, let info = info else { return }
+        updateTask?.cancel()
+        updateTask = Task { [weak self] in
+            let ok = await updater.run(release: release, info: info)
+            guard let self = self, ok else { return }
+            // Its old version is gone the moment it reboots; the next Info read
+            // brings the new one, and the server hears about it at hello.
+            self.info = nil
         }
     }
 
@@ -284,10 +365,19 @@ final class AppModel {
         do {
             let info = try await link.readInfo()
             self.info = info
+            // A connection means the camera is up: an update that ended in a
+            // restart or a failure is over, whichever way it went.
+            updater?.settle()
             cameraId = info.cameraId
             settings.cameraId = info.cameraId
             cameraName = info.deviceName
-            log.add("Info: \(info.photoCount) photos, \(info.unsyncedCount) unsynced, boot \(info.boot)")
+            log.add("Info: \(info.photoCount) photos, \(info.unsyncedCount) unsynced, boot \(info.boot)"
+                    + (info.firmware.map { ", fw \($0)" } ?? ""))
+            if info.onTrial {
+                // It confirms itself after twenty seconds up (§3.7); this is
+                // only worth a line in the log if someone goes looking.
+                log.add("camera is running a firmware update on trial")
+            }
 
             var secret = Keychain.secret(for: info.cameraId)
             if secret == nil {
@@ -307,9 +397,12 @@ final class AppModel {
             // Trust on first use: registers the camera, or checks the secret. Cheap,
             // and its failure (no network) is not a reason to skip the BLE part.
             do {
-                let hello = try await server.hello(cameraId: info.cameraId, secretHex: secretHex)
+                let hello = try await server.hello(cameraId: info.cameraId, secretHex: secretHex, firmware: info.firmware)
                 log.add("hello: \(hello.bound?.handle ?? "not linked yet")")
                 serverError = nil
+                // Against the version this camera actually reported, not the
+                // one the server last heard about.
+                refreshFirmware()
             } catch {
                 serverError = error.localizedDescription
                 log.add("hello failed: \(error.localizedDescription)")

@@ -12,7 +12,8 @@ enum LC {
     static let secretUUID = CBUUID(string: "1C000003-4C43-4D52-8000-6C6974746C65")
     static let controlUUID = CBUUID(string: "1C000004-4C43-4D52-8000-6C6974746C65")
     static let dataUUID = CBUUID(string: "1C000005-4C43-4D52-8000-6C6974746C65")
-    static let characteristicUUIDs: [CBUUID] = [infoUUID, secretUUID, controlUUID, dataUUID]
+    static let updateUUID = CBUUID(string: "1C000006-4C43-4D52-8000-6C6974746C65")
+    static let characteristicUUIDs: [CBUUID] = [infoUUID, secretUUID, controlUUID, dataUUID, updateUUID]
 }
 
 enum ProtocolError: LocalizedError {
@@ -64,7 +65,10 @@ extension Data {
 // MARK: - Info (§3.1)
 
 struct CameraInfo: Equatable {
+    /// Version 1, and the prefix every later version keeps.
     static let byteCount = 25
+    /// Version 2 adds the firmware version and the update state (§3.1).
+    static let byteCountV2 = 32
 
     let version: UInt8
     let mac: [UInt8]
@@ -75,20 +79,32 @@ struct CameraInfo: Equatable {
     let uptimeMs: UInt32
     let epoch: UInt32
     let flags: UInt8
+    /// `nil` from a camera whose Info predates version 2.
+    let firmware: String?
+    let updateState: UpdateState
+    /// Bytes the camera's spare firmware slot can take; 0 when it cannot update itself.
+    let updateSpace: UInt32
 
     var timeValid: Bool { flags & 0x01 != 0 }
     var storageOK: Bool { flags & 0x02 != 0 }
     var busy: Bool { flags & 0x04 != 0 }
+    /// Running an update that has not confirmed itself yet (§3.7). It will, or it will roll back.
+    var onTrial: Bool { flags & 0x08 != 0 }
 
     /// 12 lowercase hex characters, the same bytes as the Bluetooth MAC (§1).
     var cameraId: String { Data(mac).hexString }
     /// `lc-` + last four hex characters, uppercase (§1).
     var deviceName: String { "lc-" + cameraId.suffix(4).uppercased() }
 
+    /// Whether this camera can be sent an image of `size` bytes at all.
+    func canTake(imageOf size: Int) -> Bool {
+        firmware != nil && updateSpace >= UInt32(size)
+    }
+
     init(data: Data) throws {
         guard data.count >= CameraInfo.byteCount else { throw ProtocolError.shortData("Info") }
         let v = data.lcByte(0)
-        guard v == 1 else { throw ProtocolError.badVersion(v) }
+        guard v >= 1 else { throw ProtocolError.badVersion(v) }
         version = v
         mac = (1...6).map { data.lcByte($0) }
         photoCount = data.lcU16(7)
@@ -98,7 +114,28 @@ struct CameraInfo: Equatable {
         uptimeMs = data.lcU32(15)
         epoch = data.lcU32(19)
         flags = data.lcByte(23)
+        // Parse by length, not by version number: §3.1 says a reader takes what
+        // it knows and ignores the rest, so a camera newer than this app keeps
+        // working and one older than it simply has no firmware fields.
+        if v >= 2 && data.count >= CameraInfo.byteCountV2 {
+            firmware = "\(data.lcByte(24)).\(data.lcByte(25)).\(data.lcByte(26))"
+            updateState = UpdateState(rawValue: data.lcByte(27)) ?? .idle
+            updateSpace = data.lcU32(28)
+        } else {
+            firmware = nil
+            updateState = .idle
+            updateSpace = 0
+        }
     }
+}
+
+/// Where a firmware update session stands, on the camera (§3.7).
+enum UpdateState: UInt8, Equatable {
+    case idle = 0
+    case receiving = 1
+    case verifying = 2
+    case ready = 3
+    case failed = 4
 }
 
 // MARK: - Control (§3.3)
@@ -110,6 +147,10 @@ enum ControlOp {
     case ack(index: UInt16)
     case delete(index: UInt16)
     case abort
+    /// Open a firmware update session for an image of `size` bytes (§3.7).
+    case updateBegin(size: UInt32, sha256: Data)
+    case updateEnd
+    case updateAbort
 
     var code: UInt8 {
         switch self {
@@ -119,6 +160,9 @@ enum ControlOp {
         case .ack: return 0x04
         case .delete: return 0x05
         case .abort: return 0x06
+        case .updateBegin: return 0x10
+        case .updateEnd: return 0x11
+        case .updateAbort: return 0x12
         }
     }
 
@@ -130,6 +174,9 @@ enum ControlOp {
         case .ack: return "ACK"
         case .delete: return "DELETE"
         case .abort: return "ABORT"
+        case .updateBegin: return "UPDATE_BEGIN"
+        case .updateEnd: return "UPDATE_END"
+        case .updateAbort: return "UPDATE_ABORT"
         }
     }
 
@@ -148,7 +195,10 @@ enum ControlOp {
             d.lcAppend(offset)
         case .ack(let index), .delete(let index):
             d.lcAppend(index)
-        case .abort:
+        case .updateBegin(let size, let sha256):
+            d.lcAppend(size)
+            d.append(sha256)  // 32 bytes; the camera checks the image against it
+        case .abort, .updateEnd, .updateAbort:
             break
         }
         return d
@@ -160,6 +210,7 @@ enum ControlOp {
 enum FrameKind: UInt8 {
     case listData = 0x01
     case photoData = 0x02
+    case updateStatus = 0x03
     case end = 0x7F
 }
 
@@ -184,6 +235,9 @@ enum EndStatus: UInt8 {
     case aborted = 2
     case storageError = 3
     case busy = 4
+    case badImage = 5
+    case offset = 6
+    case tooLarge = 7
 
     var label: String {
         switch self {
@@ -192,6 +246,9 @@ enum EndStatus: UInt8 {
         case .aborted: return "aborted"
         case .storageError: return "storage error"
         case .busy: return "busy"
+        case .badImage: return "the image did not check out"
+        case .offset: return "out of order"
+        case .tooLarge: return "too large for the camera"
         }
     }
 }
@@ -213,6 +270,36 @@ struct EndFrame {
         status = payload.lcByte(1)
         totalLength = payload.lcU32(2)
         crc32 = payload.lcU32(6)
+    }
+}
+
+/// UPDATE_STATUS payload, 15 bytes (§3.7). The answer to an update command, and
+/// the unsolicited progress report that hands the phone its next window.
+struct UpdateStatus {
+    static let byteCount = 15
+
+    let op: UInt8
+    let status: UInt8
+    let state: UpdateState
+    /// What the camera wants next, i.e. exactly how much of the image it has accepted.
+    let nextOffset: UInt32
+    let total: UInt32
+    let chunk: UInt16
+    let window: UInt16
+
+    var isOK: Bool { status == EndStatus.ok.rawValue }
+    var needsRewind: Bool { status == EndStatus.offset.rawValue }
+    var statusLabel: String { EndStatus(rawValue: status)?.label ?? "status \(status)" }
+
+    init(payload: Data) throws {
+        guard payload.count >= UpdateStatus.byteCount else { throw ProtocolError.shortData("UPDATE_STATUS") }
+        op = payload.lcByte(0)
+        status = payload.lcByte(1)
+        state = UpdateState(rawValue: payload.lcByte(2)) ?? .idle
+        nextOffset = payload.lcU32(3)
+        total = payload.lcU32(7)
+        chunk = payload.lcU16(11)
+        window = payload.lcU16(13)
     }
 }
 

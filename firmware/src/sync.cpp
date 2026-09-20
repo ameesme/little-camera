@@ -393,12 +393,17 @@ void pumpUpdate() {
     const bool gap = drainUpdateRing();
     if (!_update.active) return;  // The drain ended it
 
+    const uint32_t got = Ota::received();
     if (gap && now - _update.lastNakMs >= UPDATE_NAK_MS) {
         _update.lastNakMs = now;
         sendUpdateStatus(OP_PROGRESS, STATUS_OFFSET);
-    } else if (Ota::received() - _update.ackedAt >= updateWindow() / 2) {
+    } else if (got > _update.ackedAt && (got >= Ota::total() || got - _update.ackedAt >= updateWindow() / 2)) {
         // Halfway through the window: let the phone push the next half before
-        // it runs out of credit, so the link never idles.
+        // it runs out of credit, so the link never idles. And always on the
+        // last byte, however little of a window it took — the phone is waiting
+        // to hear that the image is complete before it sends UPDATE_END, and a
+        // tail shorter than half a window would otherwise go unanswered until
+        // its timeout. `got > ackedAt` keeps that from repeating every loop.
         sendUpdateStatus(OP_PROGRESS, STATUS_OK);
     }
 
@@ -516,6 +521,14 @@ void handleCommand(const uint8_t* b, size_t len) {
             // take them before deciding the image is short.
             drainUpdateRing();
             if (!_update.active) return;
+            if (Ota::received() != Ota::total()) {
+                // The phone got ahead of itself, or a chunk went missing right
+                // at the end. Recoverable: say where the camera actually is
+                // instead of condemning an image that is only incomplete.
+                Serial.printf("Sync: END at %u of %u bytes\n", (unsigned)Ota::received(),
+                              (unsigned)Ota::total());
+                return sendUpdateStatus(op, STATUS_OFFSET);
+            }
             // The screen should say 100% while the verify runs — it reads the
             // whole slot back and takes a moment.
             pushEvent(Event::UpdateProgress, 100);

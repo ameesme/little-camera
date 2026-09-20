@@ -33,6 +33,8 @@ struct MainView: View {
                 Rule()
                 SyncCard(model: model)
                 Rule()
+                FirmwareCard(model: model)
+                Rule()
                 BlogCard(model: model)
                 Rule()
                 SubscribersSection(model: model)
@@ -113,6 +115,37 @@ struct SyncCard: View {
             if let error = model.lastError {
                 Text(error)
                     .font(Theme.small)
+            }
+        }
+        .card()
+    }
+}
+
+/// What firmware the camera runs, and the one waiting for it. The camera shows
+/// its own progress bar while an update runs (protocol §3.7); this one is for
+/// the person holding the phone, who is the one being asked to stand still.
+struct FirmwareCard: View {
+    let model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Caption(model.firmwareLine)
+            if model.updatePhase.isRunning {
+                ProgressRule(fraction: model.updateFraction)
+            }
+            if let release = model.release, let notes = release.notes, !notes.isEmpty {
+                Text(notes)
+                    .font(Theme.small)
+            }
+            if model.canUpdateFirmware, let release = model.release {
+                Text("Keep the app open and the camera close. It keeps running what it has until the whole image is there and checked, so a failed update costs nothing but the time.")
+                    .font(Theme.small)
+                Button {
+                    model.updateFirmware()
+                } label: {
+                    Caption("Update to \(release.version)")
+                }
+                .buttonStyle(BlackButton())
             }
         }
         .card()

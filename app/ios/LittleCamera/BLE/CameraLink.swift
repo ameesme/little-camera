@@ -7,6 +7,7 @@ enum LinkError: LocalizedError {
     case disconnected
     case noValue
     case badSecretLength(Int)
+    case noUpdateCharacteristic
 
     var errorDescription: String? {
         switch self {
@@ -15,6 +16,7 @@ enum LinkError: LocalizedError {
         case .disconnected: return "camera disconnected"
         case .noValue: return "characteristic had no value"
         case .badSecretLength(let n): return "secret is \(n) bytes, expected 16"
+        case .noUpdateCharacteristic: return "this camera's firmware cannot be updated over Bluetooth"
         }
     }
 }
@@ -53,6 +55,9 @@ final class CameraLink: NSObject {
     private var pendingReads: [CBUUID: CheckedContinuation<Data, Error>] = [:]
     private var pendingWrite: CheckedContinuation<Void, Error>?
     private var frameContinuation: AsyncStream<DataFrame>.Continuation?
+    /// A firmware chunk waiting for the controller's queue to drain, with the
+    /// caller it will let go of once it is on the wire.
+    private var queuedChunk: (Data, CheckedContinuation<Void, Error>)?
 
     init(pairedId: UUID?, events: @escaping @MainActor (Event) -> Void) {
         self.pairedId = pairedId
@@ -151,6 +156,55 @@ final class CameraLink: NSObject {
         }
     }
 
+    /// Most data bytes that fit in one firmware chunk on this connection: the
+    /// negotiated write size less the 4-byte offset every chunk carries.
+    var maxChunkPayload: Int {
+        queue.sync {
+            guard let p = peripheral else { return 0 }
+            return max(0, p.maximumWriteValueLength(for: .withoutResponse) - 4)
+        }
+    }
+
+    var canUpdate: Bool {
+        queue.sync { characteristics[LC.updateUUID] != nil }
+    }
+
+    /// One firmware chunk, `[u32 offset][data]`, written **without response**
+    /// (§3.7). The call returns when the chunk is on its way, not when the
+    /// camera has it — the offset is what makes that safe. Suspending until
+    /// CoreBluetooth says it can take another write is the flow control on
+    /// this side; the camera's window is the flow control on the other.
+    func sendUpdateChunk(offset: UInt32, data: Data) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            self.queue.async {
+                guard let p = self.peripheral, p.state == .connected else {
+                    cont.resume(throwing: LinkError.notConnected)
+                    return
+                }
+                guard let c = self.characteristics[LC.updateUUID] else {
+                    cont.resume(throwing: LinkError.noUpdateCharacteristic)
+                    return
+                }
+                var frame = Data()
+                frame.lcAppend(offset)
+                frame.append(data)
+                if p.canSendWriteWithoutResponse {
+                    p.writeValue(frame, for: c, type: .withoutResponse)
+                    cont.resume()
+                    return
+                }
+                // The controller's buffers are full. Park exactly one chunk;
+                // the caller sends them one at a time, so a second would mean
+                // a bug rather than a backlog.
+                guard self.queuedChunk == nil else {
+                    cont.resume(throwing: LinkError.busy)
+                    return
+                }
+                self.queuedChunk = (frame, cont)
+            }
+        }
+    }
+
     // MARK: Internals (queue only)
 
     private func emit(_ event: Event) {
@@ -206,6 +260,11 @@ final class CameraLink: NSObject {
         if let w = pendingWrite {
             pendingWrite = nil
             w.resume(throwing: error)
+        }
+        // A parked chunk is waiting on a callback that is never coming now.
+        if let (_, cont) = queuedChunk {
+            queuedChunk = nil
+            cont.resume(throwing: error)
         }
         frameContinuation?.finish()
         frameContinuation = nil
@@ -362,6 +421,13 @@ extension CameraLink: CBPeripheralDelegate {
         } else {
             cont.resume()
         }
+    }
+
+    func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        guard let (frame, cont) = queuedChunk, let c = characteristics[LC.updateUUID] else { return }
+        queuedChunk = nil
+        peripheral.writeValue(frame, for: c, type: .withoutResponse)
+        cont.resume()
     }
 
     func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
