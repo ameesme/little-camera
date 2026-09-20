@@ -4,7 +4,7 @@ import Security
 /// Small, plain wrapper over UserDefaults. Not observable on purpose: AppModel
 /// mirrors whatever the UI needs to show, and this stays a dumb store.
 final class Settings {
-    static let defaultServerBaseURL = "https://littlecamera.example"
+    static let defaultServerBaseURL = "https://lttl.cam"
 
     private let defaults: UserDefaults
 
