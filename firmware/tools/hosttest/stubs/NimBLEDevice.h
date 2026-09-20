@@ -13,7 +13,11 @@
 #define BLE_HS_IO_NO_INPUT_OUTPUT 3
 
 namespace NIMBLE_PROPERTY {
-enum : uint16_t { READ = 1, READ_ENC = 2, READ_AUTHEN = 4, WRITE = 8, NOTIFY = 16 };
+// Stand-ins, not the real bit values — nothing here talks to a controller.
+enum : uint16_t {
+    READ = 1, READ_ENC = 2, READ_AUTHEN = 4, WRITE = 8, NOTIFY = 16,
+    WRITE_NR = 32, WRITE_ENC = 64, WRITE_AUTHEN = 128,
+};
 }
 
 class NimBLEConnInfo {

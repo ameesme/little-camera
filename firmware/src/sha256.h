@@ -54,30 +54,67 @@ inline void block(uint32_t state[8], const uint8_t chunk[64]) {
 
 }  // namespace detail
 
-// One-shot hash of `len` bytes into out[32].
-inline void hash(const uint8_t* data, size_t len, uint8_t out[32]) {
+// Streaming state. A firmware image arrives 500 bytes at a time over BLE and
+// is written straight to flash, so there is never a buffer to hash in one go
+// (docs/protocol.md §3.7). 104 bytes on the stack or in a static; the one-shot
+// below is this with the three calls inlined.
+struct Ctx {
     uint32_t state[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
                          0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
-    size_t i = 0;
-    for (; i + 64 <= len; i += 64) detail::block(state, data + i);
+    uint64_t len = 0;     // Bytes fed so far
+    uint8_t buf[64];      // Partial block
+    size_t used = 0;
+};
 
+inline void init(Ctx& c) { c = Ctx(); }
+
+inline void update(Ctx& c, const uint8_t* data, size_t len) {
+    c.len += len;
+    if (c.used) {
+        const size_t want = 64 - c.used;
+        const size_t take = len < want ? len : want;
+        memcpy(c.buf + c.used, data, take);
+        c.used += take;
+        data += take;
+        len -= take;
+        if (c.used < 64) return;
+        detail::block(c.state, c.buf);
+        c.used = 0;
+    }
+    while (len >= 64) {
+        detail::block(c.state, data);
+        data += 64;
+        len -= 64;
+    }
+    memcpy(c.buf, data, len);
+    c.used = len;
+}
+
+inline void final(Ctx& c, uint8_t out[32]) {
     uint8_t tail[128];
-    size_t rem = len - i;
-    memcpy(tail, data + i, rem);
+    size_t rem = c.used;
+    memcpy(tail, c.buf, rem);
     tail[rem++] = 0x80;
-    size_t padTo = (rem <= 56) ? 64 : 128;
+    const size_t padTo = (rem <= 56) ? 64 : 128;
     memset(tail + rem, 0, padTo - rem);
-    uint64_t bits = (uint64_t)len * 8;
+    const uint64_t bits = c.len * 8;
     for (int k = 0; k < 8; k++) tail[padTo - 1 - k] = (uint8_t)(bits >> (8 * k));
-    detail::block(state, tail);
-    if (padTo == 128) detail::block(state, tail + 64);
+    detail::block(c.state, tail);
+    if (padTo == 128) detail::block(c.state, tail + 64);
 
     for (int k = 0; k < 8; k++) {
-        out[k * 4] = (uint8_t)(state[k] >> 24);
-        out[k * 4 + 1] = (uint8_t)(state[k] >> 16);
-        out[k * 4 + 2] = (uint8_t)(state[k] >> 8);
-        out[k * 4 + 3] = (uint8_t)state[k];
+        out[k * 4] = (uint8_t)(c.state[k] >> 24);
+        out[k * 4 + 1] = (uint8_t)(c.state[k] >> 16);
+        out[k * 4 + 2] = (uint8_t)(c.state[k] >> 8);
+        out[k * 4 + 3] = (uint8_t)c.state[k];
     }
+}
+
+// One-shot hash of `len` bytes into out[32].
+inline void hash(const uint8_t* data, size_t len, uint8_t out[32]) {
+    Ctx c;
+    update(c, data, len);
+    final(c, out);
 }
 
 }  // namespace Sha256

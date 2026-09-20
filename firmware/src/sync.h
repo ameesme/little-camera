@@ -20,10 +20,17 @@
 namespace Sync {
 
 struct Event {
-    enum Kind { None, Connected, Disconnected, Passkey, PairingDone, Sent, ClockSet };
+    enum Kind {
+        None, Connected, Disconnected, Passkey, PairingDone, Sent, ClockSet,
+        // Firmware update (docs/protocol.md §3.7). These are the only events
+        // besides pairing that take over the screen, because an update lasts
+        // minutes and must not be interrupted by an idle timeout.
+        UpdateBegan, UpdateProgress, UpdateReady, UpdateFailed,
+    };
     Kind kind = None;
     uint32_t value = 0;   // Passkey: the 6 digits. PairingDone: 1 ok / 0 failed. Sent: count this connection.
                           // ClockSet: low 16 bits the UTC offset in minutes (as int16), CLOCK_TZ_KNOWN set if the phone sent one.
+                          // UpdateBegan: image size. UpdateProgress: percent. UpdateFailed: the protocol status.
 };
 
 constexpr uint32_t CLOCK_TZ_KNOWN = 0x80000000u;
@@ -36,7 +43,8 @@ void loop();    // Service the pending command, pump the stream, refresh Info.
 bool nextEvent(Event* out);
 
 bool connected();
-bool busy();                    // A stream is in progress
+bool busy();                    // A photo stream or a firmware update is in progress
+bool updating();                // A firmware update session is open
 
 // A phone is connected and did something within the last minute.
 bool activeRecently(uint32_t now);
