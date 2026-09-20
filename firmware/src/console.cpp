@@ -1,8 +1,12 @@
 #include "console.h"
 
+#include <esp_system.h>
+
 #include "crc32.h"
 #include "identity.h"
+#include "ota.h"
 #include "storage.h"
+#include "version.h"
 
 namespace Console {
 
@@ -53,10 +57,46 @@ void cmdGet(int index) {
 }
 
 void cmdStat() {
-    Serial.printf("photos=%d unsynced=%d used=%u total=%u boot=%u id=%s code=%s\n",
+    Serial.printf("photos=%d unsynced=%d used=%u total=%u boot=%u id=%s code=%s fw=%s\n",
                   Storage::photoCount(), Storage::unsyncedCount(),
                   (unsigned)Storage::usedBytes(), (unsigned)Storage::totalBytes(),
-                  (unsigned)Storage::bootCount(), Identity::cameraId(), Identity::shortCode());
+                  (unsigned)Storage::bootCount(), Identity::cameraId(), Identity::shortCode(),
+                  LC_VERSION_STRING);
+}
+
+const char* otaStateName(Ota::State s) {
+    switch (s) {
+        case Ota::State::Receiving: return "receiving";
+        case Ota::State::Verifying: return "verifying";
+        case Ota::State::Ready:     return "ready";
+        case Ota::State::Failed:    return "failed";
+        default:                    return "idle";
+    }
+}
+
+void cmdOta() {
+    Serial.printf("fw=%s running=%s state=%s trial=%d other=%s space=%u\n", LC_VERSION_STRING,
+                  Ota::runningLabel(), otaStateName(Ota::state()), Ota::trial() ? 1 : 0,
+                  Ota::otherLabel(), (unsigned)Ota::freeSpace());
+}
+
+// The way back after an update over the air: a USB upload writes the first app
+// slot while the bootloader is still pointed at the second, so without this
+// the board keeps booting the image the phone sent. Photos are in a different
+// partition and are not touched either way.
+void cmdOtaRevert() {
+    if (Ota::state() == Ota::State::Receiving) {
+        Serial.println("err update in progress");
+        return;
+    }
+    if (!Ota::revert()) {
+        Serial.println("err no valid image in the other slot");
+        return;
+    }
+    Serial.printf("ok %s\n", Ota::otherLabel());
+    Serial.flush();
+    delay(100);
+    esp_restart();
 }
 
 void run(const char* line) {
@@ -66,6 +106,10 @@ void run(const char* line) {
         cmdGet(atoi(line + 4));
     } else if (!strcmp(line, "stat")) {
         cmdStat();
+    } else if (!strcmp(line, "ota")) {
+        cmdOta();
+    } else if (!strcmp(line, "ota revert")) {
+        cmdOtaRevert();
     } else if (line[0]) {
         Serial.println("err unknown");
     }

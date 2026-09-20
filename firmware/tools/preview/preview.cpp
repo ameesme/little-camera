@@ -162,6 +162,8 @@ static void usage(const char* argv0) {
         "  sleep-content, sleep-glum, sleep-sad, sleep-breath  the other faces and the breath frame\n"
         "  splash       boot splash\n"
         "  pairing, pairing-done  the pairing code screen and its outcome\n"
+        "  update       firmware update in progress (see --percent)\n"
+        "  update-done, update-failed  the end of an update, no bar\n"
         "  gallery      a stored photo with the browse column (see --index/--total/--pbm)\n"
         "  gallery-slide  one frame of the viewfinder -> gallery slide (see --t)\n"
         "  gallery-empty  the gallery with nothing on the flash\n"
@@ -177,6 +179,7 @@ static void usage(const char* argv0) {
         "  --index N    0-based position shown in the gallery counter, default 2\n"
         "  --total N    total shown in the gallery counter, default 12\n"
         "  --happiness N  mood 0-255 for the sleep face, default 255\n"
+        "  --percent N  progress 0-100 for the 'update' scene, default 42\n"
         "  --breath     draw the second breath frame of the sleep face\n",
         argv0);
 }
@@ -195,6 +198,7 @@ int main(int argc, char** argv) {
     float slideT = 0.5f;
     const char* pbm = nullptr;
     int happiness = 255;
+    int percent = 42;
     bool breath = false;
     int galleryIndex = 2;
     int galleryTotal = 12;
@@ -217,6 +221,8 @@ int main(int argc, char** argv) {
             galleryIndex = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--happiness") && hasValue) {
             happiness = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--percent") && hasValue) {
+            percent = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--breath")) {
             breath = true;
         } else if (!strcmp(argv[i], "--total") && hasValue) {
@@ -269,6 +275,12 @@ int main(int argc, char** argv) {
         Display::drawPairing("418302", "type this on your phone");
     } else if (!strcmp(scene, "pairing-done")) {
         Display::drawPairing("paired", nullptr);
+    } else if (!strcmp(scene, "update")) {
+        Display::drawUpdate("new firmware", percent, "keep the phone close");
+    } else if (!strcmp(scene, "update-done")) {
+        Display::drawUpdate("restarting", -1, nullptr);
+    } else if (!strcmp(scene, "update-failed")) {
+        Display::drawUpdate("update failed", -1, "nothing changed");
     } else if (!strcmp(scene, "splash")) {
         Display::drawSplash();
     } else if (!strcmp(scene, "gallery") || !strcmp(scene, "gallery-slide")) {

@@ -21,8 +21,11 @@
 #include "identity.h"
 #include "mood.h"
 #include "mood_store.h"
+#include "ota.h"
 #include "storage.h"
 #include "sync.h"
+#include "sync_protocol.h"
+#include "version.h"
 
 // Sharp Memory LCD (LS027B7DH01 / Adafruit 4694)
 constexpr uint8_t PIN_LCD_SCLK = 7;   // D8
@@ -56,6 +59,16 @@ constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 // long enough to be read.
 constexpr uint32_t PAIRING_TIMEOUT_MS = 60000;
 constexpr uint32_t PAIRING_RESULT_MS = 1500;
+
+// A firmware update owns the screen until the phone is done with it or gives
+// up; sync.cpp's own timeouts are the escape hatch, so there is none here.
+// How long the outcome stays up afterwards, and how long a freshly updated
+// image has to prove it can stay on its feet before the trial ends
+// (docs/protocol.md §3.7). Twenty seconds covers boot, the camera, the radio
+// and the first idle timeout — an image that cannot manage that is one a
+// rollback can actually fix.
+constexpr uint32_t UPDATE_RESULT_MS = 3000;
+constexpr uint32_t OTA_CONFIRM_MS = 20000;
 
 // How long the bare capture holds before the layout starts sliding, and how
 // long the slide itself takes. The dwell exists so the shot registers as its
@@ -96,6 +109,7 @@ enum class Mode {
     Gallery,     // Stored photos, newest first; press = next, hold = back
     Asleep,      // Sleep face up, radio still advertising; hold wakes
     Pairing,     // The phone is asking for the passkey; the code owns the screen
+    Updating,    // New firmware coming in over BLE; progress owns the screen
 };
 
 // State variables
@@ -143,6 +157,11 @@ static bool cameraReady = false;
 static Mode modeBeforePairing = Mode::Viewfinder;
 static uint32_t pairingStartedAt = 0;
 static uint32_t pairingDoneAt = 0;
+// Updating: where to go back to if it does not end in a reboot, the percent
+// on screen, and when the outcome went up (0 = still running).
+static Mode modeBeforeUpdate = Mode::Viewfinder;
+static int updatePercent = -1;
+static uint32_t updateEndedAt = 0;
 
 // Forward declaration
 void enterSleepMode();
@@ -310,6 +329,11 @@ void setup() {
     // 5 interrupt watchdog, 6 task watchdog, 9 brownout, per esp_reset_reason_t).
     Serial.printf("Reset reason: %d\n", (int)esp_reset_reason());
 
+    // Before anything else is brought up: is this the first boot of an image
+    // the phone sent, and has it had too many goes at it? A rollback reboots
+    // from here, so it costs nothing but the reset it already spent.
+    Ota::begin();
+
     // Initialize buzzer early for splash melody
     Audio::init(PIN_BUZZ);
 
@@ -458,6 +482,85 @@ static void leavePairing() {
     Serial.println("Pairing: over");
 }
 
+// New firmware is coming in. It takes minutes and cannot be interrupted, so it
+// takes the screen the way pairing does — and the idle timeout is off while it
+// runs (see loop()), or the camera would fall asleep halfway through and take
+// the radio down with it.
+static void enterUpdating(uint32_t size) {
+    if (mode != Mode::Updating) modeBeforeUpdate = mode;
+    Display::clearToast();
+    hintToastShowing = false;
+    pendingToast = nullptr;
+    savedFrame = nullptr;
+    captureHeld = false;
+    gestureActive = false;
+    holdFired = false;
+    // Nothing is going to be photographed for the next few minutes, and the
+    // sensor is milliamps and 77KB of DRAM that the flash writer would rather
+    // have. Same teardown as the idle timeout does.
+    if (cameraReady) {
+        Camera::deinit();
+        cameraReady = false;
+    }
+    mode = Mode::Updating;
+    updateEndedAt = 0;
+    updatePercent = 0;
+    Display::drawUpdate("new firmware", 0, "keep the phone close");
+    Serial.printf("Update: receiving %u bytes, fw now %s\n", (unsigned)size, LC_VERSION_STRING);
+}
+
+// Back to whatever was up before, after an update that did not end in a
+// reboot. A photo under review is long gone; anything that was not the sleep
+// face resumes as the viewfinder, exactly as pairing does.
+static void leaveUpdating() {
+    if (modeBeforeUpdate == Mode::Asleep) {
+        mode = Mode::Asleep;
+        // The phone may well try again: give the radio a full window.
+        asleepSince = millis();
+        sleepBreathIn = false;
+        showSleepFace(true);
+    } else {
+        if (!cameraReady) {
+            cameraReady = Camera::init();
+            if (!cameraReady) Serial.println("Camera re-init failed after the update");
+        }
+        mode = Mode::Viewfinder;
+        lastActivityTime = millis();
+    }
+    hintToastShowing = false;
+    gestureActive = false;
+    holdFired = false;
+}
+
+// The image is on flash, verified and armed. Everything after this line is
+// about leaving cleanly: the phone should see the link close rather than
+// vanish, and the melody is the last thing this firmware does.
+static void finishUpdating() {
+    Serial.println("Update: verified and armed — restarting into it");
+    Display::drawUpdate("restarting", -1, nullptr);
+    Audio::playMelody(Audio::Melody::TaDaDa);
+    while (Audio::isPlaying()) {
+        Audio::update();
+        delay(10);
+    }
+#ifndef LC_NO_BLE
+    Sync::end();
+#endif
+    delay(200);
+    esp_restart();
+}
+
+// It did not work. Say so, and say the part that matters: the camera is still
+// the camera it was a minute ago.
+static void failUpdating(uint32_t status) {
+    if (mode != Mode::Updating) return;
+    const bool stopped = status == SyncProto::STATUS_ABORTED;
+    Serial.printf("Update: %s (status %u)\n", stopped ? "stopped" : "failed", (unsigned)status);
+    Display::drawUpdate(stopped ? "update stopped" : "update failed", -1, "nothing changed");
+    Audio::playMelody(Audio::Melody::DaDaTa);
+    updateEndedAt = millis();
+}
+
 // Sync raises its events from loop() on the main thread, so drawing here is
 // safe. Only pairing has a screen: connecting and transferring are the phone's
 // business, and it shows its own progress.
@@ -477,6 +580,23 @@ static void handleSyncEvents() {
                     pairingDoneAt = millis();
                     Display::drawPairing(ev.value ? "paired" : "pairing failed", nullptr);
                 }
+                break;
+            case Sync::Event::UpdateBegan:
+                enterUpdating(ev.value);
+                break;
+            case Sync::Event::UpdateProgress:
+                // Bar only: a whole frame is 50ms of SPI, long enough for the
+                // radio to outrun the chunk ring behind it.
+                if (mode == Mode::Updating && !updateEndedAt && (int)ev.value != updatePercent) {
+                    updatePercent = (int)ev.value;
+                    Display::drawUpdateProgress(updatePercent);
+                }
+                break;
+            case Sync::Event::UpdateReady:
+                finishUpdating();  // Does not return
+                break;
+            case Sync::Event::UpdateFailed:
+                failUpdating(ev.value);
                 break;
             default:
                 break;  // Connected, Disconnected, Sent: no screen of their own
@@ -743,14 +863,21 @@ void loop() {
     const uint32_t idleLimit =
         (mode == Mode::Gallery || mode == Mode::Save) ? REVIEW_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
     // Pairing is the phone's moment, not an idle camera: it runs on its own
-    // timeout in the mode switch below.
-    if (mode != Mode::Asleep && mode != Mode::Pairing && now - lastActivityTime >= idleLimit) {
+    // timeout in the mode switch below. An update is the same, only longer —
+    // falling asleep mid-image would take the radio down under the transfer.
+    if (mode != Mode::Asleep && mode != Mode::Pairing && mode != Mode::Updating &&
+        now - lastActivityTime >= idleLimit) {
         enterAsleep();
     }
 
     Audio::update();
     Sync::loop();
     handleSyncEvents();
+
+    // This image got through boot and has been running the loop for a while:
+    // end the trial, so the next reset is an ordinary one. A no-op unless the
+    // camera is actually running something the phone sent.
+    if (Ota::trial() && now >= OTA_CONFIRM_MS) Ota::confirm();
 
     // USB console: an export in progress is activity. It holds off sleep,
     // and keeps a sleeping camera's radio on, without waking the screen.
@@ -981,6 +1108,13 @@ void loop() {
             // on the result (after a beat to read it) or on the timeout.
             const uint32_t waited = pairingDoneAt ? (millis() - pairingDoneAt) : (millis() - pairingStartedAt);
             if (waited >= (pairingDoneAt ? PAIRING_RESULT_MS : PAIRING_TIMEOUT_MS)) leavePairing();
+            break;
+        }
+
+        case Mode::Updating: {
+            // The phone drives; the button does nothing. Progress arrives as
+            // events, and either a reboot or an outcome ends this screen.
+            if (updateEndedAt && millis() - updateEndedAt >= UPDATE_RESULT_MS) leaveUpdating();
             break;
         }
 

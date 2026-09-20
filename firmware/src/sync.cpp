@@ -8,8 +8,10 @@
 
 #include "crc32.h"
 #include "identity.h"
+#include "ota.h"
 #include "storage.h"
 #include "sync_protocol.h"
+#include "version.h"
 
 namespace Sync {
 
@@ -31,17 +33,50 @@ constexpr time_t EPOCH_PLAUSIBLE = 1600000000;
 
 constexpr int EVENT_QUEUE = 8;
 
+// A connected phone that stops sending image chunks for this long has given
+// up on the update; drop the session rather than sit on an open flash handle.
+constexpr uint32_t UPDATE_IDLE_MS = 20000;
+// A phone that vanishes mid-image gets this long to come back and resume from
+// where it stopped. Re-sending a megabyte over BLE is minutes; holding a
+// half-written *inactive* slot costs nothing but the wait.
+constexpr uint32_t UPDATE_RESUME_MS = 90000;
+// Floor between two "you skipped a byte" answers. Everything the phone had in
+// flight when a chunk was dropped arrives as a gap too, and one rewind is
+// enough to fix all of them.
+constexpr uint32_t UPDATE_NAK_MS = 200;
+
 // ---- state shared between the NimBLE task and loop() ----
 // Written in callbacks, read in loop(). Single-writer per field, and the
 // pending command is a one-slot mailbox guarded by its flag, so plain
 // volatiles are enough.
 
 struct PendingCommand {
-    uint8_t bytes[8];
+    uint8_t bytes[MAX_CONTROL];
     uint8_t len;
 };
 volatile bool _cmdPending = false;
 PendingCommand _cmd;
+// Whether the connection that wrote it is bonded and authenticated. Only the
+// update opcodes ask: pushing firmware is the one thing on this service that
+// must not be possible for a stranger in the room.
+volatile bool _cmdAuthenticated = false;
+
+// Firmware chunks, staged between the BLE task and the main loop. The task
+// copies a write in and publishes it; the loop takes them out and writes them
+// to flash. Single producer, single consumer, so the index each side owns is
+// the only thing that moves — but head must not become visible before the
+// bytes it points at, hence the release/acquire pair rather than a bare
+// volatile. (The one-slot command mailbox above gets away with less because a
+// command is re-read under its flag and is seven bytes, not five hundred.)
+struct UpdateChunk {
+    uint32_t offset;
+    uint16_t len;
+    uint8_t data[MAX_UPDATE_CHUNK];
+};
+UpdateChunk _ring[UPDATE_SLOTS];
+uint16_t _ringHead = 0;   // BLE task writes, loop reads
+uint16_t _ringTail = 0;   // loop writes, BLE task reads
+volatile uint32_t _ringDropped = 0;
 
 volatile bool _connected = false;
 volatile bool _subscribed = false;
@@ -68,6 +103,7 @@ NimBLECharacteristic* _info = nullptr;
 NimBLECharacteristic* _secret = nullptr;
 NimBLECharacteristic* _control = nullptr;
 NimBLECharacteristic* _data = nullptr;
+NimBLECharacteristic* _updateChar = nullptr;
 
 uint32_t _lastInfoRefresh = 0;
 int _sentThisConnection = 0;
@@ -90,6 +126,17 @@ struct Stream {
     bool abortRequested = false;
 } _stream;
 
+// The firmware update session (docs/protocol.md §3.7). Ota owns the flash
+// side and the byte count; this is what the radio needs on top of it.
+struct UpdateSession {
+    bool active = false;
+    uint16_t seq = 0;          // UPDATE_STATUS frames sent since UPDATE_BEGIN
+    uint32_t ackedAt = 0;      // Bytes accepted when the last status went out
+    uint32_t lastChunkMs = 0;  // For the idle and resume timeouts
+    uint32_t lastNakMs = 0;
+    int lastPercent = -1;      // Only raise an event when the screen would change
+} _update;
+
 uint8_t _frame[FRAME_HEADER_SIZE + MAX_CHUNK];
 
 size_t chunkSize() {
@@ -99,6 +146,19 @@ size_t chunkSize() {
     if (payload > MAX_CHUNK) payload = MAX_CHUNK;
     return payload;
 }
+
+// Data bytes per Update write, and how many bytes the phone may have in
+// flight. The window is the whole staging ring: what the phone is allowed to
+// send while it waits for an answer is exactly what the camera can hold.
+size_t updateChunkSize() {
+    uint16_t mtu = _peerMtu;
+    if (mtu < 23) mtu = 23;
+    size_t payload = (size_t)mtu - 3 - UPDATE_HEADER_SIZE;
+    if (payload > MAX_UPDATE_CHUNK) payload = MAX_UPDATE_CHUNK;
+    return payload;
+}
+
+size_t updateWindow() { return updateChunkSize() * UPDATE_SLOTS; }
 
 uint32_t epochNow() {
     time_t t = time(nullptr);
@@ -150,7 +210,33 @@ class ControlCallbacks : public NimBLECharacteristicCallbacks {
         if (_cmdPending) return;  // One at a time; the phone waits for END anyway
         memcpy(_cmd.bytes, v.data(), v.size());
         _cmd.len = (uint8_t)v.size();
+        _cmdAuthenticated = connInfo.isEncrypted() && connInfo.isAuthenticated();
         _cmdPending = true;
+        _lastBleActivity = millis();
+    }
+};
+
+// Firmware chunks. Copy and publish, nothing else — a flash write takes tens
+// of milliseconds and belongs on the main loop, not on the radio's task.
+class UpdateCallbacks : public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& connInfo) override {
+        NimBLEAttValue v = c->getValue();
+        uint32_t offset = 0;
+        const int len = parseUpdateWrite(v.data(), v.size(), &offset);
+        if (len <= 0) return;
+        const uint16_t head = _ringHead;
+        const uint16_t next = (uint16_t)((head + 1) % UPDATE_SLOTS);
+        if (next == __atomic_load_n(&_ringTail, __ATOMIC_ACQUIRE)) {
+            // Full: the loop is behind. Dropping is safe — every chunk carries
+            // its own offset, so the loop notices the gap and asks the phone
+            // to rewind. Writes without response have nowhere to push back.
+            _ringDropped++;
+            return;
+        }
+        _ring[head].offset = offset;
+        _ring[head].len = (uint16_t)len;
+        memcpy(_ring[head].data, v.data() + UPDATE_HEADER_SIZE, (size_t)len);
+        __atomic_store_n(&_ringHead, next, __ATOMIC_RELEASE);
         _lastBleActivity = millis();
     }
 };
@@ -165,6 +251,7 @@ class DataCallbacks : public NimBLECharacteristicCallbacks {
 ServerCallbacks _serverCallbacks;
 ControlCallbacks _controlCallbacks;
 DataCallbacks _dataCallbacks;
+UpdateCallbacks _updateCallbacks;
 
 // ---- loop() side ----
 
@@ -185,7 +272,13 @@ void refreshInfo() {
     i.flags = 0;
     if (i.epoch) i.flags |= INFO_TIME_VALID;
     if (Storage::totalBytes() > 0) i.flags |= INFO_STORAGE_OK;
-    if (_stream.active) i.flags |= INFO_BUSY;
+    if (_stream.active || _update.active) i.flags |= INFO_BUSY;
+    if (Ota::trial()) i.flags |= INFO_TRIAL;
+    i.fwMajor = LC_VERSION_MAJOR;
+    i.fwMinor = LC_VERSION_MINOR;
+    i.fwPatch = LC_VERSION_PATCH;
+    i.updateState = (uint8_t)Ota::state();
+    i.updateSpace = Ota::freeSpace();
     uint8_t packed[INFO_SIZE];
     packInfo(i, packed);
     _info->setValue(packed, sizeof(packed));
@@ -224,6 +317,105 @@ void reply(uint8_t op, uint8_t status) {
     endStream(status);
 }
 
+// ---- firmware update ----------------------------------------------------
+
+// One UPDATE_STATUS frame. Doubles as the answer to a command and as the
+// unsolicited progress report that lets the phone send the next window.
+void sendUpdateStatus(uint8_t op, uint8_t status) {
+    if (!_data) return;
+    UpdateStatus u;
+    u.op = op;
+    u.status = status;
+    u.state = (uint8_t)Ota::state();
+    u.nextOffset = Ota::received();
+    u.total = Ota::total();
+    u.chunk = (uint16_t)updateChunkSize();
+    u.window = (uint16_t)updateWindow();
+    packFrameHeader(KIND_UPDATE_STATUS, _update.seq, _frame);
+    packUpdateStatus(u, _frame + FRAME_HEADER_SIZE);
+    _data->setValue(_frame, FRAME_HEADER_SIZE + UPDATE_STATUS_SIZE);
+    // A frame the stack refused never went out, so it must not consume a
+    // sequence number either.
+    if (_data->notify()) _update.seq++;
+    _update.ackedAt = Ota::received();
+    _lastBleActivity = millis();
+}
+
+void endUpdate(uint8_t status, Event::Kind kind) {
+    if (status != STATUS_OK) Ota::abort();
+    _update.active = false;
+    pushEvent(kind, status);
+}
+
+// Write what the BLE task staged. Returns true if a chunk arrived out of
+// order, i.e. one was dropped and the phone has to come back for it.
+bool drainUpdateRing() {
+    bool gap = false;
+    for (;;) {
+        const uint16_t tail = _ringTail;
+        if (tail == __atomic_load_n(&_ringHead, __ATOMIC_ACQUIRE)) break;
+        const UpdateChunk& c = _ring[tail];
+        const uint32_t want = Ota::received();
+        if (c.offset == want) {
+            if (!Ota::write(c.data, c.len)) {
+                __atomic_store_n(&_ringTail, (uint16_t)((tail + 1) % UPDATE_SLOTS), __ATOMIC_RELEASE);
+                sendUpdateStatus(OP_PROGRESS, Ota::lastStatus());
+                endUpdate(Ota::lastStatus(), Event::UpdateFailed);
+                return false;
+            }
+            _update.lastChunkMs = millis();
+        } else if (c.offset > want) {
+            // The one before it was dropped. Everything already in flight is
+            // ahead too, so note it once and answer after the drain.
+            gap = true;
+        }
+        // c.offset < want: a duplicate from before a rewind. Already on flash.
+        __atomic_store_n(&_ringTail, (uint16_t)((tail + 1) % UPDATE_SLOTS), __ATOMIC_RELEASE);
+    }
+    return gap;
+}
+
+void pumpUpdate() {
+    if (!_update.active) return;
+    const uint32_t now = millis();
+
+    if (!_connected) {
+        // Gone mid-image. Keep the half-written slot for a while: the phone
+        // reconnects, repeats UPDATE_BEGIN with the same digest and carries on
+        // from where it stopped.
+        if (now - _update.lastChunkMs >= UPDATE_RESUME_MS) {
+            Serial.println("Sync: update abandoned, phone did not come back");
+            endUpdate(STATUS_ABORTED, Event::UpdateFailed);
+        }
+        return;
+    }
+
+    const bool gap = drainUpdateRing();
+    if (!_update.active) return;  // The drain ended it
+
+    if (gap && now - _update.lastNakMs >= UPDATE_NAK_MS) {
+        _update.lastNakMs = now;
+        sendUpdateStatus(OP_PROGRESS, STATUS_OFFSET);
+    } else if (Ota::received() - _update.ackedAt >= updateWindow() / 2) {
+        // Halfway through the window: let the phone push the next half before
+        // it runs out of credit, so the link never idles.
+        sendUpdateStatus(OP_PROGRESS, STATUS_OK);
+    }
+
+    const int pct = Ota::percent();
+    if (pct != _update.lastPercent) {
+        _update.lastPercent = pct;
+        pushEvent(Event::UpdateProgress, (uint32_t)pct);
+    }
+
+    if (now - _update.lastChunkMs >= UPDATE_IDLE_MS) {
+        Serial.printf("Sync: update stalled at %u of %u bytes\n", (unsigned)Ota::received(),
+                      (unsigned)Ota::total());
+        sendUpdateStatus(OP_PROGRESS, STATUS_ABORTED);
+        endUpdate(STATUS_ABORTED, Event::UpdateFailed);
+    }
+}
+
 void handleCommand(const uint8_t* b, size_t len) {
     uint8_t op = b[0];
     switch (op) {
@@ -247,7 +439,7 @@ void handleCommand(const uint8_t* b, size_t len) {
         }
         case OP_LIST: {
             if (len < 4) return reply(op, STATUS_ERROR);
-            if (_stream.active) return reply(op, STATUS_BUSY);
+            if (_stream.active || _update.active) return reply(op, STATUS_BUSY);
             startStream(op);
             _stream.fromIndex = get16(b + 1);
             _stream.unsyncedOnly = (b[3] & LIST_FLAG_UNSYNCED_ONLY) != 0;
@@ -256,7 +448,7 @@ void handleCommand(const uint8_t* b, size_t len) {
         }
         case OP_GET: {
             if (len < 7) return reply(op, STATUS_ERROR);
-            if (_stream.active) return reply(op, STATUS_BUSY);
+            if (_stream.active || _update.active) return reply(op, STATUS_BUSY);
             int index = get16(b + 1);
             if (!Storage::exists(index)) return reply(op, STATUS_NOT_FOUND);
             startStream(op);
@@ -286,6 +478,62 @@ void handleCommand(const uint8_t* b, size_t len) {
         case OP_ABORT: {
             if (_stream.active) _stream.abortRequested = true;
             else reply(op, STATUS_OK);
+            return;
+        }
+        case OP_UPDATE_BEGIN: {
+            // Every BEGIN starts the status numbering over, answered or not.
+            _update.seq = 0;
+            uint32_t size = 0;
+            uint8_t digest[SHA256_SIZE];
+            if (!parseUpdateBegin(b, len, &size, digest)) return sendUpdateStatus(op, STATUS_ERROR);
+            // Firmware only travels over the bonded link the Secret read set
+            // up. The characteristic demands it too; this is the check that
+            // stops a stranger opening a session and sitting on it.
+            if (!_cmdAuthenticated) {
+                Serial.println("Sync: refusing an update over an unauthenticated link");
+                return sendUpdateStatus(op, STATUS_ERROR);
+            }
+            if (_stream.active) return sendUpdateStatus(op, STATUS_BUSY);
+            const bool resuming = Ota::resumes(digest);
+            if (!Ota::start(size, digest)) return sendUpdateStatus(op, Ota::lastStatus());
+            // Anything staged for the old session is from another image, or
+            // from before the phone rewound. Start the ring empty.
+            __atomic_store_n(&_ringTail, __atomic_load_n(&_ringHead, __ATOMIC_ACQUIRE), __ATOMIC_RELEASE);
+            _update.lastChunkMs = millis();
+            _update.lastNakMs = 0;
+            if (!_update.active) {
+                _update.active = true;
+                _update.lastPercent = -1;
+                pushEvent(Event::UpdateBegan, size);
+            }
+            Serial.printf("Sync: update %s at %u of %u bytes\n", resuming ? "resumes" : "begins",
+                          (unsigned)Ota::received(), (unsigned)size);
+            return sendUpdateStatus(op, STATUS_OK);
+        }
+        case OP_UPDATE_END: {
+            if (!_update.active) return sendUpdateStatus(op, STATUS_ERROR);
+            // Chunks written just before this command are already staged;
+            // take them before deciding the image is short.
+            drainUpdateRing();
+            if (!_update.active) return;
+            // The screen should say 100% while the verify runs — it reads the
+            // whole slot back and takes a moment.
+            pushEvent(Event::UpdateProgress, 100);
+            if (Ota::finish()) {
+                sendUpdateStatus(op, STATUS_OK);
+                _update.active = false;
+                pushEvent(Event::UpdateReady, 0);
+            } else {
+                const uint8_t status = Ota::lastStatus();
+                sendUpdateStatus(op, status);
+                endUpdate(status, Event::UpdateFailed);
+            }
+            return;
+        }
+        case OP_UPDATE_ABORT: {
+            if (!_update.active) return sendUpdateStatus(op, STATUS_OK);
+            sendUpdateStatus(op, STATUS_ABORTED);
+            endUpdate(STATUS_ABORTED, Event::UpdateFailed);
             return;
         }
         default:
@@ -384,10 +632,18 @@ void begin() {
         SECRET_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN);
     _control = svc->createCharacteristic(CONTROL_UUID, NIMBLE_PROPERTY::WRITE);
     _data = svc->createCharacteristic(DATA_UUID, NIMBLE_PROPERTY::NOTIFY);
+    // Write without response: one ATT acknowledgement per 500 bytes would
+    // halve the throughput of a 1.5MB image, and the offset in every chunk
+    // already makes a dropped write recoverable. Encrypted + authenticated
+    // like the secret, because replacing the firmware is the most powerful
+    // thing this service can be asked to do.
+    _updateChar = svc->createCharacteristic(
+        UPDATE_UUID, NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
 
     _secret->setValue(Identity::secret(), SECRET_SIZE);
     _control->setCallbacks(&_controlCallbacks);
     _data->setCallbacks(&_dataCallbacks);
+    _updateChar->setCallbacks(&_updateCallbacks);
     svc->start();
 
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
@@ -402,6 +658,11 @@ void begin() {
     _stream = Stream();
     _cmdPending = false;
     _sentThisConnection = 0;
+    // An update session never survives the radio going down (main.cpp does not
+    // sleep while one runs), so both ends start clean.
+    _update = UpdateSession();
+    _ringHead = _ringTail = 0;
+    _ringDropped = 0;
     refreshInfo();
 
     adv->start();
@@ -413,6 +674,13 @@ void end() {
     if (!_running) return;
     _running = false;
     _stream.active = false;
+    // The radio is going away, so nothing can finish an image in flight. Free
+    // the flash handle; Ota::abort() leaves an armed update alone, which is
+    // what makes end()-then-reboot after UPDATE_END safe.
+    if (_update.active) {
+        Ota::abort();
+        _update.active = false;
+    }
 
     // Wind the stack down in order, and let the host task catch up between
     // steps. Going straight from stopAdvertising() to deinit(true) crashed
@@ -438,7 +706,7 @@ void end() {
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) esp_bt_controller_disable();
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_INITED) esp_bt_controller_deinit();
     _server = nullptr;
-    _info = _secret = _control = _data = nullptr;
+    _info = _secret = _control = _data = _updateChar = nullptr;
     _connected = false;
     _subscribed = false;
     Serial.println("Sync: stopped");
@@ -458,6 +726,7 @@ void loop() {
     }
 
     pump();
+    pumpUpdate();
 
     if (millis() - _lastInfoRefresh >= INFO_REFRESH_MS) refreshInfo();
 }
@@ -471,7 +740,8 @@ bool nextEvent(Event* out) {
 }
 
 bool connected() { return _connected; }
-bool busy() { return _stream.active; }
+bool busy() { return _stream.active || _update.active; }
+bool updating() { return _update.active; }
 
 bool activeRecently(uint32_t now) {
     return _running && _connected && now - _lastBleActivity < BLE_ACTIVE_MS;

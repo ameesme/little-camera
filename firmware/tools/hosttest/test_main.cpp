@@ -108,22 +108,31 @@ static void testPbmHeader() {
 static void testSyncProtocol() {
     using namespace SyncProto;
     // Layouts pinned by docs/protocol.md §3
-    CHECK(INFO_SIZE == 25 && LIST_ENTRY_SIZE == 16 && FRAME_HEADER_SIZE == 3 && END_PAYLOAD_SIZE == 10);
-    CHECK(MAX_CHUNK == 506);
+    CHECK(INFO_SIZE == 32 && LIST_ENTRY_SIZE == 16 && FRAME_HEADER_SIZE == 3 && END_PAYLOAD_SIZE == 10);
+    CHECK(UPDATE_STATUS_SIZE == 15 && MAX_CONTROL == 37 && UPDATE_HEADER_SIZE == 4);
+    CHECK(MAX_CHUNK == 506 && MAX_UPDATE_CHUNK == 505);
 
     Info i;
     const uint8_t mac[6] = {0x7c, 0xdf, 0xa1, 0xe2, 0xb3, 0xc4};
     memcpy(i.mac, mac, 6);
     i.photoCount = 12; i.unsyncedCount = 3; i.newestIndex = 57; i.boot = 17;
     i.uptimeMs = 0x01020304; i.epoch = 1757789000u; i.flags = INFO_TIME_VALID | INFO_STORAGE_OK;
+    i.fwMajor = 0; i.fwMinor = 2; i.fwPatch = 0;
+    i.updateState = UPDATE_IDLE; i.updateSpace = 0x330000;
     uint8_t p[INFO_SIZE];
     packInfo(i, p);
-    CHECK(p[0] == 1);
+    CHECK(p[0] == 2);
     CHECK(!memcmp(p + 1, mac, 6));
     CHECK(get16(p + 7) == 12 && get16(p + 9) == 3 && get16(p + 11) == 57 && get16(p + 13) == 17);
     CHECK(p[15] == 0x04 && p[16] == 0x03 && p[17] == 0x02 && p[18] == 0x01);  // little-endian
     CHECK(get32(p + 19) == 1757789000u);
-    CHECK(p[23] == 0x03 && p[24] == 0);
+    CHECK(p[23] == 0x03);
+    CHECK(p[24] == 0 && p[25] == 2 && p[26] == 0 && p[27] == UPDATE_IDLE);
+    CHECK(get32(p + 28) == 0x330000u);
+    // The v1 prefix is untouched, which is what lets a reader parse by length.
+    i.flags |= INFO_TRIAL;
+    packInfo(i, p);
+    CHECK(p[23] == (INFO_TIME_VALID | INFO_STORAGE_OK | INFO_TRIAL));
 
     ListEntry e;
     e.index = 7; e.flags = ENTRY_SYNCED; e.size = 9646; e.epoch = 0; e.uptimeMs = 48213;
@@ -151,6 +160,59 @@ static void testSyncProtocol() {
     CHECK(estimateEpoch(0, 17, 48213, 17, 60213, 0, &f) == 0);                        // clock unset
 }
 
+
+static void testUpdateProtocol() {
+    using namespace SyncProto;
+
+    // UPDATE_STATUS, docs/protocol.md §3.7
+    UpdateStatus u;
+    u.op = OP_UPDATE_BEGIN; u.status = STATUS_OK; u.state = UPDATE_RECEIVING;
+    u.nextOffset = 0x00012345; u.total = 1481712; u.chunk = 245; u.window = 245 * UPDATE_SLOTS;
+    uint8_t out[UPDATE_STATUS_SIZE];
+    packUpdateStatus(u, out);
+    CHECK(out[0] == 0x10 && out[1] == 0 && out[2] == 1);
+    CHECK(get32(out + 3) == 0x00012345u && get32(out + 7) == 1481712u);
+    CHECK(get16(out + 11) == 245 && get16(out + 13) == 245 * UPDATE_SLOTS);
+
+    // UPDATE_BEGIN: opcode, size, digest — and nothing guessed at when short
+    uint8_t cmd[MAX_CONTROL];
+    cmd[0] = OP_UPDATE_BEGIN;
+    put32(cmd + 1, 1481712);
+    for (int k = 0; k < 32; k++) cmd[5 + k] = (uint8_t)(k * 7 + 1);
+    uint32_t size = 0;
+    uint8_t digest[32] = {0};
+    CHECK(parseUpdateBegin(cmd, sizeof(cmd), &size, digest));
+    CHECK(size == 1481712u && digest[0] == 1 && digest[31] == 31 * 7 + 1);
+    CHECK(!parseUpdateBegin(cmd, sizeof(cmd) - 1, &size, digest));
+    CHECK(!parseUpdateBegin(cmd, 1, &size, digest));
+
+    // Update writes: [u32 offset][data]
+    uint8_t w[UPDATE_HEADER_SIZE + 8];
+    put32(w, 4096);
+    uint32_t offset = 0;
+    CHECK(parseUpdateWrite(w, sizeof(w), &offset) == 8 && offset == 4096);
+    CHECK(parseUpdateWrite(w, UPDATE_HEADER_SIZE, &offset) == -1);      // header only, no data
+    CHECK(parseUpdateWrite(w, 0, &offset) == -1);
+    // A write longer than the biggest MTU allows is not truncated, it is refused
+    CHECK(parseUpdateWrite(w, UPDATE_HEADER_SIZE + MAX_UPDATE_CHUNK + 1, &offset) == -1);
+
+    // Streaming SHA-256 equals the one-shot, at every chunk boundary that a
+    // 505-byte BLE chunk can land on.
+    uint8_t blob[2048];
+    for (size_t k = 0; k < sizeof(blob); k++) blob[k] = (uint8_t)(k * 31 + 7);
+    uint8_t once[32], streamed[32];
+    Sha256::hash(blob, sizeof(blob), once);
+    const size_t steps[] = {1, 55, 64, 65, 245, 505};
+    for (size_t step : steps) {
+        Sha256::Ctx ctx;
+        for (size_t at = 0; at < sizeof(blob); at += step) {
+            const size_t n = (at + step <= sizeof(blob)) ? step : sizeof(blob) - at;
+            Sha256::update(ctx, blob + at, n);
+        }
+        Sha256::final(ctx, streamed);
+        CHECK(!memcmp(once, streamed, 32));
+    }
+}
 
 // ---- chirp.h ---------------------------------------------------------------
 
@@ -447,6 +509,7 @@ int main() {
     testMood();
     testChirp();
     testSyncProtocol();
+    testUpdateProtocol();
     testCrc32();
     testSha256();
     testShortCode();

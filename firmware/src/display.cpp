@@ -229,6 +229,16 @@ constexpr UI::Font SIDEBAR_FONT = UI::Font::Large;
 constexpr UI::Font HINT_FONT = UI::Font::Small;
 
 // Toast layout constants
+// Update screen progress bar
+constexpr int UPDATE_BAR_HEIGHT = 20;
+constexpr int UPDATE_BAR_RADIUS = 6;
+constexpr int UPDATE_BAR_PADDING = 3;   // Between the outline and the fill
+// Where the last drawUpdate() put its bar, so drawUpdateProgress() can repaint
+// that strip alone. -1 = the screen currently up has no bar.
+static int _updateBarX = -1;
+static int _updateBarY = -1;
+static int _updateBarW = 0;
+
 constexpr int TOAST_PADDING_H = 10;   // Horizontal padding inside toast
 constexpr int TOAST_PADDING_V = 6;    // Vertical padding inside toast
 constexpr int TOAST_MARGIN = 8;       // Margin from screen edges
@@ -886,6 +896,79 @@ void drawPairing(const char* big, const char* hint) {
     if (hasHint) drawTextCenteredAt(hint, 0, WIDTH, y + bigH + gap, HINT_FONT, false);
 
     flushFramebuffer();
+}
+
+// The filled part of the progress bar, from the geometry the last full draw
+// recorded. Clears the inside first so the bar can also go backwards (a rewind
+// after a dropped chunk does exactly that).
+static void fillUpdateBar(int percent) {
+    const int p = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    const int innerW = _updateBarW - 2 * UPDATE_BAR_PADDING;
+    const int innerH = UPDATE_BAR_HEIGHT - 2 * UPDATE_BAR_PADDING;
+    const int x = _updateBarX + UPDATE_BAR_PADDING;
+    const int y = _updateBarY + UPDATE_BAR_PADDING;
+    for (int py = y; py < y + innerH; py++)
+        for (int px = x; px < x + innerW; px++) setPixel(px, py, true);
+    const int fillW = innerW * p / 100;
+    if (fillW <= 0) return;
+    // Square the fill off below a few pixels: a rounded corner wider than the
+    // shape it is rounding eats the whole thing.
+    const int r = fillW < 2 * UPDATE_BAR_RADIUS ? 0 : UPDATE_BAR_RADIUS - UPDATE_BAR_PADDING;
+    fillRoundedRect(x, y, fillW, innerH, r, false);
+}
+
+// The update screen: what the camera is doing to itself, and how far along it
+// is. Its own screen for the same reason pairing has one — it owns the panel
+// for minutes, and a toast would be painted over by the next one. The bar is
+// the only progress indicator in the UI; everything else here is instant.
+void drawUpdate(const char* line, int percent, const char* hint) {
+    memset(_framebuffer, 0xFF, sizeof(_framebuffer));  // White paper, like every screen but sleep
+
+    const int inset = 12;
+    drawRoundedRectBorder(inset, inset, WIDTH - 2 * inset, HEIGHT - 2 * inset, VF_CORNER_RADIUS, false);
+
+    const int avail = WIDTH - 2 * (inset + 16);
+    const int unitW = UI::textWidth(line, UI::Font::Large);
+    // One notch smaller than the pairing code: this is a sentence, not six
+    // digits, and it is read at arm's length rather than across the room.
+    int scale = 3;
+    while (scale > 1 && unitW * scale > avail) scale--;
+
+    const int textW = unitW * scale;
+    const int textH = UI::fontHeight(UI::Font::Large) * scale;
+    const bool hasBar = percent >= 0;
+    const bool hasHint = hint && hint[0];
+    const int barH = hasBar ? UPDATE_BAR_HEIGHT : 0;
+    const int hintH = hasHint ? UI::fontHeight(HINT_FONT) : 0;
+    const int gapBar = hasBar ? 24 : 0;
+    const int gapHint = hasHint ? (hasBar ? 14 : 20) : 0;
+
+    int y = (HEIGHT - textH - gapBar - barH - gapHint - hintH) / 2;
+    drawTextScaled(line, (WIDTH - textW) / 2, y, UI::Font::Large, false, scale);
+    y += textH + gapBar;
+
+    _updateBarX = _updateBarY = -1;
+    if (hasBar) {
+        _updateBarX = (WIDTH - avail) / 2;
+        _updateBarY = y;
+        _updateBarW = avail;
+        drawRoundedRectBorder(_updateBarX, y, avail, barH, UPDATE_BAR_RADIUS, false);
+        fillUpdateBar(percent);
+        y += barH + gapHint;
+    }
+
+    if (hasHint) drawTextCenteredAt(hint, 0, WIDTH, y, HINT_FONT, false);
+
+    flushFramebuffer();
+}
+
+void drawUpdateProgress(int percent) {
+    if (_updateBarY < 0) return;  // The screen up right now has no bar
+    fillUpdateBar(percent);
+    // Just the bar's rows. A whole frame is ~50ms of SPI, which is long enough
+    // for the radio to outrun the chunk ring underneath it; twenty lines is
+    // nothing, so the bar can follow every percent without costing a rewind.
+    flushLines(_updateBarY, _updateBarY + UPDATE_BAR_HEIGHT);
 }
 
 void drawSplash() {

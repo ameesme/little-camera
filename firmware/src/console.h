@@ -2,9 +2,10 @@
 
 #include <Arduino.h>
 
-// Line-oriented commands on the USB-CDC console: `ls`, `get N`, `stat`. The
-// wired way to get photos off the camera when Bluetooth or the phone is not
-// cooperating; firmware/tools/export/pull_serial.py speaks it. Protocol in
+// Line-oriented commands on the USB-CDC console: `ls`, `get N`, `stat`, plus
+// `ota` and `ota revert` for the firmware slots. The wired way to get photos
+// off the camera when Bluetooth or the phone is not cooperating;
+// firmware/tools/export/pull_serial.py speaks it. Protocol in
 // docs/protocol.md §6.
 //
 // Polled from loop(), never blocks, and only does work when bytes arrived —

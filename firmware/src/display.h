@@ -26,6 +26,15 @@ void drawSplash();
 // fit, with an optional hint under it. Its own screen because a toast is both
 // too small for a code and too easy for another toast to paint over.
 void drawPairing(const char* big, const char* hint = nullptr);
+// The firmware update screen (docs/protocol.md §3.7): a line saying what is
+// happening, a progress bar when there is something to measure (percent < 0
+// leaves it out), and an optional hint under it. Like pairing, a screen rather
+// than a toast: it holds the panel for minutes.
+void drawUpdate(const char* line, int percent, const char* hint = nullptr);
+// Repaint only the progress bar of the update screen already up, and push only
+// its rows. Cheap enough to follow every percent; a no-op if the last
+// drawUpdate() had no bar.
+void drawUpdateProgress(int percent);
 // The sleep face for a mood (docs/mood.md; bands as Chirp::band) and one of
 // two breath frames. drawSleep() alone is the happy face at rest.
 // faceOnly pushes just the face rows (a breath frame on a face already up).
