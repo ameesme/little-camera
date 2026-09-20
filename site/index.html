@@ -44,8 +44,15 @@
      script): sizing it by calculation meant guessing the font's metrics, and
      Helvetica Neue Bold on iOS is a shade wider than Helvetica or Arial, so
      its longest line wrapped there and the three lines became four. The
-     factor below is only the pre-script fallback, deliberately short. */
+     factor below is only the pre-script fallback, deliberately short.
+
+     The whole stack is about 1.44 measures tall, so the height cap is what
+     keeps it inside one screen. It is svh, the viewport at its smallest: dvh
+     would resize the composition every time a mobile URL bar slid away, and
+     each resize re-fits the headline. The vh line above it is the fallback
+     for browsers without svh, and is the same number. */
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
+  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54svh);
   /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. A 1.75 mm bezel all
      round makes the device 61.1 x 38.1 x 7 mm: all screen, no button, and one
      small lens on the back. Every proportion below comes off that rectangle. */
@@ -58,17 +65,24 @@
 *{box-sizing:border-box}
 html{height:100%}
 body{
-  min-height:100%; margin:0; background:var(--paper); color:var(--ink);
+  min-height:100vh; min-height:100dvh;
+  margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
-  display:flex; align-items:flex-start; justify-content:center;
-  padding-block:clamp(28px,9vh,104px) clamp(32px,7vmin,72px);
+  display:flex;
+  padding-block:clamp(20px,5vh,64px);
   padding-left:var(--pad-x); padding-right:var(--pad-x);
 }
 img{max-width:100%}
 
-.sheet{width:var(--sheet); margin-inline:auto;
-       display:flex; flex-direction:column; align-items:flex-start;
+/* The camera sits above the headline. The markup keeps the h1 first, so the
+   document still opens with its own title and a screen reader meets the words
+   before the ornament; column-reverse does the flip visually. margin:auto
+   rather than centring on the body, because a flex container centred with
+   align-items clips the top of anything taller than it, and on a very short
+   window this composition should scroll rather than lose its head. */
+.sheet{width:var(--sheet); margin:auto;
+       display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
 /* Lower case, like every heading on amaranthstudio.com. The micro-blog's

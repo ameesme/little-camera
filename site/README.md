@@ -88,9 +88,13 @@ The CSS device it replaced is still in the markup as a fallback. If WebGL fails
 to start, the canvas stays hidden and the CSS version runs instead.
 
 One measure drives the whole composition. `--sheet` is the block's width: as
-wide as the screen allows, capped at 480px and at 54vh so the pair stays whole
-above the fold on a short laptop. Everything else is a fraction of it, so the
-composition scales as one object and can never be wider than the screen:
+wide as the screen allows, capped at 480px and at 54svh so the pair stays whole
+on one screen. The stack is about 1.44 measures tall, so that height cap is
+what keeps the page free of scrollbars; it is the *small* viewport height,
+because `dvh` would resize the composition every time a mobile URL bar slid
+away and every resize re-fits the headline. Everything else is a fraction of
+the measure, so the composition scales as one object and can never be wider
+than the screen:
 
 | Part | Size |
 |---|---|
@@ -107,6 +111,14 @@ fills the measure exactly. The 0.168 factor in the stylesheet is only the
 pre-script fallback, deliberately short of the measure.
 
 Each line is its own block with `white-space: nowrap`, so three lines stay
-three lines whatever the font does. The block is centred horizontally with the text
-left aligned inside it and the camera centred beneath, and sits high on the
-page rather than in the middle, so the headline leads.
+three lines whatever the font does. The camera is on top and the headline
+beneath it, centred in the viewport: the object is what the page is about, and
+the words caption it. The block is centred horizontally with the text left
+aligned inside it and the camera centred above.
+
+The markup keeps the `h1` first and flips the pair with `column-reverse`, so
+the document still opens with its own title and a screen reader meets the words
+before the ornament. The sheet is centred with `margin:auto` rather than by
+centring on the body, because a flex container centred with `align-items` clips
+the top of anything taller than it: on a window too short for the composition
+it should scroll, not lose its head.
