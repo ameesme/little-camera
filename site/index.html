@@ -317,15 +317,14 @@ const float AMB    = 0.58;
 // The piezo takes no part in any of it. It is far smaller than the arm is
 // thick, so it sits in the corner without moving an edge.
 //
-// It is square: the foot from the lens to the corner is as long as the upright
-// from the corner to the button, which puts its left end and its top end the
-// same distance out. So the body's height sets how far it reaches, and the
-// body's height is really set by how much chin the screen can carry: at 48 mm
-// that is 6.7 mm above and below the glass. The L ends up about 8 mm in from
-// the left side, which is the cost of a body that is not square.
+// The foot is longer than the upright, so the L is wider than it is tall, in
+// the proportion of the body it sits on. Each arm runs out to the same small
+// margin from its own edge -- 3 mm at the side, 1.7 mm at the top -- rather
+// than both stopping at the shorter of the two, which is what a square L on a
+// body this shape would have forced.
 const vec2  P_LENS  = vec2(0.0000, 0.0000);       // dead centre of the back
-const vec2  P_PIEZO = vec2(0.2788, 0.0000);       // out to the left, same line
-const vec2  P_SHUT  = vec2(0.2788, 0.2788);       // above it, in the corner
+const vec2  P_PIEZO = vec2(0.3590, 0.0000);       // out to the left, same line
+const vec2  P_SHUT  = vec2(0.3590, 0.2728);       // above it, in the corner
 const float ARM     = 0.092;                      // half-thickness, both arms
 const float FILLET  = 0.065;                      // 4 mm inside the elbow
 const float R_SHUT  = 0.062;                      // 7.6 mm button

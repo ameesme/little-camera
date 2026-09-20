@@ -29,10 +29,10 @@ bottom bezels are wider than the sides:
 
 The L stands 1.8 mm proud of the back. Its foot runs from the lens out to the
 piezo and its upright from there up to the shutter, both the same 11.2 mm
-thickness, so the two arms are as long as each other: the L is square. Its left
-end and its top end therefore reach equally far, so the body's height decides
-how far it gets, and it ends up about 8 mm in from the left side. That is the
-cost of a body that is not square.
+thickness. The foot is longer than the upright, so the L is wider than it is
+tall, in the proportion of the body it sits on: each arm runs out to the same
+small margin from its own edge, 3 mm at the side and 1.7 mm at the top, rather
+than both stopping at the shorter of the two.
 
 One thickness throughout means every curve on it is the same 5.6 mm: the cap
 concentric with the lens, the cap concentric with the button, and the outer
