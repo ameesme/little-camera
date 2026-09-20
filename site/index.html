@@ -332,8 +332,9 @@ const float R_SHUT  = 0.062;                      // 7.6 mm button
 const float R_PIEZO = 0.024;                      // 2.9 mm hole
 const float R_LENS  = 0.070;                      // 8.6 mm barrel
 const float R_GLASS = 0.048;                      // 5.9 mm of glass
-const float BOSS_H  = 0.029;                      // the L stands 1.8 mm proud
-const float BOSS_R  = 0.010;                      // with a 0.6 mm edge break
+const float BOSS_H  = 0.034;                      // the L stands 2.1 mm proud
+const float BOSS_R  = 0.014;                      // with a 0.9 mm break on top
+const float BOSS_K  = 0.030;                      // and a 1.8 mm fillet at its foot
 const float W_SHUT  = 0.013;                      // the button lies 0.8 mm into it
 const float W_LENS  = 0.017;                      // the lens 1.0 mm
 const float W_PIEZO = 0.040;                      // the piezo goes right through
@@ -399,16 +400,21 @@ float wellIn(vec3 p, vec2 c, float rad, float depth){
   return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - 0.004;
 }
 
-// The body: the slab, the L standing on its back, and the three parts sunk
+// The body: the slab, the L growing out of its back, and the three parts sunk
 // into the L's face. Nothing stands taller than the L. The L is real geometry
 // and keeps the shell's own colour -- it is raised, not a patch of darker
-// paint. What makes it read at sixteen dither levels is its broken edge, which
-// turns through every shade between the two faces, plus the contact shading in
-// backAlbedo and the walls of the three wells.
+// paint -- and it is blended into the back rather than stepped off it, so the
+// shell reads as one moulding. What carries it at sixteen dither levels is
+// that blend, which turns through every shade between the two faces, plus the
+// contact shading in backAlbedo and the walls of the three wells.
 float sdBody(vec3 p){
   vec3 q = abs(p) - (HALF - ROUND);
   float d = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - ROUND;
-  d = min(d, raised(sdL(p.xy), p.z, BOSS_H, BOSS_R));
+  // A smooth union rather than a plain one, so the L rises out of the back on
+  // a fillet instead of a step. The blend runs the whole way round its base,
+  // because that is where the two surfaces come within BOSS_K of each other,
+  // and it stops short of the top face, which stands BOSS_H clear.
+  d = smin(d, raised(sdL(p.xy), p.z, BOSS_H, BOSS_R), BOSS_K);
   d = max(d, -wellIn(p, P_SHUT,  R_SHUT,  W_SHUT));
   d = max(d, -wellIn(p, P_LENS,  R_LENS,  W_LENS));
   d = max(d, -wellIn(p, P_PIEZO, R_PIEZO, W_PIEZO));

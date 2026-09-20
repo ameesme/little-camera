@@ -46,9 +46,12 @@ The piezo takes no part in the outline. It is far smaller than the arm is
 thick, so it sits in the corner without moving an edge.
 
 All three parts are sunk into the L's face rather than standing on it. The L
-itself has no colour of its own — it is the shell, raised — so what makes it
-read at sixteen dither levels is its broken edge, the contact shading at its
-foot and the walls of the three wells. Only the piezo hole and the lens glass
+itself has no colour of its own — it is the shell, raised — and it is blended
+into the back rather than stepped off it: the union with the slab is a smooth
+one, so the L grows out of the shell on a 1.8 mm fillet and the whole back
+reads as a single moulding. What makes it read at sixteen dither levels is that
+blend, which turns through every shade between the two faces, plus the contact
+shading at its foot and the walls of the three wells. Only the piezo hole and the lens glass
 are actually dark, because one is a hole and the other is glass.
 
  In the shader, seen from behind, `+x` runs to the viewer's left; `P_LENS`,
