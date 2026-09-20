@@ -53,11 +53,13 @@
      for browsers without svh, and is the same number. */
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54svh);
-  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. A 1.75 mm bezel all
-     round makes the device 61.1 x 38.1 x 7 mm: all screen, no button, and one
-     small lens on the back. Every proportion below comes off that rectangle. */
+  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. 1.75 mm of bezel at the
+     sides and 3 mm top and bottom makes the device 61.1 x 40.6 x 7 mm. The
+     taller bezel is what gives the back room for the L: it wants half the
+     width, and being square it then wants that much height too. Every
+     proportion below comes off that rectangle. */
   --w:calc(var(--sheet) * 0.76);
-  --h:calc(var(--w) * 0.6229);
+  --h:calc(var(--w) * 0.6638);
   --d:calc(var(--w) * 0.1146);
   --r:calc(var(--w) * 0.057);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
@@ -85,6 +87,11 @@ img{max-width:100%}
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
+/* The words, as one block. Full width so the headline fitter, which measures
+   against its parent, still gets the measure. */
+.say{width:100%; display:flex; flex-direction:column; align-items:flex-start;
+     gap:calc(var(--sheet) * 0.038)}
+
 /* Lower case, like every heading on amaranthstudio.com. The micro-blog's
    tracked capitals are right at 10px and wrong at 90. */
 h1{margin:0; text-align:left; font-family:var(--font-bold);
@@ -93,6 +100,12 @@ h1{margin:0; text-align:left; font-family:var(--font-bold);
 /* Each line is its own block and never wraps, so three lines stay three lines
    whatever the font turns out to be. */
 h1 span{display:block; white-space:nowrap}
+
+/* Quieter than the headline by weight as well as size, so it reads as a
+   footnote rather than a fourth line. */
+.by{margin:0; font-family:var(--font); font-weight:400;
+    font-size:calc(var(--sheet) * 0.048); line-height:1.25}
+.by a{color:inherit; text-decoration:none}
 
 /* ---- the void ---- */
 .stage{position:relative; width:var(--w); align-self:center;
@@ -139,7 +152,7 @@ h1 span{display:block; white-space:nowrap}
       background:linear-gradient(202deg,var(--shell-lit) 0%,var(--shell) 58%,var(--shell-dim) 100%)}
 
 /* The panel, 1.75 mm of bezel on every side, with corners of its own. */
-.screen{position:absolute; inset:4.6% 2.86%;
+.screen{position:absolute; inset:7.4% 2.86%;
         border:var(--rule); border-radius:calc(var(--r) * .5);
         background:var(--glass); overflow:hidden}
 .screen img{display:block; width:100%; height:100%; image-rendering:pixelated;
@@ -161,7 +174,10 @@ h1 span{display:block; white-space:nowrap}
 <body>
 
 <main class="sheet">
-  <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
+  <div class="say">
+    <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
+    <p class="by"><a href="https://amaranthstudio.com">(a project by amaranth studio)</a></p>
+  </div>
 
   <div class="stage">
     <div class="rig">
@@ -275,11 +291,31 @@ uniform sampler2D uScreen;
 uniform vec3  uInk, uGround;
 
 const float CAM_Z  = 4.0;
-const vec3  HALF   = vec3(0.5, 0.3118, 0.0573);   // 61.1 x 38.1 x 7 mm, width = 1
+const vec3  HALF   = vec3(0.5, 0.3319, 0.0573);   // 61.1 x 40.6 x 7 mm, width = 1
 const float ROUND  = 0.0573;                      // 3.5 mm corner, fully round edge
 const vec2  SCR    = vec2(0.4714, 0.2828);        // 57.6 x 34.56 mm of glass
 const float ALBEDO = 0.88;
-const float AMB    = 0.62;
+const float AMB    = 0.55;
+
+// The back. The lens sits at the dead centre; the L runs from it out to the
+// left edge, where the piezo hole is, still on the centre line; the shutter is
+// directly above that, in the corner. Arm 11 mm wide, 1.8 mm clear of the
+// edges. The two arms cannot be equal in length: the foot has to reach from
+// the centre to the side, half the width, and the device is nowhere near tall
+// enough for the upright to match that, so the diagonal symmetry of the
+// earlier sketch is not available at these proportions.
+//
+// Drawn flat rather than raised: an extrusion shares its normal with the panel
+// it stands on, so at four-by-four Bayer the two shade identically and the
+// shape disappears. Tone and outline carry it instead. Seen from behind, +x
+// runs to the viewer's left.
+const vec2  P_LENS  = vec2(0.00, 0.0000);         // dead centre of the back
+const vec2  P_PIEZO = vec2(0.38, 0.0000);         // at the left edge, same line
+const vec2  P_SHUT  = vec2(0.38, 0.2119);         // above it, in the corner
+const float R_SHUT  = 0.062;                      // 7.6 mm button
+const float R_PIEZO = 0.024;                      // 2.9 mm hole
+const float R_LENS  = 0.070;                      // 8.6 mm barrel
+const float R_GLASS = 0.048;                      // 5.9 mm of glass
 
 mat3 rotY(float a){ float c=cos(a), s=sin(a); return mat3(c,0.,-s, 0.,1.,0., s,0.,c); }
 mat3 rotX(float a){ float c=cos(a), s=sin(a); return mat3(1.,0.,0., 0.,c,s, 0.,-s,c); }
@@ -296,15 +332,39 @@ vec3 nrm(vec3 p){
                         sdBox(p+e.yyx)-sdBox(p-e.yyx)));
 }
 
-float softShadow(vec3 ro, vec3 rd){
-  float res = 1.0, t = 0.03;
-  for (int i = 0; i < 28; i++){
-    float h = sdBox(ro + rd*t);
-    res = min(res, 9.0*h/t);
-    t += clamp(h, 0.02, 0.35);
-    if (res < 0.004 || t > 5.0) break;
-  }
-  return clamp(res, 0.0, 1.0);
+float sdRect2(vec2 p, vec2 b, float r){
+  vec2 d = abs(p) - b + r;
+  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
+}
+
+float sdL(vec2 q){
+  float foot = sdRect2(q - vec2(0.19000, 0.00000), vec2(0.280, 0.090), 0.028);
+  float leg  = sdRect2(q - vec2(0.38000, 0.10595), vec2(0.090, 0.196), 0.028);
+  return min(foot, leg);
+}
+
+// Everything on the back, as one albedo lookup.
+float backAlbedo(vec2 q){
+  float a = ALBEDO;
+  float dL = sdL(q);
+  if (dL < 0.0) a = 0.56;
+  if (abs(dL) < 0.006) a = 0.30;            // its edge, so the shape has a line
+
+  // Each part gets an outline as well as a fill. At sixteen dither levels a
+  // difference in tone alone is weak: the button went missing entirely as a
+  // lighter disc on the L. An edge survives, because it is a hard step.
+  float ds = length(q - P_SHUT);
+  if (ds < R_SHUT) a = 0.82;
+  if (abs(ds - R_SHUT) < 0.008) a = 0.22;
+
+  if (length(q - P_PIEZO) < R_PIEZO) a = 0.10;
+
+  float dl = length(q - P_LENS);
+  if (dl < R_LENS) a = 0.34;
+  if (abs(dl - R_LENS) < 0.007) a = 0.20;
+  if (dl < R_GLASS) a = 0.08;
+  if (length(q - P_LENS - vec2(0.014, 0.014)) < 0.011) a = 0.86;   // a glint
+  return a;
 }
 
 float bayer(vec2 q){
@@ -328,8 +388,10 @@ void main(){
   vec3 pivot = vec3(0.0, uBob, 0.0);
   vec3 ro_o = inv * (ro - pivot);
   vec3 rd_o = inv * rd;
-  vec3 L    = normalize(vec3(-0.5, 0.62, 0.6));
-  vec3 L_o  = inv * L;
+  // A key in front and a weaker fill behind. With one light the back spent
+  // half the turn on ambient alone and read as a paper cut-out.
+  vec3 L_o  = inv * normalize(vec3(-0.50, 0.62, 0.60));
+  vec3 F_o  = inv * normalize(vec3( 0.45, 0.40, -0.72));
 
   float lum = 1.0;                              // the void is paper
   float t = 0.0;
@@ -351,10 +413,11 @@ void main(){
       vec2 uv = vec2(p.x/(2.0*SCR.x) + 0.5, 0.5 - p.y/(2.0*SCR.y));
       lum = texture2D(uScreen, uv).r;
     } else {
-      float dif = max(dot(n, L_o), 0.0);
-      float sh  = softShadow(p + n*0.005, L_o);
-      float rim = pow(1.0 - max(dot(n, -rd_o), 0.0), 3.0);
-      lum = ALBEDO * (AMB + (1.0 - AMB) * dif * sh) + 0.05 * rim;
+      float alb  = n.z < -0.5 ? backAlbedo(p.xy) : ALBEDO;
+      float key  = max(dot(n, L_o), 0.0);
+      float fill = max(dot(n, F_o), 0.0);
+      float rim  = pow(1.0 - max(dot(n, -rd_o), 0.0), 3.0);
+      lum = alb * (AMB + 0.24*key + 0.14*fill) + 0.05*rim;
     }
   } else {
     // A soft ellipse beneath the device rather than a shadow cast on a floor.

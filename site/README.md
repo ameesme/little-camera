@@ -5,13 +5,40 @@ self-contained (the firmware screens are inlined as base64 PNGs), so it can be
 dropped on any static host or served by Caddy with a two-line site block.
 
 The device is a placeholder: a rounded grey slab at roughly the real
-dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass, and a
-1.75 mm bezel all round puts the whole thing at 61.1 x 38.1 x 7 mm. It is all
-screen: no button, and one small lens on the back. The shell's corner radius
-is 3.5 mm and the glass radius is that less the bezel, so the two curves stay
-concentric. Replace it when the
-industrial design lands; every proportion is derived from that rectangle, so
-changing `--w`, `--h`, `--d` and `--r` at the top of the stylesheet is enough.
+dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass; 1.75 mm
+of bezel at the sides and 3 mm top and bottom puts the whole thing at
+61.1 x 40.6 x 7 mm. The front is all screen, with no button on it. The shell's
+corner radius is 3.5 mm and the glass radius is that less the bezel, so the two
+curves stay concentric. Replace it when the industrial design lands; every
+proportion is derived from that rectangle, so changing `--w`, `--h`, `--d` and
+`--r` at the top of the stylesheet is enough.
+
+## The back
+
+Three things live on an L-shaped area on the back, and the L is why the top and
+bottom bezels are wider than the sides:
+
+| Part | Where |
+|---|---|
+| lens | the geometric centre of the back |
+| piezo hole | at the left edge (seen from behind), on the same centre line |
+| shutter | directly above the piezo, in the top-left corner |
+
+The foot of the L runs from the lens out to the piezo, which is half the width
+of the device; the upright rises from there to the shutter. The two arms cannot
+be the same length — half the width is more than the device is tall — so the L
+is not diagonally symmetric. Both arms are the same 11 mm thickness, which is
+what makes it read as one shape.
+
+It is drawn flat rather than raised. An extrusion shares its surface normal
+with the panel it stands on, so at sixteen dither levels the two shade
+identically and the shape vanishes; and for the same reason every part is
+outlined as well as filled, because a hard step survives the dither where a
+difference in tone does not.
+
+In the shader, seen from behind, `+x` runs to the viewer's left; `P_LENS`,
+`P_PIEZO`, `P_SHUT` and the `R_*` radii next to them are the whole layout, in
+units where the device is one wide.
 
 ## The screens
 
@@ -98,9 +125,15 @@ than the screen:
 
 | Part | Size |
 |---|---|
-| headline | `--sheet` x 0.18 |
+| headline | `--sheet` x 0.168 (a floor; the fitter takes over) |
+| credit line | `--sheet` x 0.048 |
 | camera | `--sheet` x 0.76 |
 | gap between them | `--sheet` x 0.12 |
+
+The credit under the headline — "(a project by amaranth studio)", linking to
+amaranthstudio.com — is set in Book rather than Bold and at a little over a
+quarter of the headline's size, so it reads as a footnote rather than a fourth
+line. It carries no underline and no colour of its own.
 
 The headline is fitted at runtime rather than calculated. Predicting the line
 width from font metrics was wrong on real devices: iOS renders Helvetica Neue,
@@ -116,7 +149,7 @@ beneath it, centred in the viewport: the object is what the page is about, and
 the words caption it. The block is centred horizontally with the text left
 aligned inside it and the camera centred above.
 
-The markup keeps the `h1` first and flips the pair with `column-reverse`, so
+The markup keeps the words first and flips the pair with `column-reverse`, so
 the document still opens with its own title and a screen reader meets the words
 before the ornament. The sheet is centred with `margin:auto` rather than by
 centring on the body, because a flex container centred with `align-items` clips
