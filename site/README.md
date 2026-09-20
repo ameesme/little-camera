@@ -5,40 +5,49 @@ self-contained (the firmware screens are inlined as base64 PNGs), so it can be
 dropped on any static host or served by Caddy with a two-line site block.
 
 The device is a placeholder: a rounded grey slab at roughly the real
-dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass; 1.75 mm
-of bezel at the sides and 3 mm top and bottom puts the whole thing at
-61.1 x 40.6 x 7 mm. The front is all screen, with no button on it. The shell's
-corner radius is 3.5 mm and the glass radius is that less the bezel, so the two
-curves stay concentric. Replace it when the industrial design lands; every
-proportion is derived from that rectangle, so changing `--w`, `--h`, `--d` and
-`--r` at the top of the stylesheet is enough.
+dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass and 1.75
+mm of bezel at the sides makes the body 61.1 mm wide; its height comes from the
+back, and lands at 61.1 x 54 x 7 mm. The front is all screen, with no button on
+it. The shell's corner radius is 3.5 mm and the glass radius is that less the
+bezel, so the two curves stay concentric. Replace it when the industrial design
+lands; every proportion is derived from that rectangle, so changing `--w`,
+`--h`, `--d` and `--r` at the top of the stylesheet is enough.
 
 ## The back
 
-Three things live on an L-shaped area on the back, and the L is why the top and
+Three things live on an L-shaped boss on the back, and the L is why the top and
 bottom bezels are wider than the sides:
 
 | Part | Where |
 |---|---|
 | lens | the geometric centre of the back |
-| piezo hole | at the left edge (seen from behind), on the same centre line |
-| shutter | directly above the piezo, in the top-left corner |
+| piezo hole | out to the left (seen from behind), on the same centre line |
+| shutter | directly above the piezo, in the corner |
 
-The foot of the L runs from the lens out to the piezo, which is half the width
-of the device; the upright rises from there to the shutter. The two arms cannot
-be the same length — half the width is more than the device is tall — so the L
-is not diagonally symmetric. Both arms are the same 11 mm thickness, which is
-what makes it read as one shape.
+The L stands 1.8 mm proud of the back. Its foot runs from the lens out to the
+piezo and its upright from there up to the shutter, both the same 11.2 mm
+thickness, so the two arms are as long as each other: the L is square, and that
+is what sets the body's height. Each end is closed with a half-circle
+concentric with the part it holds, which is what ties the shape to the lens at
+one end and the button at the other. The outer corner is a tight 1.5 mm and the
+inside of the elbow is filleted.
 
-It is drawn flat rather than raised. An extrusion shares its surface normal
-with the panel it stands on, so at sixteen dither levels the two shade
-identically and the shape vanishes; and for the same reason every part is
-outlined as well as filled, because a hard step survives the dither where a
-difference in tone does not.
+The piezo takes no part in the outline. It is far smaller than the arm is
+thick, so it sits in the corner without moving an edge.
+
+All three parts are sunk into the L's face rather than standing on it. The L
+itself has no colour of its own — it is the shell, raised — so what makes it
+read at sixteen dither levels is its broken edge, the contact shading at its
+foot and the walls of the three wells. Only the piezo hole and the lens glass
+are actually dark, because one is a hole and the other is glass.
+
+A body tall enough for a square L *and* for the piezo to touch the left edge
+would have to be square itself, which is too tall for a camera. The L keeps its
+symmetry and sits about 5 mm in from the side instead.
 
 In the shader, seen from behind, `+x` runs to the viewer's left; `P_LENS`,
-`P_PIEZO`, `P_SHUT` and the `R_*` radii next to them are the whole layout, in
-units where the device is one wide.
+`P_PIEZO`, `P_SHUT`, `ARM` and the `R_*` radii next to them are the whole
+layout, in units where the device is one wide.
 
 ## The screens
 
@@ -115,8 +124,8 @@ The CSS device it replaced is still in the markup as a fallback. If WebGL fails
 to start, the canvas stays hidden and the CSS version runs instead.
 
 One measure drives the whole composition. `--sheet` is the block's width: as
-wide as the screen allows, capped at 480px and at 54svh so the pair stays whole
-on one screen. The stack is about 1.44 measures tall, so that height cap is
+wide as the screen allows, capped at 480px and at 48svh so the pair stays whole
+on one screen. The stack is about 1.6 measures tall, so that height cap is
 what keeps the page free of scrollbars; it is the *small* viewport height,
 because `dvh` would resize the composition every time a mobile URL bar slid
 away and every resize re-fits the headline. Everything else is a fraction of

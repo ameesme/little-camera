@@ -46,20 +46,20 @@
      its longest line wrapped there and the three lines became four. The
      factor below is only the pre-script fallback, deliberately short.
 
-     The whole stack is about 1.44 measures tall, so the height cap is what
+     The whole stack is about 1.6 measures tall, so the height cap is what
      keeps it inside one screen. It is svh, the viewport at its smallest: dvh
      would resize the composition every time a mobile URL bar slid away, and
      each resize re-fits the headline. The vh line above it is the fallback
      for browsers without svh, and is the same number. */
-  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
-  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54svh);
-  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. 1.75 mm of bezel at the
-     sides and 3 mm top and bottom makes the device 61.1 x 40.6 x 7 mm. The
-     taller bezel is what gives the back room for the L: it wants half the
-     width, and being square it then wants that much height too. Every
+  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 48vh);
+  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 48svh);
+  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass, and 1.75 mm of bezel at
+     the sides makes the device 61.1 mm wide. Height comes from the back: the L
+     is as tall as it is wide, and the body has to clear it, which puts it at
+     61.1 x 54 x 7 mm -- a 9.7 mm band above and below the glass. Every
      proportion below comes off that rectangle. */
   --w:calc(var(--sheet) * 0.76);
-  --h:calc(var(--w) * 0.6638);
+  --h:calc(var(--w) * 0.8838);
   --d:calc(var(--w) * 0.1146);
   --r:calc(var(--w) * 0.057);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
@@ -135,8 +135,10 @@ h1 span{display:block; white-space:nowrap}
      transition:transform 1.25s cubic-bezier(.62,.02,.34,1)}
 .slice{position:absolute; left:0; top:0; width:var(--w); height:var(--h);
        border-radius:var(--r); transform:translateZ(calc(var(--d) * var(--z)))}
-/* The one thing on the back: a small lens, about 7 mm across. */
-.lens{position:absolute; left:12%; top:20%; width:11%; aspect-ratio:1; border-radius:50%;
+/* The fallback back gets the lens only, at the dead centre. The L and the
+   other two parts are the renderer's; drawing them in CSS would mean faces
+   that never dither. */
+.lens{position:absolute; left:44.5%; top:44.5%; width:11%; aspect-ratio:1; border-radius:50%;
       background:radial-gradient(circle at 38% 34%,#4c4c4c 0%,#1a1a1a 44%,#080808 100%);
       box-shadow:0 0 0 calc(var(--w) * .008) var(--shell-dim),
                  0 0 0 calc(var(--w) * .0115) rgba(0,0,0,.2)}
@@ -151,8 +153,9 @@ h1 span{display:block; white-space:nowrap}
 .back{transform:rotateY(180deg) translateZ(calc(var(--d) / 2));
       background:linear-gradient(202deg,var(--shell-lit) 0%,var(--shell) 58%,var(--shell-dim) 100%)}
 
-/* The panel, 1.75 mm of bezel on every side, with corners of its own. */
-.screen{position:absolute; inset:7.4% 2.86%;
+/* The panel: 1.75 mm of bezel at the sides, 9.7 mm above and below, with
+   corners of its own. */
+.screen{position:absolute; inset:18.0% 2.86%;
         border:var(--rule); border-radius:calc(var(--r) * .5);
         background:var(--glass); overflow:hidden}
 .screen img{display:block; width:100%; height:100%; image-rendering:pixelated;
@@ -291,45 +294,53 @@ uniform sampler2D uScreen;
 uniform vec3  uInk, uGround;
 
 const float CAM_Z  = 4.0;
-const vec3  HALF   = vec3(0.5, 0.3319, 0.0573);   // 61.1 x 40.6 x 7 mm, width = 1
+const vec3  HALF   = vec3(0.5, 0.4419, 0.0573);   // 61.1 x 54 x 7 mm, width = 1
 const float ROUND  = 0.0573;                      // 3.5 mm corner, fully round edge
 const vec2  SCR    = vec2(0.4714, 0.2828);        // 57.6 x 34.56 mm of glass
 const float ALBEDO = 0.88;
-const float AMB    = 0.55;
+const float AMB    = 0.58;
 
 // The back. The lens sits at the dead centre; the L runs from it out to the
 // left edge, where the piezo hole is, still on the centre line; the shutter is
-// directly above that, in the corner. Arm 11 mm wide, 1.8 mm clear of the
-// edges. The two arms cannot be equal in length: the foot has to reach from
-// the centre to the side, half the width, and the device is nowhere near tall
-// enough for the upright to match that, so the diagonal symmetry of the
-// earlier sketch is not available at these proportions.
+// directly above that, in the corner. Seen from behind, +x runs to the
+// viewer's left.
 //
-// Drawn flat rather than raised: an extrusion shares its normal with the panel
-// it stands on, so at four-by-four Bayer the two shade identically and the
-// shape disappears. Tone and outline carry it instead. Seen from behind, +x
-// runs to the viewer's left.
-const vec2  P_LENS  = vec2(0.00, 0.0000);         // dead centre of the back
-const vec2  P_PIEZO = vec2(0.38, 0.0000);         // at the left edge, same line
-const vec2  P_SHUT  = vec2(0.38, 0.2119);         // above it, in the corner
+// The L is one arm thickness throughout, 11.2 mm, set by the two things that
+// have to fit inside it: the lens with 1.3 mm to spare, the button with 1.8.
+// Each end is closed with a half-circle concentric with its part, so the
+// outline follows the lens at one end and the button at the other. The outer
+// corner is a tight 1.5 mm and the inside of the elbow is filleted.
+//
+// The piezo takes no part in any of it. It is far smaller than the arm is
+// thick, so it sits in the corner without moving an edge.
+//
+// It is square: the foot from the lens to the corner is as long as the upright
+// from the corner to the button, which puts the left end and the top end the
+// same distance from the L's own bounding box. A body tall enough for that AND
+// for the piezo to touch the left edge would have to be square too, which is
+// too tall for a camera, so the L keeps its symmetry and sits 5 mm in from the
+// side instead.
+const vec2  P_LENS  = vec2(0.0000, 0.0000);       // dead centre of the back
+const vec2  P_PIEZO = vec2(0.3279, 0.0000);       // out to the left, same line
+const vec2  P_SHUT  = vec2(0.3279, 0.3279);       // above it, in the corner
+const float ARM     = 0.092;                      // half-thickness, both arms
+const float CORNER  = 0.024;                      // 1.5 mm at the outer corner
 const float R_SHUT  = 0.062;                      // 7.6 mm button
 const float R_PIEZO = 0.024;                      // 2.9 mm hole
 const float R_LENS  = 0.070;                      // 8.6 mm barrel
 const float R_GLASS = 0.048;                      // 5.9 mm of glass
+const float BOSS_H  = 0.029;                      // the L stands 1.8 mm proud
+const float BOSS_R  = 0.010;                      // with a 0.6 mm edge break
+const float W_SHUT  = 0.013;                      // the button lies 0.8 mm into it
+const float W_LENS  = 0.017;                      // the lens 1.0 mm
+const float W_PIEZO = 0.040;                      // the piezo goes right through
 
 mat3 rotY(float a){ float c=cos(a), s=sin(a); return mat3(c,0.,-s, 0.,1.,0., s,0.,c); }
 mat3 rotX(float a){ float c=cos(a), s=sin(a); return mat3(1.,0.,0., 0.,c,s, 0.,-s,c); }
 
-float sdBox(vec3 p){
-  vec3 q = abs(p) - (HALF - ROUND);
-  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - ROUND;
-}
-
-vec3 nrm(vec3 p){
-  vec2 e = vec2(0.0015, 0.0);
-  return normalize(vec3(sdBox(p+e.xyy)-sdBox(p-e.xyy),
-                        sdBox(p+e.yxy)-sdBox(p-e.yxy),
-                        sdBox(p+e.yyx)-sdBox(p-e.yyx)));
+float smin(float a, float b, float k){
+  float h = clamp(0.5 + 0.5*(b - a)/k, 0.0, 1.0);
+  return mix(b, a, h) - k*h*(1.0 - h);
 }
 
 float sdRect2(vec2 p, vec2 b, float r){
@@ -337,33 +348,77 @@ float sdRect2(vec2 p, vec2 b, float r){
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
 }
 
+// Two straight arms of one thickness, meeting at a tight outer corner, capped
+// at each end by a half-circle concentric with the thing it holds. The piezo
+// sits inside the corner and takes no part in the outline: it is smaller than
+// the arm is thick, so nothing about it moves an edge.
 float sdL(vec2 q){
-  float foot = sdRect2(q - vec2(0.19000, 0.00000), vec2(0.280, 0.090), 0.028);
-  float leg  = sdRect2(q - vec2(0.38000, 0.10595), vec2(0.090, 0.196), 0.028);
-  return min(foot, leg);
+  float xo = P_PIEZO.x + ARM;               // the outer edge of the upright
+  float yo = P_SHUT.y  + ARM;               // and its top
+  float foot = sdRect2(q - vec2(xo * 0.5, 0.0), vec2(xo * 0.5, ARM), CORNER);
+  float leg  = sdRect2(q - vec2(P_PIEZO.x, (yo - ARM) * 0.5),
+                       vec2(ARM, (yo + ARM) * 0.5), CORNER);
+  float d = smin(foot, leg, 0.030);         // a small fillet inside the elbow
+  d = min(d, length(q - P_LENS) - ARM);     // the cap that follows the lens
+  d = min(d, length(q - P_SHUT) - ARM);     // and the one that follows the button
+  return d;
 }
 
-// Everything on the back, as one albedo lookup.
+// A 2D outline pushed out of the back face by h, its edges broken by r. It
+// starts a hair inside the shell so the two fuse rather than z-fight.
+float raised(float d2, float z, float h, float r){
+  vec2 w = vec2(d2 + r, abs(z + HALF.z + h*0.5 - 0.006) - (h + 0.012)*0.5 + r);
+  return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - r;
+}
+
+// A round well cut into the outer face of the L, so a part lies in the boss
+// rather than standing on it. The cutter runs out past the face so it opens.
+float wellIn(vec3 p, vec2 c, float rad, float depth){
+  float zc = -(HALF.z + BOSS_H) + depth * 0.5 - 0.015;
+  vec2 w = vec2(length(p.xy - c) - rad + 0.004,
+                abs(p.z - zc) - (depth * 0.5 + 0.015) + 0.004);
+  return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - 0.004;
+}
+
+// The body: the slab, the L standing on its back, and the three parts sunk
+// into the L's face. Nothing stands taller than the L. The L is real geometry
+// and keeps the shell's own colour -- it is raised, not a patch of darker
+// paint. What makes it read at sixteen dither levels is its broken edge, which
+// turns through every shade between the two faces, plus the contact shading in
+// backAlbedo and the walls of the three wells.
+float sdBody(vec3 p){
+  vec3 q = abs(p) - (HALF - ROUND);
+  float d = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - ROUND;
+  d = min(d, raised(sdL(p.xy), p.z, BOSS_H, BOSS_R));
+  d = max(d, -wellIn(p, P_SHUT,  R_SHUT,  W_SHUT));
+  d = max(d, -wellIn(p, P_LENS,  R_LENS,  W_LENS));
+  d = max(d, -wellIn(p, P_PIEZO, R_PIEZO, W_PIEZO));
+  return d;
+}
+
+vec3 nrm(vec3 p){
+  vec2 e = vec2(0.0015, 0.0);
+  return normalize(vec3(sdBody(p+e.xyy)-sdBody(p-e.xyy),
+                        sdBody(p+e.yxy)-sdBody(p-e.yxy),
+                        sdBody(p+e.yyx)-sdBody(p-e.yyx)));
+}
+
+// Everything facing backwards, as one albedo lookup. The L and the button have
+// no colour of their own: they are the shell. All this adds is the contact
+// shading at the foot of the L -- the line a raised part lays down on what it
+// stands on, which is what tells the eye it is raised rather than drawn -- and
+// then the two things that really are dark, because one is a hole and the
+// other is glass.
 float backAlbedo(vec2 q){
   float a = ALBEDO;
   float dL = sdL(q);
-  if (dL < 0.0) a = 0.56;
-  if (abs(dL) < 0.006) a = 0.30;            // its edge, so the shape has a line
+  if (dL > 0.0) a -= 0.30 * exp(-dL * 42.0);            // at the foot of the L
 
-  // Each part gets an outline as well as a fill. At sixteen dither levels a
-  // difference in tone alone is weak: the button went missing entirely as a
-  // lighter disc on the L. An edge survives, because it is a hard step.
-  float ds = length(q - P_SHUT);
-  if (ds < R_SHUT) a = 0.82;
-  if (abs(ds - R_SHUT) < 0.008) a = 0.22;
-
-  if (length(q - P_PIEZO) < R_PIEZO) a = 0.10;
+  if (length(q - P_PIEZO) < R_PIEZO) a = 0.20;           // a hole is a hole
 
   float dl = length(q - P_LENS);
-  if (dl < R_LENS) a = 0.34;
-  if (abs(dl - R_LENS) < 0.007) a = 0.20;
-  if (dl < R_GLASS) a = 0.08;
-  if (length(q - P_LENS - vec2(0.014, 0.014)) < 0.011) a = 0.86;   // a glint
+  if (dl < R_GLASS) a = 0.16;               // the glass stays dark; it is glass
+  if (length(q - P_LENS - vec2(0.014, 0.014)) < 0.011) a = 0.94;   // a glint
   return a;
 }
 
@@ -396,10 +451,12 @@ void main(){
   float lum = 1.0;                              // the void is paper
   float t = 0.0;
   bool hit = false;
-  for (int i = 0; i < 72; i++){
-    float d = sdBox(ro_o + rd_o*t);
+  // Steps are shortened a little because subtracting the three wells makes the
+  // field an over-estimate near them, and a full step can tunnel through a rim.
+  for (int i = 0; i < 96; i++){
+    float d = sdBody(ro_o + rd_o*t);
     if (d < 0.0008){ hit = true; break; }
-    t += d;
+    t += d * 0.85;
     if (t > 11.0) break;
   }
 
