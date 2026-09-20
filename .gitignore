@@ -9,3 +9,5 @@ ios/*.xcodeproj
 ios/DerivedData/
 .claude/
 ios/LittleCamera/Info.plist
+.vercel
+.env.local
