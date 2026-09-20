@@ -6,20 +6,29 @@
 <title>A Little Camera</title>
 <meta name="description" content="A small black-and-white camera that sleeps, breathes and posts to its own tiny blog.">
 <meta name="color-scheme" content="light">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#dddddd">
 <meta property="og:title" content="A Little Camera">
 <meta property="og:description" content="A small black-and-white camera that sleeps, breathes and posts to its own tiny blog.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://lttl.cam/">
 <style>
 /* lttl.cam — teaser.
-   Tokens and rules are the micro-blog's (server/src/views/layout.tsx): ink on
-   paper, 1px hairlines, Helvetica. The headline is the one place that departs
-   from the blog's tiny tracked caps — at display size Helvetica Bold wants
-   tight tracking, not wide. The only greys belong to the device, which has to
-   be a solid object in order to float. */
+   Ground and type are Amaranth Studio's: #ddd paper, PP Neue Montreal. The
+   font files are licensed and live beside this page in fonts/; nothing else
+   can serve them, so the stack falls back to the nearest grotesque and the
+   headline measures whatever actually resolved (see the script). The headline
+   is the one place that departs from the micro-blog's tiny tracked caps — at
+   display size a bold grotesque wants tight tracking, not wide. */
+@font-face{font-family:"PP Neue Montreal Book";
+  src:url("fonts/ppneuemontreal-book.woff") format("woff");
+  font-weight:400; font-style:normal; font-display:swap}
+@font-face{font-family:"PP Neue Montreal Bold";
+  src:url("fonts/ppneuemontreal-bold.woff") format("woff");
+  font-weight:700; font-style:normal; font-display:swap}
 :root{
-  --ink:#000; --paper:#fff; --rule:1px solid #000;
+  --ink:#000; --paper:#ddd; --rule:1px solid #000;
+  --font:"PP Neue Montreal Book","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --font-bold:"PP Neue Montreal Bold","PP Neue Montreal Book","Helvetica Neue",Helvetica,Arial,sans-serif;
   --shell:#dadada; --shell-lit:#efefef; --shell-dim:#c3c3c3;
   --glass:#fff; --cast:0,0,0;
   --pad-x:clamp(20px, 5vw, 72px);
@@ -43,7 +52,7 @@
 html{height:100%}
 body{
   min-height:100%; margin:0; background:var(--paper); color:var(--ink);
-  font-family:"Helvetica Neue",Helvetica,Inter,system-ui,-apple-system,Arial,sans-serif;
+  font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
   display:flex; align-items:center; justify-content:center;
   padding-block:clamp(32px,7vmin,72px);
@@ -55,7 +64,7 @@ img{max-width:100%}
        display:flex; flex-direction:column; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
-h1{margin:0; text-align:left;
+h1{margin:0; text-align:left; font-family:var(--font-bold);
    font-size:calc(var(--sheet) * 0.168); line-height:.95; font-weight:700;
    letter-spacing:-.012em; text-transform:uppercase}
 /* Each line is its own block and never wraps, so three lines stay three lines
@@ -240,6 +249,7 @@ uniform vec2  uRes;
 uniform float uViewH;    // world height visible at the object plane
 uniform float uYaw, uPitch, uBob;
 uniform sampler2D uScreen;
+uniform vec3  uInk, uGround;
 
 const float CAM_Z  = 4.0;
 const vec3  HALF   = vec3(0.5, 0.3118, 0.0573);   // 61.1 x 38.1 x 7 mm, width = 1
@@ -334,9 +344,21 @@ void main(){
     lum = 1.0 - 0.26 * (1.0 - smoothstep(0.0, 1.0, d)) * (1.0 - uBob * 5.0);
   }
 
+  // Two levels only, and they are the page's own ink and paper, so the void
+  // the render sits in is exactly the background behind the canvas.
   float v = lum > bayer(gl_FragCoord.xy) ? 1.0 : 0.0;
-  gl_FragColor = vec4(vec3(v), 1.0);
+  gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
 }`;
+
+// One source of truth for the two colours: the stylesheet.
+function cssColour(name){
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const dec = raw.match(/^rgba?\((\d+)[ ,]+(\d+)[ ,]+(\d+)/);
+  if (dec) return [dec[1], dec[2], dec[3]].map((n) => n / 255);
+  let hex = raw.replace('#', '');
+  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
+  return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+}
 
 const IMG = {};
 let gl = null, uni = {}, tex = null, glReady = false;
@@ -367,7 +389,7 @@ function initGL(){
   g.enableVertexAttribArray(loc);
   g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
 
-  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen'])
+  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk','uGround'])
     uni[n] = g.getUniformLocation(pr, n);
 
   tex = g.createTexture();
@@ -377,6 +399,8 @@ function initGL(){
   g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
   g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
   g.uniform1i(uni.uScreen, 0);
+  g.uniform3fv(uni.uInk, cssColour('--ink'));
+  g.uniform3fv(uni.uGround, cssColour('--paper'));
   gl = g;
   return true;
 }

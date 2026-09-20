@@ -35,6 +35,21 @@ cd firmware/tools/preview && make
 The panel is 400x240 and 1-bit, so keep the replacements at that size and
 `image-rendering: pixelated` does the rest.
 
+## Type and colour
+
+Both come from amaranthstudio.com, so the teaser sits in the same world:
+
+| | |
+|---|---|
+| Ground | `#ddd` |
+| Ink | `#000` |
+| Body | PP Neue Montreal Book, 400 |
+| Headline | PP Neue Montreal Bold, 700 |
+
+The font files are licensed and are not in the repository; see `fonts/README.md`.
+The studio's accent (`#f2385a`) is deliberately unused: this project is black
+and white. Its dark ground (`#111`) is unused too, the page being light only.
+
 ## Design
 
 Tokens and hairlines are the micro-blog's (`server/src/views/layout.tsx`): ink
@@ -44,7 +59,9 @@ tight tracking rather than wide. The page is black and white; the only greys
 belong to the device, which has to be a solid object in order to float.
 
 The device is raymarched as a signed distance field in WebGL and dithered, so
-the page renders it the same way the camera renders the world. The dither is
+the page renders it the same way the camera renders the world. The dither's
+two levels are the page's own ink and ground, so the canvas has no edge: its
+paper is exactly the `#ddd` behind it. The dither is
 the firmware's own 4x4 Bayer matrix (`BAYER4` in `display.cpp`), applied in
 screen space at one dot per CSS pixel, which on a phone lands close to the
 physical pixel pitch of the real 400x240 panel. Output is strictly black and
