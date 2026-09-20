@@ -310,13 +310,13 @@ const vec2  SCR    = vec2(0.4714, 0.2828);        // 57.6 x 34.56 mm of glass
 const float SCR_R  = 0.0287;                      // 1.75 mm, the bezel's own width
 const float ALBEDO = 0.88;
 const float AMB    = 0.58;
-// The ground is a tone, not paper: at pure white an ordered dither puts its
-// first dot exactly on an 8x8 lattice, and that contour reads as a hard ring
-// with square corners. Starting a few per cent down keeps the whole page above
-// that threshold, so the ramp is dots getting denser rather than dots
-// appearing.
-const float VIG_TOP = 0.94;                       // the ground at the centre
-const float VIG     = 0.24;                       // how much darker the corners
+// Paper for the middle half, then a straight ramp to VIG darker at the
+// corners. An ordered dither lays each new dot exactly on the 8x8 lattice, so
+// a linear ramp bands into evenly spaced rings -- which is the point. Distance
+// is measured against the half-diagonal, so the ramp starts halfway to the
+// corners and the nearest edges are already well into it.
+const float VIG    = 0.30;                        // how much darker the corners
+const float VIG_IN = 0.50;                        // and where the ramp starts
 
 // The back. The lens sits at the dead centre; the L runs from it out to the
 // left edge, where the piezo hole is, still on the centre line; the shutter is
@@ -466,8 +466,8 @@ float backAlbedo(vec2 q){
 // One vignette for the whole page, in page coordinates, so the canvas has no
 // edge: the same curve is drawn behind it by paintVignette().
 float vignette(vec2 pg){
-  float t = clamp(length(pg - 0.5 * uPage.zw) / (0.5 * length(uPage.zw)), 0.0, 1.0);
-  return VIG_TOP - VIG * t * t * (3.0 - 2.0 * t);
+  float t = length(pg - 0.5 * uPage.zw) / (0.5 * length(uPage.zw));
+  return 1.0 - VIG * clamp((t - VIG_IN) / (1.0 - VIG_IN), 0.0, 1.0);
 }
 
 // The firmware's BAYER4 (display.cpp), returned raw, 0..15.
@@ -641,7 +641,7 @@ function placeGL(){
 // dithered with the same matrix on the same page-aligned grid. It only changes
 // when the window does, so a per-pixel pass in JS is cheap enough.
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const VIG_TOP = 0.94, VIG = 0.24;
+const VIG = 0.30, VIG_IN = 0.50;
 const bayer = (x, y) =>
   (4 * BAYER4[((y & 3) << 2) | (x & 3)] +
    [[0, 2], [3, 1]][(y >> 2) & 1][(x >> 2) & 1] + 0.5) / 64;
@@ -658,8 +658,8 @@ function paintVignette(){
   const cx = w / 2, cy = h / 2, R = 0.5 * Math.hypot(w, h);
   for (let y = 0; y < h; y++){
     for (let x = 0; x < w; x++){
-      const t = Math.min(1, Math.hypot(x - cx, y - cy) / R);
-      const lum = VIG_TOP - VIG * t * t * (3 - 2 * t);
+      const t = Math.hypot(x - cx, y - cy) / R;
+      const lum = 1 - VIG * Math.min(1, Math.max(0, (t - VIG_IN) / (1 - VIG_IN)));
       const c = lum > bayer(x, y) ? paper : ink;
       const i = (y * w + x) * 4;
       d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
