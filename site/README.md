@@ -6,8 +6,11 @@ dropped on any static host or served by Caddy with a two-line site block.
 
 The device is a placeholder: a rounded grey slab at roughly the real
 dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass and 1.75
-mm of bezel at the sides makes the body 61.1 mm wide; its height comes from the
-back, and lands at 61.1 x 54 x 7 mm. The front is all screen, with no button on
+mm of bezel at the sides makes the body 61.1 mm wide; its height is a
+compromise between the L on the back, which wants a tall body, and the screen,
+which wants a thin chin, and lands at 61.1 x 48 x 7 mm -- 6.7 mm above and
+below the glass. The glass has a 1.75 mm corner radius of its own, the width of
+its own bezel. The front is all screen, with no button on
 it. The shell's corner radius is 3.5 mm and the glass radius is that less the
 bezel, so the two curves stay concentric. Replace it when the industrial design
 lands; every proportion is derived from that rectangle, so changing `--w`,
@@ -26,8 +29,10 @@ bottom bezels are wider than the sides:
 
 The L stands 1.8 mm proud of the back. Its foot runs from the lens out to the
 piezo and its upright from there up to the shutter, both the same 11.2 mm
-thickness, so the two arms are as long as each other: the L is square, and that
-is what sets the body's height.
+thickness, so the two arms are as long as each other: the L is square. Its left
+end and its top end therefore reach equally far, so the body's height decides
+how far it gets, and it ends up about 8 mm in from the left side. That is the
+cost of a body that is not square.
 
 One thickness throughout means every curve on it is the same 5.6 mm: the cap
 concentric with the lens, the cap concentric with the button, and the outer
@@ -46,11 +51,7 @@ read at sixteen dither levels is its broken edge, the contact shading at its
 foot and the walls of the three wells. Only the piezo hole and the lens glass
 are actually dark, because one is a hole and the other is glass.
 
-A body tall enough for a square L *and* for the piezo to touch the left edge
-would have to be square itself, which is too tall for a camera. The L keeps its
-symmetry and sits about 5 mm in from the side instead.
-
-In the shader, seen from behind, `+x` runs to the viewer's left; `P_LENS`,
+ In the shader, seen from behind, `+x` runs to the viewer's left; `P_LENS`,
 `P_PIEZO`, `P_SHUT`, `ARM` and the `R_*` radii next to them are the whole
 layout, in units where the device is one wide.
 
