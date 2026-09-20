@@ -44,7 +44,10 @@ Both come from amaranthstudio.com, so the teaser sits in the same world:
 | Ground | `#ddd` |
 | Ink | `#000` |
 | Body | PP Neue Montreal Book, 400 |
-| Headline | PP Neue Montreal Bold, 700 |
+| Headline | PP Neue Montreal Bold, 700, lower case |
+
+Lower case because every heading on amaranthstudio.com is. The micro-blog's
+tracked capitals are right at 10px and wrong at 90.
 
 The font files are licensed and are not in the repository; see `fonts/README.md`.
 The studio's accent (`#f2385a`) is deliberately unused: this project is black
