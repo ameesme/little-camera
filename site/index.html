@@ -113,6 +113,13 @@ h1 span{display:block; white-space:nowrap}
 .screen img{display:block; width:100%; height:100%; image-rendering:pixelated;
             border-radius:calc(var(--r) * .44)}
 
+/* The dithered render. When WebGL comes up it takes over and the CSS device
+   below is hidden; if it doesn't, the CSS device stays and nothing is lost. */
+.gl{position:absolute; inset:0; width:100%; height:100%; display:block;
+    image-rendering:pixelated; image-rendering:crisp-edges}
+.stage:not(.gl-on) .gl{display:none}
+.gl-on .rig,.gl-on .cast{display:none}
+
 @media (prefers-reduced-motion:reduce){
   .rig,.sway,.cast{animation:none}
   .box{transition:none}
@@ -168,6 +175,7 @@ h1 span{display:block; white-space:nowrap}
       </div>
     </div>
     <div class="cast"></div>
+    <canvas class="gl" id="gl"></canvas>
   </div>
 </main>
 
@@ -206,53 +214,274 @@ fitHeadline();
 addEventListener('resize', fitHeadline);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitHeadline);
 
-const box = document.getElementById('box');
-const screen = document.getElementById('screen');
+const stage = document.querySelector('.stage');
+const screenImg = document.getElementById('screen');
 const still = matchMedia('(prefers-reduced-motion: reduce)');
 
 const SPIN_MS = 1250;   // one full turn
 const SWAP_MS = 620;    // halfway, with its back to us: nobody sees the cut
 const BREATH_MS = 2400; // the firmware breathes on its 5s tick; a little quicker reads better here
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-let turns = 0;
+// ---- the dithered render ---------------------------------------------------
+//
+// The device is raymarched as a signed distance field rather than assembled
+// from CSS faces, because the whole point is to dither it, and a dither has to
+// live on the pixel grid. A CSS pattern would rotate and foreshorten with the
+// object and read as printed-on texture. Here the shading is computed per
+// pixel and thresholded against the same 4x4 Bayer matrix the firmware uses
+// for its viewfinder, so the object is rendered exactly the way the camera
+// renders the world. One dither dot is one CSS pixel, which on a phone works
+// out close to the physical pixel pitch of the real 400x240 panel.
+const VERT = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
 
-async function run() {
+const FRAG = `
+precision highp float;
+uniform vec2  uRes;
+uniform float uViewH;    // world height visible at the object plane
+uniform float uYaw, uPitch, uBob;
+uniform sampler2D uScreen;
+
+const float CAM_Z  = 4.0;
+const vec3  HALF   = vec3(0.5, 0.3118, 0.0573);   // 61.1 x 38.1 x 7 mm, width = 1
+const float ROUND  = 0.0573;                      // 3.5 mm corner, fully round edge
+const vec2  SCR    = vec2(0.4714, 0.2828);        // 57.6 x 34.56 mm of glass
+const float ALBEDO = 0.88;
+const float AMB    = 0.62;
+
+mat3 rotY(float a){ float c=cos(a), s=sin(a); return mat3(c,0.,-s, 0.,1.,0., s,0.,c); }
+mat3 rotX(float a){ float c=cos(a), s=sin(a); return mat3(1.,0.,0., 0.,c,s, 0.,-s,c); }
+
+float sdBox(vec3 p){
+  vec3 q = abs(p) - (HALF - ROUND);
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - ROUND;
+}
+
+vec3 nrm(vec3 p){
+  vec2 e = vec2(0.0015, 0.0);
+  return normalize(vec3(sdBox(p+e.xyy)-sdBox(p-e.xyy),
+                        sdBox(p+e.yxy)-sdBox(p-e.yxy),
+                        sdBox(p+e.yyx)-sdBox(p-e.yyx)));
+}
+
+float softShadow(vec3 ro, vec3 rd){
+  float res = 1.0, t = 0.03;
+  for (int i = 0; i < 28; i++){
+    float h = sdBox(ro + rd*t);
+    res = min(res, 9.0*h/t);
+    t += clamp(h, 0.02, 0.35);
+    if (res < 0.004 || t > 5.0) break;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+float bayer(vec2 q){
+  int x = int(mod(q.x, 4.0)), y = int(mod(q.y, 4.0));
+  int i = y*4 + x;
+  float m = 0.0;
+  // The firmware's BAYER4, same order (display.cpp).
+  if(i==0)m=0.;else if(i==1)m=8.;else if(i==2)m=2.;else if(i==3)m=10.;
+  else if(i==4)m=12.;else if(i==5)m=4.;else if(i==6)m=14.;else if(i==7)m=6.;
+  else if(i==8)m=3.;else if(i==9)m=11.;else if(i==10)m=1.;else if(i==11)m=9.;
+  else if(i==12)m=15.;else if(i==13)m=7.;else if(i==14)m=13.;else m=5.;
+  return (m + 0.5) / 16.0;
+}
+
+void main(){
+  vec2 q = (gl_FragCoord.xy - 0.5*uRes) / uRes.y;
+  vec3 ro = vec3(0.0, -0.045, CAM_Z);
+  vec3 rd = normalize(vec3(q * uViewH, -CAM_Z));
+
+  mat3 inv = rotX(-uPitch) * rotY(-uYaw);      // world -> object
+  vec3 pivot = vec3(0.0, uBob, 0.0);
+  vec3 ro_o = inv * (ro - pivot);
+  vec3 rd_o = inv * rd;
+  vec3 L    = normalize(vec3(-0.5, 0.62, 0.6));
+  vec3 L_o  = inv * L;
+
+  float lum = 1.0;                              // the void is paper
+  float t = 0.0;
+  bool hit = false;
+  for (int i = 0; i < 72; i++){
+    float d = sdBox(ro_o + rd_o*t);
+    if (d < 0.0008){ hit = true; break; }
+    t += d;
+    if (t > 11.0) break;
+  }
+
+  if (hit){
+    vec3 p = ro_o + rd_o*t;
+    vec3 n = nrm(p);
+    if (n.z > 0.5 && abs(p.x) < SCR.x && abs(p.y) < SCR.y){
+      // The panel is 1-bit in real life, so it is not shaded. Sampling it
+      // smoothly and then dithering re-screens the photograph at render
+      // resolution instead of moireing the one it already carries.
+      vec2 uv = vec2(p.x/(2.0*SCR.x) + 0.5, 0.5 - p.y/(2.0*SCR.y));
+      lum = texture2D(uScreen, uv).r;
+    } else {
+      float dif = max(dot(n, L_o), 0.0);
+      float sh  = softShadow(p + n*0.005, L_o);
+      float rim = pow(1.0 - max(dot(n, -rd_o), 0.0), 3.0);
+      lum = ALBEDO * (AMB + (1.0 - AMB) * dif * sh) + 0.05 * rim;
+    }
+  } else {
+    // A soft ellipse beneath the device rather than a shadow cast on a floor.
+    // The void has no floor, and a plane seen at this grazing an angle smears
+    // the shadow into a streak running to the horizon. It widens and lightens
+    // as the camera rises, which is what sells the float.
+    vec2 c = vec2(0.0, -0.355);
+    vec2 rad = vec2(0.46, 0.055) * (1.0 + uBob * 3.5);
+    float d = length((q - c) / rad);
+    lum = 1.0 - 0.26 * (1.0 - smoothstep(0.0, 1.0, d)) * (1.0 - uBob * 5.0);
+  }
+
+  float v = lum > bayer(gl_FragCoord.xy) ? 1.0 : 0.0;
+  gl_FragColor = vec4(vec3(v), 1.0);
+}`;
+
+const IMG = {};
+let gl = null, uni = {}, tex = null, glReady = false;
+
+function compile(g, type, src){
+  const sh = g.createShader(type);
+  g.shaderSource(sh, src);
+  g.compileShader(sh);
+  if (!g.getShaderParameter(sh, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(sh));
+  return sh;
+}
+
+function initGL(){
+  const cv = document.getElementById('gl');
+  const g = cv.getContext('webgl', { antialias: false, alpha: false });
+  if (!g) return false;
+  const pr = g.createProgram();
+  g.attachShader(pr, compile(g, g.VERTEX_SHADER, VERT));
+  g.attachShader(pr, compile(g, g.FRAGMENT_SHADER, FRAG));
+  g.linkProgram(pr);
+  if (!g.getProgramParameter(pr, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(pr));
+  g.useProgram(pr);
+
+  const buf = g.createBuffer();
+  g.bindBuffer(g.ARRAY_BUFFER, buf);
+  g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), g.STATIC_DRAW);
+  const loc = g.getAttribLocation(pr, 'p');
+  g.enableVertexAttribArray(loc);
+  g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
+
+  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen'])
+    uni[n] = g.getUniformLocation(pr, n);
+
+  tex = g.createTexture();
+  g.bindTexture(g.TEXTURE_2D, tex);
+  g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
+  g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+  g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+  g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+  g.uniform1i(uni.uScreen, 0);
+  gl = g;
+  return true;
+}
+
+function sizeGL(){
+  const cv = document.getElementById('gl');
+  const r = cv.getBoundingClientRect();
+  // One dither dot per CSS pixel: close to the real panel's pitch on a phone,
+  // and it keeps the pattern crisp when the browser scales it to device pixels.
+  const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.uniform2f(uni.uRes, w, h);
+  gl.uniform1f(uni.uViewH, (1.0 / 0.94) / (w / h));   // device spans 94% of the width
+}
+
+function uploadScreen(key){
+  const img = IMG[key];
+  if (!gl || !img || !img.complete) return;
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+}
+
+function setScreen(key){
+  if (glReady) uploadScreen(key);
+  else screenImg.src = SCREENS[key];
+}
+
+// ---- the loop --------------------------------------------------------------
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const ease = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+const RAD = Math.PI / 180;
+
+let spinFrom = 0, spinTo = 0, spinAt = -1e9;
+
+function draw(now){
+  const spun = Math.min(1, Math.max(0, (now - spinAt) / SPIN_MS));
+  const yaw = (spinFrom + (spinTo - spinFrom) * ease(spun)) * RAD
+            + Math.sin(now / 11000 * 2 * Math.PI) * 10.5 * RAD;
+  const pitch = (-5 + Math.sin(now / 11000 * 2 * Math.PI) * 3.5) * RAD;
+  const bob = Math.sin(now / 6500 * 2 * Math.PI) * 0.022;
+  gl.uniform1f(uni.uYaw, still.matches ? spinTo * RAD : yaw);
+  gl.uniform1f(uni.uPitch, still.matches ? -5 * RAD : pitch);
+  gl.uniform1f(uni.uBob, still.matches ? 0 : bob);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  requestAnimationFrame(draw);
+}
+
+async function run(){
   let i = 0;
-  for (;;) {
+  for (;;){
     const s = STATES[i];
-    screen.alt = 'The camera\'s screen: ' + s.label;
+    screenImg.alt = "The camera's screen: " + s.label;
+    setScreen(s.screen);
 
     let breath;
-    if (s.breathes && !still.matches) {
+    if (s.breathes && !still.matches){
       let out = false;
-      breath = setInterval(() => {
-        out = !out;
-        screen.src = SCREENS[out ? 'sleepB' : 'sleepA'];
-      }, BREATH_MS);
+      breath = setInterval(() => { out = !out; setScreen(out ? 'sleepB' : 'sleepA'); }, BREATH_MS);
     }
 
     await wait(s.hold);
     if (breath) clearInterval(breath);
 
     i = (i + 1) % STATES.length;
-    const next = SCREENS[STATES[i].screen];
+    const next = STATES[i].screen;
 
-    if (still.matches) {          // no turn, just the cut
-      screen.src = next;
-      continue;
+    if (still.matches){ setScreen(next); continue; }
+
+    if (glReady){
+      spinFrom = spinTo; spinTo = spinFrom + 360; spinAt = performance.now();
+    } else {
+      document.getElementById('box').style.setProperty('--spin', spinTo + 360 + 'deg');
+      spinTo += 360;
     }
-    turns += 1;
-    box.style.setProperty('--spin', turns * 360 + 'deg');
     await wait(SWAP_MS);
-    screen.src = next;
+    setScreen(next);
     await wait(SPIN_MS - SWAP_MS);
   }
 }
 
-// Preload, so the first turn never lands on a blank panel.
-Object.values(SCREENS).forEach((src) => { const i = new Image(); i.src = src; });
-run();
+// Load every frame up front, then start: the first turn must never land on a
+// blank panel, and the renderer needs a texture before its first draw.
+let pending = 0;
+for (const [key, src] of Object.entries(SCREENS)){
+  const img = new Image();
+  IMG[key] = img;
+  pending++;
+  img.onload = img.onerror = () => { if (--pending === 0) start(); };
+  img.src = src;
+}
+
+function start(){
+  try {
+    if (!still.matches || true) glReady = initGL();
+  } catch (e){ glReady = false; }
+  if (glReady){
+    stage.classList.add('gl-on');
+    sizeGL();
+    uploadScreen('sleepA');
+    addEventListener('resize', () => { sizeGL(); });
+    requestAnimationFrame(draw);
+  }
+  run();
+}
 </script>
 </body>
 </html>

@@ -43,11 +43,26 @@ from the blog's tiny tracked caps, because at display size Helvetica Bold wants
 tight tracking rather than wide. The page is black and white; the only greys
 belong to the device, which has to be a solid object in order to float.
 
-The body is extruded as a stack of 32 identical rounded rectangles rather than
-six flat faces. Six faces leave notches wherever a square side meets a rounded
-corner, which is what made the edges look broken; every slice here shares one
-silhouette, so the outline stays continuous through the whole turn. Front slice
-is lightest and back darkest, which is all the shading the edge needs.
+The device is raymarched as a signed distance field in WebGL and dithered, so
+the page renders it the same way the camera renders the world. The dither is
+the firmware's own 4x4 Bayer matrix (`BAYER4` in `display.cpp`), applied in
+screen space at one dot per CSS pixel, which on a phone lands close to the
+physical pixel pitch of the real 400x240 panel. Output is strictly black and
+white: no intermediate values reach the canvas.
+
+Screen space is the whole point. A CSS pattern would rotate and foreshorten
+with the object and read as texture printed on it, so the object has to be
+rendered rather than assembled from CSS faces. The panel is not shaded, because
+it is 1-bit in real life, and its texture is sampled smoothly and then dithered
+with everything else, which re-screens the photograph at render resolution
+rather than moireing the dither it already carries.
+
+The shadow is a soft ellipse in screen space, not a shadow cast on a floor: the
+void has no floor, and a ground plane at this grazing an angle smears into a
+streak running to the horizon.
+
+The CSS device it replaced is still in the markup as a fallback. If WebGL fails
+to start, the canvas stays hidden and the CSS version runs instead.
 
 One measure drives the whole composition. `--sheet` is the block's width: as
 wide as the screen allows, capped at 480px and at 54vh so the pair stays whole
