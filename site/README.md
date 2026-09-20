@@ -4,9 +4,12 @@ The teaser page. One file, no build, no dependencies: `index.html` is
 self-contained (the firmware screens are inlined as base64 PNGs), so it can be
 dropped on any static host or served by Caddy with a two-line site block.
 
-The device is a placeholder: a grey box at roughly the real dimensions
-(84 x 56 x 14 mm, a 2.7" 400x240 Sharp panel and one button) that floats,
-breathes and turns over. Replace it when the industrial design lands.
+The device is a placeholder: a rounded grey slab at roughly the real
+dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass, and a
+3 mm bezel all round puts the whole thing at 63.6 x 40.6 x 7 mm. It is all
+screen: no button, nothing on the back but the address. Replace it when the
+industrial design lands; every proportion is derived from that rectangle, so
+changing `--w`, `--h`, `--d` and `--r` at the top of the stylesheet is enough.
 
 ## The screens
 

@@ -22,11 +22,14 @@
   --shell:#dadada; --shell-lit:#efefef; --shell-dim:#c3c3c3;
   --shell-edge:#bcbcbc; --shell-under:#b2b2b2;
   --etch:#a6a6a6; --glass:#fff; --cast:0,0,0;
-  /* 84 x 56 x 14 mm: the 2.7" Sharp panel plus a carrier, near enough */
+  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of active glass. Give it a 3 mm
+     bezel all round and the whole device is 63.6 x 40.6 x 7 mm: almost all
+     screen, no button, nothing on the back. Every proportion below is that
+     rectangle, so the screen inset stays a true 3 mm at any size. */
   --w:clamp(250px, 54vmin, 392px);
-  --h:calc(var(--w) * 0.667);
-  --d:calc(var(--w) * 0.167);
-  --r:calc(var(--w) * 0.038);
+  --h:calc(var(--w) * 0.638);
+  --d:calc(var(--w) * 0.112);
+  --r:calc(var(--w) * 0.085);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
@@ -67,42 +70,28 @@ img{max-width:100%}
        background:linear-gradient(158deg,var(--shell-lit) 0%,var(--shell) 52%,var(--shell-dim) 100%)}
 .back{transform:rotateY(180deg) translateZ(calc(var(--d) / 2));
       background:linear-gradient(202deg,var(--shell-lit) 0%,var(--shell) 58%,var(--shell-dim) 100%)}
-.side{top:calc(var(--r) * .8); height:calc(var(--h) - var(--r) * 1.6); width:var(--d);
+.side{top:calc(var(--r) * .5); height:calc(var(--h) - var(--r)); width:var(--d);
       left:calc(var(--w) / 2 - var(--d) / 2);
       border-radius:calc(var(--d) * .34); background:var(--shell-edge)}
 .right{transform:rotateY(90deg) translateZ(calc(var(--w) / 2))}
 .left{transform:rotateY(-90deg) translateZ(calc(var(--w) / 2)); background:var(--shell-dim)}
-.cap{left:calc(var(--r) * .8); width:calc(var(--w) - var(--r) * 1.6); height:var(--d);
+.cap{left:calc(var(--r) * .5); width:calc(var(--w) - var(--r)); height:var(--d);
      top:calc(var(--h) / 2 - var(--d) / 2); border-radius:calc(var(--d) * .34)}
 .top{transform:rotateX(90deg) translateZ(calc(var(--h) / 2)); background:var(--shell-lit)}
 .bottom{transform:rotateX(-90deg) translateZ(calc(var(--h) / 2)); background:var(--shell-under)}
 
 /* Front: the 400x240 panel, then the one button the whole camera has. */
-.screen{position:absolute; left:50%; top:9%; transform:translateX(-50%);
-        width:68.6%; aspect-ratio:5 / 3; max-width:100%;
-        border:var(--rule); background:var(--glass); overflow:hidden}
+.screen{position:absolute; inset:7.4% 4.72%;  /* 3 mm of bezel, every side */
+        border:var(--rule); border-radius:calc(var(--r) * .38);
+        background:var(--glass); overflow:hidden}
 .screen img{display:block; width:100%; height:100%; image-rendering:pixelated}
-.shutter{position:absolute; left:50%; top:84%; transform:translate(-50%,-50%);
-         width:9%; aspect-ratio:1; border-radius:50%;
-         background:radial-gradient(circle at 38% 32%,var(--shell-lit),var(--shell-dim) 78%);
-         box-shadow:inset 0 0 0 1px rgba(0,0,0,.22), 0 1px 0 rgba(255,255,255,.55)}
-
-/* Back: the lens it points at the world, and the address it posts to. */
-.lens{position:absolute; left:50%; top:34%; transform:translate(-50%,-50%);
-      width:22%; aspect-ratio:1; border-radius:50%; background:#111;
-      box-shadow:0 0 0 calc(var(--w) * .012) var(--shell-dim),
-                 0 0 0 calc(var(--w) * .016) rgba(0,0,0,.28),
-                 inset 0 0 0 calc(var(--w) * .01) #000}
-.lens::after{content:""; position:absolute; left:30%; top:26%; width:20%; aspect-ratio:1;
-             border-radius:50%; background:rgba(255,255,255,.72)}
-.mark{position:absolute; left:0; right:0; top:68%; text-align:center; color:var(--etch);
+/* Back: a blank shell, and the address it posts to. */
+.mark{position:absolute; left:0; right:0; top:50%; transform:translateY(-50%);
+      text-align:center; color:var(--etch);
       font-size:calc(var(--w) * .032); font-weight:700; letter-spacing:.22em; text-transform:uppercase}
 
 /* ---- what it says ---- */
-.say{display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center}
-.state{margin:0; font-size:10px; letter-spacing:.11em; text-transform:uppercase}
-.state::before{content:""; display:inline-block; width:5px; height:5px; margin-right:7px;
-               vertical-align:middle; background:var(--ink); border-radius:50%}
+.say{display:flex; flex-direction:column; align-items:center; text-align:center}
 h1{margin:0; font-size:clamp(12px,2.7vw,15px); font-weight:700; letter-spacing:.14em;
    text-transform:uppercase; text-wrap:balance}
 
@@ -120,10 +109,8 @@ h1{margin:0; font-size:clamp(12px,2.7vw,15px); font-weight:700; letter-spacing:.
       <div class="box" id="box">
         <div class="face slab front">
           <div class="screen"><img id="screen" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAADwAQAAAAAGRw+PAAAAPklEQVR42u3WoQoAMAhAQf//px1YhA2TbdwFg9vrRgAAAAAAJbPntJFIJP3lfn43EokE2N5mEokEAAAA+NoBHKke8ILEB3cAAAAASUVORK5CYII=" alt="The camera's screen, asleep"></div>
-          <div class="shutter"></div>
         </div>
         <div class="face slab back">
-          <div class="lens"></div>
           <div class="mark">lttl.cam</div>
         </div>
         <div class="face side left"></div>
@@ -136,7 +123,6 @@ h1{margin:0; font-size:clamp(12px,2.7vw,15px); font-weight:700; letter-spacing:.
   </div>
 
   <div class="say">
-    <p class="state" id="state">asleep</p>
     <h1>a little camera is coming</h1>
   </div>
 </main>
@@ -155,7 +141,6 @@ const STATES = [
 
 const box = document.getElementById('box');
 const screen = document.getElementById('screen');
-const state = document.getElementById('state');
 const still = matchMedia('(prefers-reduced-motion: reduce)');
 
 const SPIN_MS = 1250;   // one full turn
@@ -169,7 +154,6 @@ async function run() {
   let i = 0;
   for (;;) {
     const s = STATES[i];
-    state.textContent = s.label;
     screen.alt = 'The camera\'s screen: ' + s.label;
 
     let breath;
