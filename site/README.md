@@ -27,10 +27,15 @@ bottom bezels are wider than the sides:
 The L stands 1.8 mm proud of the back. Its foot runs from the lens out to the
 piezo and its upright from there up to the shutter, both the same 11.2 mm
 thickness, so the two arms are as long as each other: the L is square, and that
-is what sets the body's height. Each end is closed with a half-circle
-concentric with the part it holds, which is what ties the shape to the lens at
-one end and the button at the other. The outer corner is a tight 1.5 mm and the
-inside of the elbow is filleted.
+is what sets the body's height.
+
+One thickness throughout means every curve on it is the same 5.6 mm: the cap
+concentric with the lens, the cap concentric with the button, and the outer
+corner, which is centred on the piezo. That is as round as the outside of an
+arm this thick can be. The inside of the elbow is filleted at 4 mm, and that
+fillet is measured as a true distance rather than stuck on as its own piece of
+material: the boss is extruded from this field and its edge is broken by it, so
+a false zero in the field comes out as a real crease in the round.
 
 The piezo takes no part in the outline. It is far smaller than the arm is
 thick, so it sits in the corner without moving an edge.
