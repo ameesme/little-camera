@@ -47,7 +47,9 @@ Both come from amaranthstudio.com, so the teaser sits in the same world:
 | Headline | PP Neue Montreal Bold, 700, lower case |
 
 Lower case because every heading on amaranthstudio.com is. The micro-blog's
-tracked capitals are right at 10px and wrong at 90.
+tracked capitals are right at 10px and wrong at 90. Leading is 0.72, tight
+enough that the ascenders of one line cross the baseline of the one above:
+the dot of "is" falls into the "a" of "camera".
 
 The font files are licensed and are not in the repository; see `fonts/README.md`.
 The studio's accent (`#f2385a`) is deliberately unused: this project is black
