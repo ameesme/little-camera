@@ -29,12 +29,12 @@
      fills the measure. */
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
   /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. A 1.75 mm bezel all
-     round makes the device 61.1 x 38.1 x 7 mm: all screen, no button, nothing
-     on the back. Every proportion below comes off that rectangle. */
+     round makes the device 61.1 x 38.1 x 7 mm: all screen, no button, and one
+     small lens on the back. Every proportion below comes off that rectangle. */
   --w:calc(var(--sheet) * 0.63);
   --h:calc(var(--w) * 0.6229);
   --d:calc(var(--w) * 0.1146);
-  --r:calc(var(--w) * 0.0818);
+  --r:calc(var(--w) * 0.057);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
@@ -85,6 +85,14 @@ h1{margin:0; text-align:left;
      transition:transform 1.25s cubic-bezier(.62,.02,.34,1)}
 .slice{position:absolute; left:0; top:0; width:var(--w); height:var(--h);
        border-radius:var(--r); transform:translateZ(calc(var(--d) * var(--z)))}
+/* The one thing on the back: a small lens, about 7 mm across. */
+.lens{position:absolute; left:12%; top:20%; width:11%; aspect-ratio:1; border-radius:50%;
+      background:radial-gradient(circle at 38% 34%,#4c4c4c 0%,#1a1a1a 44%,#080808 100%);
+      box-shadow:0 0 0 calc(var(--w) * .008) var(--shell-dim),
+                 0 0 0 calc(var(--w) * .0115) rgba(0,0,0,.2)}
+.lens::after{content:""; position:absolute; left:25%; top:19%; width:23%; aspect-ratio:1;
+             border-radius:50%; background:rgba(255,255,255,.62)}
+
 .slab{position:absolute; left:0; top:0; width:var(--w); height:var(--h);
       border-radius:var(--r); backface-visibility:hidden;
       box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
@@ -95,10 +103,10 @@ h1{margin:0; text-align:left;
 
 /* The panel, 1.75 mm of bezel on every side, with corners of its own. */
 .screen{position:absolute; inset:4.6% 2.86%;
-        border:var(--rule); border-radius:calc(var(--r) * .65);
+        border:var(--rule); border-radius:calc(var(--r) * .5);
         background:var(--glass); overflow:hidden}
 .screen img{display:block; width:100%; height:100%; image-rendering:pixelated;
-            border-radius:calc(var(--r) * .58)}
+            border-radius:calc(var(--r) * .44)}
 
 @media (prefers-reduced-motion:reduce){
   .rig,.sway,.cast{animation:none}
@@ -147,7 +155,7 @@ h1{margin:0; text-align:left;
         <div class="slice" style="--z:0.4355;background:#c8c8c8"></div>
         <div class="slice" style="--z:0.4677;background:#c9c9c9"></div>
         <div class="slice" style="--z:0.5000;background:#cacaca"></div>
-          <div class="slab back"></div>
+          <div class="slab back"><div class="lens"></div></div>
           <div class="slab front">
             <div class="screen"><img id="screen" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAADwAQAAAAAGRw+PAAAAPklEQVR42u3WoQoAMAhAQf//px1YhA2TbdwFg9vrRgAAAAAAJbPntJFIJP3lfn43EokE2N5mEokEAAAA+NoBHKke8ILEB3cAAAAASUVORK5CYII=" alt="The camera's screen, asleep"></div>
           </div>
