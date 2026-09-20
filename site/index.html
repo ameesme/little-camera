@@ -350,29 +350,31 @@ float sdSeg(vec2 p, vec2 a, vec2 b){
   return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
 }
 
-float sdRect2(vec2 p, vec2 b){
-  vec2 d = abs(p) - b;
-  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
-}
-
 // Two capsules of one thickness, drawn along lens -> piezo -> button, unioned
 // exactly. One thickness throughout means the cap at the lens, the cap at the
 // button and the whole outer corner are arcs of the same ARM -- and because
 // the two capsules share an end point, that corner is centred on the piezo and
 // is as round as an arm this thick can be. Nothing widens anywhere.
 //
-// The inside of the elbow is filleted properly rather than with a smooth min.
-// A smooth min inflates the outer arc where the two capsules are within k of
-// each other, which put a lump in the bottom edge exactly where it should have
-// been straight. This adds the fillet as its own piece of material instead:
-// the corner square, minus the disc that rounds it, unioned in. It touches
-// nothing else on the shape.
+// The inside of the elbow is filleted, and the fillet has to be exact, not a
+// smooth min and not a piece of material stuck on. A smooth min inflates the
+// outer arc wherever the two capsules are within k of each other, which put a
+// lump in the bottom edge where it should have been straight; a stuck-on
+// corner square leaves its own edges reading as zero in the field, and since
+// this field is what the boss is extruded from, a false zero is a real crease
+// in the raised edge.
+//
+// So: inside the corner square the arc is the only boundary there is, and the
+// distance to it is exact. Everywhere else the two capsules answer. The two
+// agree along the square's edges, so the field stays continuous.
 float sdL(vec2 q){
   float d = min(sdSeg(q, P_LENS, P_PIEZO), sdSeg(q, P_PIEZO, P_SHUT)) - ARM;
-  vec2  v = vec2(P_PIEZO.x - ARM, ARM);     // where the two inner edges meet
-  vec2  c = v + vec2(-FILLET, FILLET);      // the arc that rounds it
-  float corner = sdRect2(q - v + vec2(FILLET, -FILLET) * 0.5, vec2(FILLET * 0.5));
-  return min(d, max(FILLET - length(q - c), corner));
+  vec2 v = vec2(P_PIEZO.x - ARM, ARM);      // where the two inner edges meet
+  vec2 c = v + vec2(-FILLET, FILLET);       // centre of the arc that rounds them
+  vec2 r = q - c;
+  vec2 s = abs(r - vec2(FILLET, -FILLET) * 0.5) - vec2(FILLET * 0.5);
+  if (max(s.x, s.y) < 0.0) d = min(d, FILLET - length(r));
+  return d;
 }
 
 // A 2D outline pushed out of the back face by h, its edges broken by r. It
