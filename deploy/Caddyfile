@@ -2,9 +2,32 @@
 	email {$ACME_EMAIL}
 }
 
-# Apex (registration, /me, the camera API) and every blog subdomain share one
-# wildcard certificate. Host-based routing happens inside the Node server.
-{$DOMAIN}, *.{$DOMAIN} {
+# The apex is shared. The landing page owns `/`; this server owns the two
+# prefixes it mounts (server/src/config.ts) and nothing else, which is the
+# whole reason they exist. Add a path to `@app` and you are handing the
+# landing page's URL space away, so don't — mount it under /api or /app.
+{$DOMAIN} {
+	tls {
+		dns cloudflare {$CLOUDFLARE_API_TOKEN}
+	}
+	encode gzip
+
+	@app path /api/* /app/*
+	reverse_proxy @app server:3000
+
+	# Everything else: the landing page, as static files from the directory
+	# docker-compose mounts. Replace it with `reverse_proxy landing:80` if it
+	# ever becomes something that runs rather than something that is served.
+	root * /srv/landing
+	file_server
+	handle_errors {
+		respond "Little camera." 200
+	}
+}
+
+# Blogs. Each one owns the root of its own subdomain, so there is nothing to
+# split here; the wildcard certificate covers them all.
+*.{$DOMAIN} {
 	tls {
 		dns cloudflare {$CLOUDFLARE_API_TOKEN}
 	}

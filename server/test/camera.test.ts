@@ -162,6 +162,7 @@ describe('GET /api/camera/status', () => {
       short_code: 'MM48F3',
       bound: null,
       avatar: { requested_at: null, has_avatar: false },
+      firmware: { installed: null, latest: null, update_available: false },
       subscribers: [],
       server_time: w.clock.t,
     });

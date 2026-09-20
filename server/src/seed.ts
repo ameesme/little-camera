@@ -103,6 +103,6 @@ if (isMain) {
   const { link } = seed(env);
   console.log(`seeded ${blogUrl(config, 'mees')}`);
   console.log(`camera ${CAMERA.id} secret ${CAMERA.secret} (short code ${shortCode(CAMERA.id)})`);
-  console.log(`owner sign-in: POST /login with mees@example.com, then open /dev/mailbox`);
+  console.log(`owner sign-in: POST /app/login with mees@example.com, then open /app/dev/mailbox`);
   console.log(`subscriber link for sanne@example.com (48 h):\n${link}`);
 }

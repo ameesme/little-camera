@@ -7,6 +7,10 @@
 # certificate. Wildcards need the DNS-01 challenge, which needs a DNS provider
 # plugin: the Caddyfile assumes Cloudflare (CLOUDFLARE_API_TOKEN, zone:read +
 # dns:edit). Other providers: change the image build args and the tls block.
+#
+# On the apex Caddy forwards only /api/* and /app/* to this server; the root
+# is the landing page, served from LANDING_DIR. Blog subdomains go straight
+# through.
 
 services:
   server:
@@ -24,6 +28,9 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-Little Camera <camera@${DOMAIN}>}
       DISPLAY_TZ: ${DISPLAY_TZ:-Europe/Amsterdam}
+      # Firmware images live on the data volume, so publishing a release is a
+      # copy and an edit rather than a rebuild (protocol §4.7).
+      FIRMWARE_DIR: /data/firmware
     volumes:
       - data:/data
     expose:
@@ -46,6 +53,10 @@ services:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The landing page, whatever it turns out to be. The checked-in
+      # directory is a placeholder so the stack serves something sensible
+      # before the real one exists.
+      - ${LANDING_DIR:-./landing}:/srv/landing:ro
       - caddy_data:/data
       - caddy_config:/config
 

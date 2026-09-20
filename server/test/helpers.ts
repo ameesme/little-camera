@@ -8,7 +8,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodePbm, parsePbm, type PbmMeta } from '@little-camera/pbm';
 import { createApp } from '../src/app.js';
-import { loadConfig } from '../src/config.js';
+import { APP_PREFIX, loadConfig } from '../src/config.js';
 import { openDb } from '../src/db.js';
 import type { Env } from '../src/env.js';
 import { createProfile, markEmailVerified, type ProfileRow } from '../src/repo/profiles.js';
@@ -58,6 +58,15 @@ export function apex(path: string, init: RequestInit = {}): Request {
   const headers = new Headers(init.headers);
   headers.set('host', APEX);
   return new Request(`http://${APEX}${path}`, { ...init, headers });
+}
+
+/**
+ * A page of the app. They live under APP_PREFIX now that the apex root belongs
+ * to the landing page, and every test that opens one goes through here so the
+ * prefix is written down once.
+ */
+export function appPage(path: string, init: RequestInit = {}): Request {
+  return apex(`${APP_PREFIX}${path}`, init);
 }
 
 export function blog(handle: string, path: string, init: RequestInit = {}): Request {

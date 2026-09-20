@@ -8,6 +8,9 @@ export interface CameraRow {
   bound_at: number | null;
   first_seen: number;
   last_seen: number;
+  /** What the bridge app last reported from Info, or null from a camera too old to say. */
+  firmware_version: string | null;
+  firmware_seen_at: number | null;
 }
 
 export function findCamera(db: Db, id: string): CameraRow | null {
@@ -36,6 +39,11 @@ export function createCamera(db: Db, c: { id: string; secretHash: string; shortC
 
 export function touchCamera(db: Db, id: string, now: number): void {
   db.prepare('UPDATE cameras SET last_seen = ? WHERE id = ?').run(now, id);
+}
+
+/** Record the firmware the phone read out of Info. Null versions are not stored over a known one. */
+export function setCameraFirmware(db: Db, id: string, version: string, now: number): void {
+  db.prepare('UPDATE cameras SET firmware_version = ?, firmware_seen_at = ? WHERE id = ?').run(version, now, id);
 }
 
 /** Bind a camera to a profile and move its orphan photos across. */
