@@ -83,7 +83,13 @@ img{max-width:100%}
    rather than centring on the body, because a flex container centred with
    align-items clips the top of anything taller than it, and on a very short
    window this composition should scroll rather than lose its head. */
-.sheet{width:var(--sheet); margin:auto;
+/* The page's own ground, dithered. It is fixed to the viewport and the
+   content sits above it; the device's canvas reads the same field in the same
+   page coordinates, so the two share one unbroken dot pattern. */
+.vig{position:fixed; inset:0; width:100%; height:100%; display:block;
+     image-rendering:pixelated; image-rendering:crisp-edges}
+
+.sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
@@ -175,6 +181,8 @@ h1 span{display:block; white-space:nowrap}
 </style>
 </head>
 <body>
+
+<canvas class="vig" id="vig" aria-hidden="true"></canvas>
 
 <main class="sheet">
   <div class="say">
@@ -272,6 +280,7 @@ const still = matchMedia('(prefers-reduced-motion: reduce)');
 const SPIN_MS = 1250;   // one full turn
 const SWAP_MS = 620;    // halfway, with its back to us: nobody sees the cut
 const BREATH_MS = 2400; // the firmware breathes on its 5s tick; a little quicker reads better here
+const FIRST_MS = 1100;  // the first turn comes quickly, so the page shows what it does
 
 // ---- the dithered render ---------------------------------------------------
 //
@@ -292,6 +301,7 @@ uniform float uViewH;    // world height visible at the object plane
 uniform float uYaw, uPitch, uBob;
 uniform sampler2D uScreen;
 uniform vec3  uInk, uGround;
+uniform vec4  uPage;     // canvas left, canvas bottom, viewport w, h -- all CSS px
 
 const float CAM_Z  = 4.0;
 const vec3  HALF   = vec3(0.5, 0.3928, 0.0573);   // 61.1 x 48 x 7 mm, width = 1
@@ -300,6 +310,13 @@ const vec2  SCR    = vec2(0.4714, 0.2828);        // 57.6 x 34.56 mm of glass
 const float SCR_R  = 0.0287;                      // 1.75 mm, the bezel's own width
 const float ALBEDO = 0.88;
 const float AMB    = 0.58;
+// The ground is a tone, not paper: at pure white an ordered dither puts its
+// first dot exactly on an 8x8 lattice, and that contour reads as a hard ring
+// with square corners. Starting a few per cent down keeps the whole page above
+// that threshold, so the ramp is dots getting denser rather than dots
+// appearing.
+const float VIG_TOP = 0.94;                       // the ground at the centre
+const float VIG     = 0.24;                       // how much darker the corners
 
 // The back. The lens sits at the dead centre; the L runs from it out to the
 // left edge, where the piezo hole is, still on the centre line; the shutter is
@@ -446,16 +463,33 @@ float backAlbedo(vec2 q){
   return a;
 }
 
-float bayer(vec2 q){
+// One vignette for the whole page, in page coordinates, so the canvas has no
+// edge: the same curve is drawn behind it by paintVignette().
+float vignette(vec2 pg){
+  float t = clamp(length(pg - 0.5 * uPage.zw) / (0.5 * length(uPage.zw)), 0.0, 1.0);
+  return VIG_TOP - VIG * t * t * (3.0 - 2.0 * t);
+}
+
+// The firmware's BAYER4 (display.cpp), returned raw, 0..15.
+float bayer4(vec2 q){
   int x = int(mod(q.x, 4.0)), y = int(mod(q.y, 4.0));
   int i = y*4 + x;
-  float m = 0.0;
-  // The firmware's BAYER4, same order (display.cpp).
-  if(i==0)m=0.;else if(i==1)m=8.;else if(i==2)m=2.;else if(i==3)m=10.;
-  else if(i==4)m=12.;else if(i==5)m=4.;else if(i==6)m=14.;else if(i==7)m=6.;
-  else if(i==8)m=3.;else if(i==9)m=11.;else if(i==10)m=1.;else if(i==11)m=9.;
-  else if(i==12)m=15.;else if(i==13)m=7.;else if(i==14)m=13.;else m=5.;
-  return (m + 0.5) / 16.0;
+  if(i==0)return 0.;else if(i==1)return 8.;else if(i==2)return 2.;else if(i==3)return 10.;
+  else if(i==4)return 12.;else if(i==5)return 4.;else if(i==6)return 14.;else if(i==7)return 6.;
+  else if(i==8)return 3.;else if(i==9)return 11.;else if(i==10)return 1.;else if(i==11)return 9.;
+  else if(i==12)return 15.;else if(i==13)return 7.;else if(i==14)return 13.;else return 5.;
+}
+
+// That matrix recursed once, which is how Bayer matrices are built:
+// M(2n) = [[4M, 4M+2], [4M+3, 4M+1]]. Sixteen levels is right for a 400x240
+// panel and wrong for a page -- a gradient across a whole window quantises
+// into visible rings. Sixty-four levels carry it, and the pattern is still the
+// camera's own, one step finer.
+float bayer(vec2 q){
+  float m = bayer4(q);
+  float xd = floor(mod(q.x, 8.0) * 0.25), yd = floor(mod(q.y, 8.0) * 0.25);
+  float d = yd < 0.5 ? (xd < 0.5 ? 0.0 : 2.0) : (xd < 0.5 ? 3.0 : 1.0);
+  return (4.0 * m + d + 0.5) / 64.0;
 }
 
 void main(){
@@ -510,12 +544,19 @@ void main(){
     vec2 c = vec2(0.0, -0.355);
     vec2 rad = vec2(0.46, 0.055) * (1.0 + uBob * 3.5);
     float d = length((q - c) / rad);
-    lum = 1.0 - 0.26 * (1.0 - smoothstep(0.0, 1.0, d)) * (1.0 - uBob * 5.0);
+    // Clamped, because uBob can push the fade term past zero, and a void
+    // brighter than paper used to be invisible -- it matched the flat page.
+    // Against a vignetted one it shows as a pale patch under the camera.
+    lum = 1.0 - 0.26 * (1.0 - smoothstep(0.0, 1.0, d)) * max(0.0, 1.0 - uBob * 5.0);
   }
 
   // Two levels only, and they are the page's own ink and paper, so the void
-  // the render sits in is exactly the background behind the canvas.
-  float v = lum > bayer(gl_FragCoord.xy) ? 1.0 : 0.0;
+  // the render sits in is exactly the background behind the canvas. Both the
+  // vignette and the dither grid are indexed in page coordinates rather than
+  // canvas ones, so neither has a seam at the canvas edge.
+  vec2 pg = vec2(uPage.x + gl_FragCoord.x, uPage.y - gl_FragCoord.y);
+  lum = clamp(lum, 0.0, 1.0) * vignette(pg);
+  float v = lum > bayer(pg) ? 1.0 : 0.0;
   gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
 }`;
 
@@ -558,7 +599,7 @@ function initGL(){
   g.enableVertexAttribArray(loc);
   g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
 
-  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk','uGround'])
+  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk','uGround','uPage'])
     uni[n] = g.getUniformLocation(pr, n);
 
   tex = g.createTexture();
@@ -584,6 +625,47 @@ function sizeGL(){
   gl.viewport(0, 0, w, h);
   gl.uniform2f(uni.uRes, w, h);
   gl.uniform1f(uni.uViewH, (1.0 / 0.94) / (w / h));   // device spans 94% of the width
+  placeGL();
+}
+
+// Where this canvas sits in the viewport, so the shader can index the page's
+// vignette and dither grid rather than its own. Read every frame: the sheet
+// moves under it whenever the headline is refitted or the page scrolls, and a
+// stale origin shows immediately as a rectangle of mismatched ground.
+function placeGL(){
+  const r = document.getElementById('gl').getBoundingClientRect();
+  gl.uniform4f(uni.uPage, r.left, r.top + r.height, innerWidth, innerHeight);
+}
+
+// The same vignette the shader applies, painted across the viewport and
+// dithered with the same matrix on the same page-aligned grid. It only changes
+// when the window does, so a per-pixel pass in JS is cheap enough.
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const VIG_TOP = 0.94, VIG = 0.24;
+const bayer = (x, y) =>
+  (4 * BAYER4[((y & 3) << 2) | (x & 3)] +
+   [[0, 2], [3, 1]][(y >> 2) & 1][(x >> 2) & 1] + 0.5) / 64;
+
+function paintVignette(){
+  const cv = document.getElementById('vig');
+  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d');
+  if (!ctx) return;
+  const ink = cssColour('--ink').map((v) => Math.round(v * 255));
+  const paper = cssColour('--paper').map((v) => Math.round(v * 255));
+  const img = ctx.createImageData(w, h), d = img.data;
+  const cx = w / 2, cy = h / 2, R = 0.5 * Math.hypot(w, h);
+  for (let y = 0; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const t = Math.min(1, Math.hypot(x - cx, y - cy) / R);
+      const lum = VIG_TOP - VIG * t * t * (3 - 2 * t);
+      const c = lum > bayer(x, y) ? paper : ink;
+      const i = (y * w + x) * 4;
+      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
 function uploadScreen(key){
@@ -611,6 +693,7 @@ function draw(now){
             + Math.sin(now / 11000 * 2 * Math.PI) * 10.5 * RAD;
   const pitch = (-5 + Math.sin(now / 11000 * 2 * Math.PI) * 3.5) * RAD;
   const bob = Math.sin(now / 6500 * 2 * Math.PI) * 0.022;
+  placeGL();
   gl.uniform1f(uni.uYaw, still.matches ? spinTo * RAD : yaw);
   gl.uniform1f(uni.uPitch, still.matches ? -5 * RAD : pitch);
   gl.uniform1f(uni.uBob, still.matches ? 0 : bob);
@@ -619,7 +702,7 @@ function draw(now){
 }
 
 async function run(){
-  let i = 0;
+  let i = 0, first = true;
   for (;;){
     const s = STATES[i];
     screenImg.alt = "The camera's screen: " + s.label;
@@ -631,7 +714,8 @@ async function run(){
       breath = setInterval(() => { out = !out; setScreen(out ? 'sleepB' : 'sleepA'); }, BREATH_MS);
     }
 
-    await wait(s.hold);
+    await wait(first ? FIRST_MS : s.hold);
+    first = false;
     if (breath) clearInterval(breath);
 
     i = (i + 1) % STATES.length;
@@ -666,6 +750,8 @@ function start(){
   try {
     if (!still.matches || true) glReady = initGL();
   } catch (e){ glReady = false; }
+  paintVignette();
+  addEventListener('resize', paintVignette);
   if (glReady){
     stage.classList.add('gl-on');
     sizeGL();

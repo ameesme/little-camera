@@ -111,12 +111,28 @@ belong to the device, which has to be a solid object in order to float.
 
 The device is raymarched as a signed distance field in WebGL and dithered, so
 the page renders it the same way the camera renders the world. The dither's
-two levels are the page's own ink and ground, so the canvas has no edge: its
-paper is exactly the `#ddd` behind it. The dither is
-the firmware's own 4x4 Bayer matrix (`BAYER4` in `display.cpp`), applied in
-screen space at one dot per CSS pixel, which on a phone lands close to the
-physical pixel pitch of the real 400x240 panel. Output is strictly black and
-white: no intermediate values reach the canvas.
+two levels are the page's own ink and ground, so the canvas has no edge. The
+matrix is the firmware's own 4x4 Bayer (`BAYER4` in `display.cpp`) recursed
+once to 8x8, the way Bayer matrices are built: sixteen levels are right for a
+400x240 panel and wrong for a page, where a gradient across a whole window
+quantises into visible rings. It is applied in screen space at one dot per CSS
+pixel, which on a phone lands close to the physical pixel pitch of the real
+panel. Output is strictly black and white: no intermediate values reach the
+canvas.
+
+The whole page is that dither, not just the device. A second canvas, fixed
+behind the content, carries a radial gradient from the middle of the viewport
+out — 0.94 at the centre, 0.24 darker at the corners — screened with the same
+matrix on the same page-aligned grid. The device's shader indexes both the
+gradient and the grid in page coordinates, which is what `uPage` is for, so
+there is no seam where its canvas starts. `uPage` is re-read every frame,
+because the sheet moves under the canvas whenever the headline is refitted.
+
+The ground is a tone rather than paper for a reason: at pure white an ordered
+dither puts its first dot exactly on the lattice, and that contour reads as a
+hard ring with square corners. Starting a few per cent down keeps the whole
+page above the threshold, so the ramp is dots getting denser rather than dots
+appearing.
 
 Screen space is the whole point. A CSS pattern would rotate and foreshorten
 with the object and read as texture printed on it, so the object has to be
