@@ -22,10 +22,16 @@
   --ink:#000; --paper:#fff; --rule:1px solid #000;
   --shell:#dadada; --shell-lit:#efefef; --shell-dim:#c3c3c3;
   --glass:#fff; --cast:0,0,0;
+  --pad-x:clamp(20px, 5vw, 72px);
+  /* The block: as wide as the screen allows, capped so it stays whole above
+     the fold on a laptop. 0.18 of it sets the headline, whose longest line
+     ("IS COMING." = 5.49 em in Helvetica and Arial Bold alike) then just
+     fills the measure. */
+  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
   /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. A 1.75 mm bezel all
      round makes the device 61.1 x 38.1 x 7 mm: all screen, no button, nothing
      on the back. Every proportion below comes off that rectangle. */
-  --w:clamp(210px, min(66vw, 36vh), 320px);
+  --w:calc(var(--sheet) * 0.63);
   --h:calc(var(--w) * 0.6229);
   --d:calc(var(--w) * 0.1146);
   --r:calc(var(--w) * 0.0818);
@@ -39,20 +45,20 @@ body{
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
   display:flex; align-items:center; justify-content:center;
   padding-block:clamp(32px,7vmin,72px);
-  padding-left:clamp(20px,5vw,72px); padding-right:clamp(20px,5vw,72px);
+  padding-left:var(--pad-x); padding-right:var(--pad-x);
 }
 img{max-width:100%}
 
-.sheet{width:fit-content; max-width:100%; margin-inline:auto;
+.sheet{width:var(--sheet); margin-inline:auto;
        display:flex; flex-direction:column; align-items:flex-start;
-       gap:clamp(26px,6vmin,60px)}
+       gap:calc(var(--sheet) * 0.12)}
 
 h1{margin:0; text-align:left;
-   font-size:clamp(38px,min(10.5vw,8vh),84px); line-height:.95; font-weight:700;
+   font-size:calc(var(--sheet) * 0.18); line-height:.95; font-weight:700;
    letter-spacing:-.012em; text-transform:uppercase}
 
 /* ---- the void ---- */
-.stage{position:relative; width:var(--w); align-self:flex-start;
+.stage{position:relative; width:var(--w); align-self:center;
        display:flex; align-items:center; justify-content:center;
        perspective:1500px; perspective-origin:50% 45%;
        min-height:calc(var(--h) + var(--w) * 0.26)}

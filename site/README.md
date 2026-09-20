@@ -48,8 +48,19 @@ corner, which is what made the edges look broken; every slice here shares one
 silhouette, so the outline stays continuous through the whole turn. Front slice
 is lightest and back darkest, which is all the shading the edge needs.
 
-Headline and device are both sized against viewport height as well as width, so
-the pair is whole on first load instead of running past the fold. The two sit in
-a block that shrinks to its contents and is centred on the page, while the text
-inside it stays left aligned on the same axis as the device. The headline's
-three lines are hard breaks, not wrapping, so they hold at every width.
+One measure drives the whole composition. `--sheet` is the block's width: as
+wide as the screen allows, capped at 480px and at 54vh so the pair stays whole
+above the fold on a short laptop. Everything else is a fraction of it, so the
+composition scales as one object and can never be wider than the screen:
+
+| Part | Size |
+|---|---|
+| headline | `--sheet` x 0.18 |
+| camera | `--sheet` x 0.63 |
+| gap between them | `--sheet` x 0.12 |
+
+The headline factor is set so its longest line fills the measure exactly:
+"IS COMING." is 5.49 em, and Helvetica Bold and Arial Bold share metrics, so
+the fit holds on the fallback too. The three lines are hard breaks, not
+wrapping, so they hold at every width. The block is centred on the page with
+the text left aligned inside it, and the camera centred beneath.
