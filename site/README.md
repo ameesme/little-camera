@@ -35,7 +35,17 @@ The panel is 400x240 and 1-bit, so keep the replacements at that size and
 
 ## Design
 
-Tokens, type and hairlines are the micro-blog's (`server/src/views/layout.tsx`):
-ink on paper, Helvetica at small sizes with wide tracking, 1px rules. The page
-is black and white; the only greys belong to the device, which has to be a solid
-object in order to float.
+Tokens and hairlines are the micro-blog's (`server/src/views/layout.tsx`): ink
+on paper, Helvetica, 1px rules. The headline is the one deliberate departure
+from the blog's tiny tracked caps, because at display size Helvetica Bold wants
+tight tracking rather than wide. The page is black and white; the only greys
+belong to the device, which has to be a solid object in order to float.
+
+The body is extruded as a stack of 32 identical rounded rectangles rather than
+six flat faces. Six faces leave notches wherever a square side meets a rounded
+corner, which is what made the edges look broken; every slice here shares one
+silhouette, so the outline stays continuous through the whole turn. Front slice
+is lightest and back darkest, which is all the shading the edge needs.
+
+Headline and device are both sized against viewport height as well as width, so
+the pair is whole on first load instead of running past the fold.
