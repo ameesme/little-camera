@@ -7,7 +7,7 @@ dropped on any static host or served by Caddy with a two-line site block.
 The device is a placeholder: a rounded grey slab at roughly the real
 dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass, and a
 3 mm bezel all round puts the whole thing at 63.6 x 40.6 x 7 mm. It is all
-screen: no button, nothing on the back but the address. Replace it when the
+screen: no button, and a blank back. Replace it when the
 industrial design lands; every proportion is derived from that rectangle, so
 changing `--w`, `--h`, `--d` and `--r` at the top of the stylesheet is enough.
 
@@ -48,4 +48,7 @@ silhouette, so the outline stays continuous through the whole turn. Front slice
 is lightest and back darkest, which is all the shading the edge needs.
 
 Headline and device are both sized against viewport height as well as width, so
-the pair is whole on first load instead of running past the fold.
+the pair is whole on first load instead of running past the fold. The two sit in
+a block that shrinks to its contents and is centred on the page, while the text
+inside it stays left aligned on the same axis as the device. The headline's
+three lines are hard breaks, not wrapping, so they hold at every width.

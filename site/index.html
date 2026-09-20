@@ -21,10 +21,10 @@
 :root{
   --ink:#000; --paper:#fff; --rule:1px solid #000;
   --shell:#dadada; --shell-lit:#efefef; --shell-dim:#c3c3c3;
-  --etch:#a8a8a8; --glass:#fff; --cast:0,0,0;
+  --glass:#fff; --cast:0,0,0;
   /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass. A 3 mm bezel all round
-     makes the device 63.6 x 40.6 x 7 mm: all screen, no button, blank back.
-     Every proportion below comes off that rectangle. */
+     makes the device 63.6 x 40.6 x 7 mm: all screen, no button, nothing on the
+     back. Every proportion below comes off that rectangle. */
   --w:clamp(272px, min(88vw, 46vh), 412px);
   --h:calc(var(--w) * 0.638);
   --d:calc(var(--w) * 0.112);
@@ -43,10 +43,11 @@ body{
 }
 img{max-width:100%}
 
-.sheet{width:min(1080px,100%); display:flex; flex-direction:column;
+.sheet{width:fit-content; max-width:100%; margin-inline:auto;
+       display:flex; flex-direction:column; align-items:flex-start;
        gap:clamp(26px,6vmin,60px)}
 
-h1{margin:0; max-width:11ch; text-align:left;
+h1{margin:0; text-align:left;
    font-size:clamp(38px,min(10.5vw,8vh),84px); line-height:.95; font-weight:700;
    letter-spacing:-.012em; text-transform:uppercase}
 
@@ -93,10 +94,6 @@ h1{margin:0; max-width:11ch; text-align:left;
 .screen img{display:block; width:100%; height:100%; image-rendering:pixelated;
             border-radius:calc(var(--r) * .5)}
 
-.mark{position:absolute; left:0; right:0; top:50%; transform:translateY(-50%);
-      text-align:center; color:var(--etch);
-      font-size:calc(var(--w) * .03); font-weight:700; letter-spacing:.22em; text-transform:uppercase}
-
 @media (prefers-reduced-motion:reduce){
   .rig,.sway,.cast{animation:none}
   .box{transition:none}
@@ -106,7 +103,7 @@ h1{margin:0; max-width:11ch; text-align:left;
 <body>
 
 <main class="sheet">
-  <h1>a little camera is coming</h1>
+  <h1>a little<br>camera<br>is coming.</h1>
 
   <div class="stage">
     <div class="rig">
@@ -144,7 +141,7 @@ h1{margin:0; max-width:11ch; text-align:left;
         <div class="slice" style="--z:0.4355;background:#c8c8c8"></div>
         <div class="slice" style="--z:0.4677;background:#c9c9c9"></div>
         <div class="slice" style="--z:0.5000;background:#cacaca"></div>
-          <div class="slab back"><div class="mark">lttl.cam</div></div>
+          <div class="slab back"></div>
           <div class="slab front">
             <div class="screen"><img id="screen" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAADwAQAAAAAGRw+PAAAAPklEQVR42u3WoQoAMAhAQf//px1YhA2TbdwFg9vrRgAAAAAAJbPntJFIJP3lfn43EokE2N5mEokEAAAA+NoBHKke8ILEB3cAAAAASUVORK5CYII=" alt="The camera's screen, asleep"></div>
           </div>
