@@ -7,6 +7,8 @@
 # certificate. Wildcards need the DNS-01 challenge, which needs a DNS provider
 # plugin: the Caddyfile assumes Cloudflare (CLOUDFLARE_API_TOKEN, zone:read +
 # dns:edit). Other providers: change the image build args and the tls block.
+#
+# On the shared domain Caddy forwards only /api/* and /app/* here; the root is the landing page from LANDING_DIR.
 
 services:
   server:
@@ -24,6 +26,8 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-Little Camera <camera@${DOMAIN}>}
       DISPLAY_TZ: ${DISPLAY_TZ:-Europe/Amsterdam}
+      # On the volume rather than in the image, so publishing a release is a copy and an edit (protocol §4.7).
+      FIRMWARE_DIR: /data/firmware
     volumes:
       - data:/data
     expose:
@@ -46,6 +50,7 @@ services:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${LANDING_DIR:-../../site}:/srv/landing:ro
       - caddy_data:/data
       - caddy_config:/config
 

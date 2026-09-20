@@ -295,6 +295,6 @@ describe('comments', () => {
     expect(await ok.json()).toEqual({ name: 'Mees', body: 'thanks all' });
     const html = await (await w.app.request(blog('mees', '/', { headers: { cookie } }))).text();
     expect(html).toContain('<b>Mees</b><span>thanks all</span>');
-    expect(html).toContain('href="http://localhost:3000/me"');
+    expect(html).toContain('href="http://localhost:3000/app/me"');
   });
 });

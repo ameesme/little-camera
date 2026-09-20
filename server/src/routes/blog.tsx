@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { blankPbm, cropSquare, parsePbm, pbmToPng, setPixel } from '@little-camera/pbm';
-import { apexUrl, blogUrl } from '../config.js';
+import { appUrl, blogUrl } from '../config.js';
 import type { Env } from '../env.js';
 import { newSubscriberMail } from '../emails/index.js';
 import { batteryPercent } from '../lib/battery.js';
@@ -80,7 +80,7 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
     const moreHref = hasMore && last ? `/?before=${last.uploaded_at}&bid=${last.id}` : null;
     return (
       <Page title={blogTitle(profile.name)} description="Photos from a little camera. New ones arrive on their own." head={head(profile)}>
-        <BlogHeader name={profile.name} battery={battery(profile)} viewer={viewer} meUrl={apexUrl(env.config) + '/me'} />
+        <BlogHeader name={profile.name} battery={battery(profile)} viewer={viewer} meUrl={appUrl(env.config, '/me')} />
         {opts.notice ? <Notice text={opts.notice} /> : null}
         <main id="feed">
           {page.length === 0 ? <div class="teaser">No pictures yet</div> : null}
@@ -102,7 +102,7 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
     const viewer: Viewer = { kind: 'anonymous' };
     return (
       <Page title={blogTitle(profile.name)} description="Photos from a little camera. New ones arrive on their own." head={head(profile)}>
-        <BlogHeader name={profile.name} battery={battery(profile)} viewer={viewer} meUrl={apexUrl(env.config) + '/me'} />
+        <BlogHeader name={profile.name} battery={battery(profile)} viewer={viewer} meUrl={appUrl(env.config, '/me')} />
         {notice ? <Notice text={notice} /> : null}
         <SubscribeRow open={!notice} />
         <main id="feed">
@@ -226,7 +226,7 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
       state = existing.status === 'approved' ? 'already' : 'pending';
     } else {
       createSubscriber(env.db, { profileId: profile.id, email: email.data, name: null, status: 'pending', addedBy: 'self', now: env.now() });
-      queueEmail(env, profile.email, newSubscriberMail({ ownerName: profile.name, email: email.data, meUrl: apexUrl(env.config) + '/me' }));
+      queueEmail(env, profile.email, newSubscriberMail({ ownerName: profile.name, email: email.data, meUrl: appUrl(env.config, '/me') }));
       state = 'sent';
     }
     return wantsJson ? c.json({ state }) : c.redirect(`/?joined=${state}`, 303);

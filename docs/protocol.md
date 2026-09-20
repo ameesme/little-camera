@@ -350,23 +350,23 @@ Two routes under `/api/firmware`, both **unauthenticated**: a firmware image is
 not a secret, and leaving it open means a proxy or a CDN can cache it and a
 person can `curl` it.
 
-`GET /api/firmware/latest?hardware=xiao_shutter&channel=stable&installed=0.2.0`
+`GET /api/firmware/latest?hardware=v3q&channel=stable&installed=0.2.0`
 
 ```json
 {
   "version": "0.3.0",
   "channel": "stable",
-  "hardware": "xiao_shutter",
+  "hardware": "v3q",
   "size": 1481712,
   "sha256": "<64 hex>",
-  "url": "https://lttl.cam/api/firmware/xiao_shutter/0.3.0.bin",
+  "url": "https://lttl.cam/api/firmware/v3q/0.3.0.bin",
   "notes": "Firmware update over BLE.",
   "released_at": 1757789000,
   "update_available": true
 }
 ```
 
-`hardware` defaults to `xiao_shutter`, `channel` to `stable`. `installed` is
+`hardware` defaults to `v3q`, `channel` to `stable`. `installed` is
 optional and only decides `update_available`, which compares the two versions
 as dotted numbers (`0.10.0` is newer than `0.9.9`). `404 { "error": "no_release" }`
 when that channel has nothing published.

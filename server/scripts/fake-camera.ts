@@ -4,12 +4,14 @@
 // verification QR (--code) or one of the fixture photos (--fixture cat).
 // Enough to walk the whole registration flow on a laptop without hardware.
 //
-//   pnpm fake-camera --code LC:KQ7M2X            # bind the camera to /me
+//   pnpm fake-camera --code LC:KQ7M2X            # bind the camera to /app/me
 //   pnpm fake-camera --fixture moon              # post a picture
 //   pnpm fake-camera --fixture moon --index 12   # with a specific camera index
 //   pnpm fake-camera --status                    # GET /status
+//   pnpm fake-camera --firmware 0.1.0 --status   # pretend to be running older firmware
 //
 // Options: --server http://localhost:3000  --id 7cdfa1e2b3c4  --secret <32 hex>
+//          --firmware 0.2.0 (what the bridge would have read out of Info)
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -32,13 +34,14 @@ const server = (args.get('server') ?? 'http://localhost:3000').replace(/\/$/, ''
 const id = args.get('id') ?? '7cdfa1e2b3c4';
 const secret = args.get('secret') ?? '9f2c0000111122223333444455556666';
 const auth = { authorization: `Camera ${id}:${secret}` };
+const firmware = args.get('firmware');
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'pbm', 'fixtures');
 
 async function main() {
   const hello = await fetch(`${server}/api/camera/hello`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ camera_id: id, secret }),
+    body: JSON.stringify({ camera_id: id, secret, ...(firmware ? { firmware } : {}) }),
   });
   console.log('hello', hello.status, await hello.text());
   if (!hello.ok) process.exit(1);

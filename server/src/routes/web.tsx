@@ -5,7 +5,7 @@ import { Hono, type Context } from 'hono';
 import { raw } from 'hono/html';
 import { z } from 'zod';
 import { randomCode } from '@little-camera/pbm';
-import { apexUrl, blogUrl } from '../config.js';
+import { APP_PREFIX, apexUrl, appUrl, blogUrl } from '../config.js';
 import type { Env } from '../env.js';
 import { loginLinkMail, verifyEmailMail } from '../emails/index.js';
 import { formatFull } from '../lib/dates.js';
@@ -46,6 +46,11 @@ const registerSchema = z.object({
 
 const emailSchema = z.string().trim().toLowerCase().email().max(200);
 
+// These pages are mounted under APP_PREFIX, not at the apex root — the root
+// belongs to the landing page (config.ts). Every link on them is absolute, so
+// they all go through here rather than each one carrying the prefix.
+const u = (path = '') => `${APP_PREFIX}${path}`;
+
 export function webRoutes(env: Env): Hono {
   const app = new Hono();
   const dev = env.config.nodeEnv !== 'production';
@@ -70,10 +75,10 @@ export function webRoutes(env: Env): Hono {
           the camera, and every picture you send ends up on your page for the people you let in.
         </p>
         <p>
-          <a class="btn" href="/register">
+          <a class="btn" href={u('/register')}>
             Register
           </a>{' '}
-          <a class="btn" href="/login">
+          <a class="btn" href={u('/login')}>
             Sign in
           </a>
         </p>
@@ -86,7 +91,7 @@ export function webRoutes(env: Env): Hono {
   const RegisterForm = (p: { values?: Record<string, string>; error?: string }) => (
     <Simple title="Register" heading="Register your little camera">
       {p.error ? <div class="err">{p.error}</div> : null}
-      <form method="post" action="/register">
+      <form method="post" action={u('/register')}>
         <label class="field">
           <span>Name</span>
           <input name="name" value={p.values?.name ?? ''} required maxlength={60} autocomplete="name" />
@@ -104,7 +109,7 @@ export function webRoutes(env: Env): Hono {
         </button>
       </form>
       <p style="margin-top:18px">
-        Already registered? <a href="/login">Sign in</a>.
+        Already registered? <a href={u('/login')}>Sign in</a>.
       </p>
     </Simple>
   );
@@ -123,7 +128,7 @@ export function webRoutes(env: Env): Hono {
     }
     const profile = createProfile(env.db, { handle, name, email, now: env.now() });
     const { token } = createToken(env, { kind: 'email_verify', profileId: profile.id });
-    queueEmail(env, email, verifyEmailMail({ name, url: `${apexUrl(env.config)}/verify-email?t=${token}` }));
+    queueEmail(env, email, verifyEmailMail({ name, url: appUrl(env.config, `/verify-email?t=${token}`) }));
     return c.html(<CheckEmail />);
   });
 
@@ -132,7 +137,7 @@ export function webRoutes(env: Env): Hono {
       <p>We sent you a link. Open it on your phone: that is where the next step happens.</p>
       {dev ? (
         <p>
-          Development: <a href="/dev/mailbox">open the dev mailbox</a>.
+          Development: <a href={u('/dev/mailbox')}>open the dev mailbox</a>.
         </p>
       ) : null}
     </Simple>
@@ -143,13 +148,13 @@ export function webRoutes(env: Env): Hono {
     if (!v.ok) return c.html(<ExpiredLink />, 410);
     markEmailVerified(env.db, v.row.profile_id, env.now());
     await setOwnerCookie(c, env, v.row.profile_id);
-    return c.redirect('/me', 303);
+    return c.redirect(u('/me'), 303);
   });
 
   const ExpiredLink = () => (
     <Simple title="This link has expired" heading="This link has expired">
       <p>
-        <a href="/login">Ask for a new one</a>.
+        <a href={u('/login')}>Ask for a new one</a>.
       </p>
     </Simple>
   );
@@ -164,13 +169,13 @@ export function webRoutes(env: Env): Hono {
     const v = verifyToken(env, t, 'owner_login');
     if (!v.ok) return c.html(<ExpiredLink />, 410);
     await setOwnerCookie(c, env, v.row.profile_id);
-    return c.redirect('/me', 303);
+    return c.redirect(u('/me'), 303);
   });
 
   app.get('/login', (c) =>
     c.html(
       <Simple title="Sign in" heading="Sign in">
-        <form method="post" action="/login" class="row">
+        <form method="post" action={u('/login')} class="row">
           <label class="field">
             <span>Email</span>
             <input name="email" type="email" required autocomplete="email" />
@@ -193,7 +198,7 @@ export function webRoutes(env: Env): Hono {
         // it also marks the email as verified on click.
         const kind = profile.email_verified_at ? 'owner_login' : 'email_verify';
         const { token } = createToken(env, { kind, profileId: profile.id });
-        const url = `${apexUrl(env.config)}/${kind === 'owner_login' ? 'login' : 'verify-email'}?t=${token}`;
+        const url = appUrl(env.config, `/${kind === 'owner_login' ? 'login' : 'verify-email'}?t=${token}`);
         queueEmail(env, profile.email, kind === 'owner_login' ? loginLinkMail({ name: profile.name, url }) : verifyEmailMail({ name: profile.name, url }));
       }
     }
@@ -202,7 +207,7 @@ export function webRoutes(env: Env): Hono {
 
   app.post('/logout', (c) => {
     clearOwnerCookie(c, env);
-    return c.redirect('/', 303);
+    return c.redirect(u(), 303);
   });
 
   // --- /me ------------------------------------------------------------
@@ -213,7 +218,7 @@ export function webRoutes(env: Env): Hono {
 
   app.get('/me', async (c) => {
     const profile = await requireOwner(c);
-    if (!profile) return c.redirect('/login', 303);
+    if (!profile) return c.redirect(u('/login'), 303);
     const camera = findCameraByProfile(env.db, profile.id);
     if (!camera) return c.html(await verificationPage(profile));
     return c.html(profilePage(profile, camera.short_code));
@@ -236,7 +241,7 @@ export function webRoutes(env: Env): Hono {
           <p class="code">LC:{code.code}</p>
           <div class="small">
             Camera not recognised? Type the code from the app.
-            <form method="post" action="/me/link-camera">
+            <form method="post" action={u('/me/link-camera')}>
               <input name="short_code" placeholder="ABC123" maxlength={6} pattern="[A-Za-z2-9]{6}" required autocapitalize="characters" autocomplete="off" />
               <button class="btn" type="submit">
                 Link
@@ -245,7 +250,7 @@ export function webRoutes(env: Env): Hono {
           </div>
           <p class="small">
             <a href={apexUrl(env.config)}>Little camera</a> · {profile.email} ·{' '}
-            <form method="post" action="/logout" style="display:inline">
+            <form method="post" action={u('/logout')} style="display:inline">
               <button type="submit" style="text-decoration:underline">
                 sign out
               </button>
@@ -257,11 +262,11 @@ export function webRoutes(env: Env): Hono {
 (function(){
   var url=${JSON.stringify(blogUrl(env.config, profile.handle))};
   function tick(){
-    fetch('/me/status',{headers:{accept:'application/json'}}).then(function(r){return r.json()}).then(function(j){
+    fetch(${JSON.stringify(u('/me/status'))},{headers:{accept:'application/json'}}).then(function(r){return r.json()}).then(function(j){
       if(!j.bound)return;
       clearInterval(timer);
       var v=document.getElementById('verify');
-      v.innerHTML='<p class="stmt">Linked</p><p class="url"><a href="'+j.url+'">'+j.url+'</a></p><p class="small"><a href="/me">Your page</a></p>';
+      v.innerHTML='<p class="stmt">Linked</p><p class="url"><a href="'+j.url+'">'+j.url+'</a></p><p class="small"><a href="'+${JSON.stringify(u('/me'))}+'">Your page</a></p>';
     }).catch(function(){});
   }
   var timer=setInterval(tick,3000);
@@ -282,8 +287,8 @@ export function webRoutes(env: Env): Hono {
   // last 10 minutes (proof that the person has the camera in hand).
   app.post('/me/link-camera', async (c) => {
     const profile = await requireOwner(c);
-    if (!profile) return c.redirect('/login', 303);
-    if (findCameraByProfile(env.db, profile.id)) return c.redirect('/me', 303);
+    if (!profile) return c.redirect(u('/login'), 303);
+    if (findCameraByProfile(env.db, profile.id)) return c.redirect(u('/me'), 303);
     const now = env.now();
     const form = await c.req.parseBody();
     const code = String(form.short_code ?? '').trim().toUpperCase().replace(/[^A-Z2-9]/g, '');
@@ -292,7 +297,7 @@ export function webRoutes(env: Env): Hono {
         <Simple title="Not linked" heading="Not linked">
           <p>{why}</p>
           <p>
-            <a href="/me">Back to the code</a>
+            <a href={u('/me')}>Back to the code</a>
           </p>
         </Simple>,
         400,
@@ -305,7 +310,7 @@ export function webRoutes(env: Env): Hono {
       return fail('That camera has not uploaded anything in the last 10 minutes. Take a picture, press send, and try again.');
     }
     bindCamera(env.db, camera.id, profile.id, now);
-    return c.redirect('/me', 303);
+    return c.redirect(u('/me'), 303);
   });
 
   function profilePage(profile: ProfileRow, shortCode: string) {
@@ -324,7 +329,7 @@ export function webRoutes(env: Env): Hono {
               ? 'You have a profile picture.'
               : 'No profile picture yet.'}
         </p>
-        <form method="post" action="/me/request-avatar">
+        <form method="post" action={u('/me/request-avatar')}>
           <button class="btn" type="submit">
             {profile.avatar_photo_id ? 'Replace profile picture' : 'Request profile picture'}
           </button>
@@ -359,7 +364,7 @@ export function webRoutes(env: Env): Hono {
             </li>
           ))}
         </ul>
-        <form method="post" action="/me/subscribers" class="row">
+        <form method="post" action={u('/me/subscribers')} class="row">
           <label class="field">
             <span>Email</span>
             <input name="email" type="email" required />
@@ -372,7 +377,7 @@ export function webRoutes(env: Env): Hono {
             Add
           </button>
         </form>
-        <form method="post" action="/logout" style="margin-top:28px">
+        <form method="post" action={u('/logout')} style="margin-top:28px">
           <button class="btn" type="submit">
             Sign out
           </button>
@@ -383,14 +388,14 @@ export function webRoutes(env: Env): Hono {
 
   app.post('/me/request-avatar', async (c) => {
     const profile = await requireOwner(c);
-    if (!profile) return c.redirect('/login', 303);
+    if (!profile) return c.redirect(u('/login'), 303);
     setAvatarRequested(env.db, profile.id, env.now());
-    return c.redirect('/me', 303);
+    return c.redirect(u('/me'), 303);
   });
 
   app.post('/me/subscribers', async (c) => {
     const profile = await requireOwner(c);
-    if (!profile) return c.redirect('/login', 303);
+    if (!profile) return c.redirect(u('/login'), 303);
     const form = await c.req.parseBody();
     const email = emailSchema.safeParse(form.email);
     if (email.success) {
@@ -405,12 +410,12 @@ export function webRoutes(env: Env): Hono {
         sendWelcome(env, createSubscriber(env.db, { profileId: profile.id, email: email.data, name, status: 'approved', addedBy: 'owner', now: env.now() }));
       }
     }
-    return c.redirect('/me', 303);
+    return c.redirect(u('/me'), 303);
   });
 
   app.post('/me/subscribers/:id/:action{approve|block}', async (c) => {
     const profile = await requireOwner(c);
-    if (!profile) return c.redirect('/login', 303);
+    if (!profile) return c.redirect(u('/login'), 303);
     const sub = findSubscriberById(env.db, Number(c.req.param('id')));
     if (sub && sub.profile_id === profile.id) {
       if (c.req.param('action') === 'approve') {
@@ -422,7 +427,7 @@ export function webRoutes(env: Env): Hono {
         blockSubscriber(env.db, sub.id);
       }
     }
-    return c.redirect('/me', 303);
+    return c.redirect(u('/me'), 303);
   });
 
   // --- dev mailbox ----------------------------------------------------
@@ -437,7 +442,7 @@ export function webRoutes(env: Env): Hono {
             {rows.map((m) => (
               <li>
                 <span>
-                  <a href={`/dev/mailbox/${m.id}`}>{m.subject}</a>
+                  <a href={u(`/dev/mailbox/${m.id}`)}>{m.subject}</a>
                   <br />
                   <span class="tag">
                     to {m.to_email} · {m.status} · {formatFull(m.created_at, env.config.displayTz)}
@@ -463,7 +468,7 @@ export function webRoutes(env: Env): Hono {
         <Simple title={m.subject} heading={m.subject}>
           <div class="mail">
             <p>
-              To {m.to_email} · {m.status} · <a href="/dev/mailbox">back</a>
+              To {m.to_email} · {m.status} · <a href={u('/dev/mailbox')}>back</a>
             </p>
             <pre>{linked}</pre>
             <iframe srcdoc={html} title="HTML version"></iframe>

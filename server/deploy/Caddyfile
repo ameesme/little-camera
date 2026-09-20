@@ -2,9 +2,26 @@
 	email {$ACME_EMAIL}
 }
 
-# Apex (registration, /me, the camera API) and every blog subdomain share one
-# wildcard certificate. Host-based routing happens inside the Node server.
-{$DOMAIN}, *.{$DOMAIN} {
+# Adding a path to `@app` hands away URL space the landing page owns, so mount new routes under /api or /app instead.
+{$DOMAIN} {
+	tls {
+		dns cloudflare {$CLOUDFLARE_API_TOKEN}
+	}
+	encode gzip
+
+	@app path /api/* /app/*
+	reverse_proxy @app server:3000
+
+	root * /srv/landing
+	file_server
+	handle_errors {
+		respond "Little camera." 200
+	}
+}
+
+# Blogs. Each one owns the root of its own subdomain, so there is nothing to
+# split here; the wildcard certificate covers them all.
+*.{$DOMAIN} {
 	tls {
 		dns cloudflare {$CLOUDFLARE_API_TOKEN}
 	}

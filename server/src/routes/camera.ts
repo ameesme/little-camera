@@ -7,10 +7,11 @@ import { shortCode } from '@little-camera/pbm';
 import type { Env } from '../env.js';
 import { batteryPercent } from '../lib/battery.js';
 import { boundInfo } from '../lib/bound.js';
+import { DEFAULT_HARDWARE, VERSION, compareVersions, latestRelease, releaseJson } from '../lib/firmware.js';
 import { IngestError, MAX_PHOTO_BYTES, ingestPhoto } from '../lib/ingest.js';
 import { sendWelcome } from '../lib/welcome.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, hashSecret, secretMatches, type CameraVars } from '../middleware/cameraAuth.js';
-import { createCamera, findCamera, touchCamera } from '../repo/cameras.js';
+import { createCamera, findCamera, setCameraFirmware, touchCamera } from '../repo/cameras.js';
 import { countFeedPhotos } from '../repo/photos.js';
 import { findProfileById, setAvatarRequested } from '../repo/profiles.js';
 import {
@@ -26,6 +27,9 @@ import { blogUrl } from '../config.js';
 const helloSchema = z.object({
   camera_id: z.string().regex(CAMERA_ID),
   secret: z.string().regex(SECRET_HEX),
+  // What the phone read out of Info. Optional: a camera from before Info
+  // carried a version says nothing, and that is a fact worth keeping too.
+  firmware: z.string().regex(VERSION).optional(),
 });
 
 const subscriberSchema = z.object({
@@ -44,7 +48,7 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
   app.post('/hello', async (c) => {
     const parsed = helloSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json(error('bad_request', 'Expected { camera_id, secret }'), 400);
-    const { camera_id, secret } = parsed.data;
+    const { camera_id, secret, firmware } = parsed.data;
     const now = env.now();
     let camera = findCamera(env.db, camera_id);
     if (!camera) {
@@ -54,10 +58,29 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
     } else {
       touchCamera(env.db, camera.id, now);
     }
+    if (firmware && firmware !== camera.firmware_version) {
+      setCameraFirmware(env.db, camera.id, firmware, now);
+      camera = findCamera(env.db, camera.id)!;
+    }
     return c.json({ camera_id: camera.id, short_code: camera.short_code, bound: boundInfo(env, camera), server_time: now });
   });
 
   app.use('*', cameraAuth(env));
+
+  // What /status says about firmware. `update_available` needs both versions
+  // to mean anything, so a camera that has never reported one gets `false` and
+  // the release to look at — the phone has read the real version out of Info
+  // and can decide for itself.
+  const firmwareState = (installed: string | null) => {
+    // One carrier revision exists; when there is a second this becomes a
+    // column on the camera rather than a constant here.
+    const release = latestRelease(env.config, { hardware: DEFAULT_HARDWARE });
+    return {
+      installed,
+      latest: release ? releaseJson(env.config, release) : null,
+      update_available: !!(release && installed && compareVersions(release.version, installed) > 0),
+    };
+  };
 
   // 4.3 photos
   app.post('/photos', async (c) => {
@@ -106,6 +129,7 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
       short_code: camera.short_code,
       bound,
       avatar: { requested_at: profile?.avatar_requested_at ?? null, has_avatar: profile?.avatar_photo_id != null },
+      firmware: firmwareState(camera.firmware_version),
       subscribers: profile
         ? listSubscribers(env.db, profile.id).map((s) => ({
             id: s.id,
