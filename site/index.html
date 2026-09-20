@@ -307,9 +307,9 @@ const float AMB    = 0.58;
 //
 // The L is one arm thickness throughout, 11.2 mm, set by the two things that
 // have to fit inside it: the lens with 1.3 mm to spare, the button with 1.8.
-// Each end is closed with a half-circle concentric with its part, so the
-// outline follows the lens at one end and the button at the other. The outer
-// corner is a tight 1.5 mm and the inside of the elbow is filleted.
+// Every curve on it is therefore the same 5.6 mm radius: the cap concentric
+// with the lens, the cap concentric with the button, and the outer corner, all
+// one arc. The inside of the elbow is filleted.
 //
 // The piezo takes no part in any of it. It is far smaller than the arm is
 // thick, so it sits in the corner without moving an edge.
@@ -324,7 +324,6 @@ const vec2  P_LENS  = vec2(0.0000, 0.0000);       // dead centre of the back
 const vec2  P_PIEZO = vec2(0.3279, 0.0000);       // out to the left, same line
 const vec2  P_SHUT  = vec2(0.3279, 0.3279);       // above it, in the corner
 const float ARM     = 0.092;                      // half-thickness, both arms
-const float CORNER  = 0.024;                      // 1.5 mm at the outer corner
 const float R_SHUT  = 0.062;                      // 7.6 mm button
 const float R_PIEZO = 0.024;                      // 2.9 mm hole
 const float R_LENS  = 0.070;                      // 8.6 mm barrel
@@ -343,25 +342,20 @@ float smin(float a, float b, float k){
   return mix(b, a, h) - k*h*(1.0 - h);
 }
 
-float sdRect2(vec2 p, vec2 b, float r){
-  vec2 d = abs(p) - b + r;
-  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
+float sdSeg(vec2 p, vec2 a, vec2 b){
+  vec2 pa = p - a, ba = b - a;
+  return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
 }
 
-// Two straight arms of one thickness, meeting at a tight outer corner, capped
-// at each end by a half-circle concentric with the thing it holds. The piezo
-// sits inside the corner and takes no part in the outline: it is smaller than
-// the arm is thick, so nothing about it moves an edge.
+// Two capsules of one thickness, drawn along lens -> piezo -> button. One
+// thickness throughout means every curve on the shape has the same radius: the
+// cap at the lens, the cap at the button and the whole outer corner are arcs
+// of ARM. Nothing widens anywhere, least of all at the piezo, which is far
+// smaller than the arm is thick and simply sits in the corner.
 float sdL(vec2 q){
-  float xo = P_PIEZO.x + ARM;               // the outer edge of the upright
-  float yo = P_SHUT.y  + ARM;               // and its top
-  float foot = sdRect2(q - vec2(xo * 0.5, 0.0), vec2(xo * 0.5, ARM), CORNER);
-  float leg  = sdRect2(q - vec2(P_PIEZO.x, (yo - ARM) * 0.5),
-                       vec2(ARM, (yo + ARM) * 0.5), CORNER);
-  float d = smin(foot, leg, 0.030);         // a small fillet inside the elbow
-  d = min(d, length(q - P_LENS) - ARM);     // the cap that follows the lens
-  d = min(d, length(q - P_SHUT) - ARM);     // and the one that follows the button
-  return d;
+  float foot = sdSeg(q, P_LENS,  P_PIEZO) - ARM;
+  float leg  = sdSeg(q, P_PIEZO, P_SHUT)  - ARM;
+  return smin(foot, leg, 0.012);            // a 0.7 mm fillet inside the elbow
 }
 
 // A 2D outline pushed out of the back face by h, its edges broken by r. It
