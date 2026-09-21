@@ -92,6 +92,22 @@ img{max-width:100%}
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
+/* A recording of this very page, zoomed until the dither came apart, laid back
+   over it at low opacity. The two dot grids never line up, so they interfere:
+   that moire is the whole effect, and it is the one place on the page where
+   intermediate greys are allowed, since the layer is composited rather than
+   screened.
+
+   The height is deliberately too tall: 100lvh plus 60px, with the slack split
+   over the top and bottom so neither end can show a gap. Every viewport unit
+   comes up short somewhere on iOS, and overshooting is the one approach that
+   does not -- nobody notices a background that is sixty pixels too big. */
+.film{position:fixed; left:0; top:-30px; width:100%;
+      height:calc(100vh + 60px); height:calc(100lvh + 60px);
+      object-fit:cover; opacity:.12; pointer-events:none;
+      image-rendering:pixelated; image-rendering:crisp-edges}
+@media (prefers-reduced-motion:reduce){ .film{display:none} }
+
 /* The words, as one block. Full width so the headline fitter, which measures
    against its parent, still gets the measure. */
 .say{width:100%; display:flex; flex-direction:column; align-items:flex-start;
@@ -180,6 +196,14 @@ h1 span{display:block; white-space:nowrap}
 <body>
 
 <canvas class="vig" id="vig" aria-hidden="true"></canvas>
+<video class="film" id="film" preload="auto"
+       autoplay muted loop playsinline aria-hidden="true">
+  <!-- H.264 first: it is the one every iOS Safari decodes, and iOS is what
+       this page is looked at on. The WebM is for builds without the
+       proprietary codecs. -->
+  <source src="media/ground.mp4" type="video/mp4">
+  <source src="media/ground.webm" type="video/webm">
+</video>
 
 <main class="sheet">
   <div class="say">
@@ -686,6 +710,15 @@ function start(){
   } catch (e){ glReady = false; }
   paintVignette();
   addEventListener('resize', paintVignette);
+  // Autoplay is refused in low power mode even when muted and inline, so the
+  // first touch anywhere starts it instead. Nothing depends on it playing.
+  const film = document.getElementById('film');
+  if (film && !still.matches){
+    const kick = () => film.play().catch(() => {});
+    kick();
+    addEventListener('touchstart', kick, { once: true, passive: true });
+    addEventListener('click', kick, { once: true });
+  }
   if (glReady){
     stage.classList.add('gl-on');
     sizeGL();

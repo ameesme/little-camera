@@ -55,6 +55,34 @@ cd firmware/tools/preview && make
 The panel is 400x240 and 1-bit, so keep the replacements at that size and
 `image-rendering: pixelated` does the rest.
 
+## The film
+
+A recording of this page, zoomed until the dither came apart, laid back over it
+at `opacity: .12`. The two dot grids never line up, so they interfere, and that
+moire is the whole effect.
+
+It is the one place on the page where intermediate greys appear: the layer is
+composited rather than screened, so the output there is no longer strictly two
+levels. Everything else still is. `.film { opacity }` is the dial.
+
+`media/ground.mp4` is H.264 at 540x926, 24fps, ~790 KB, and comes first because
+it is what every iOS Safari decodes; `media/ground.webm` is VP9 for builds
+without the proprietary codecs. The source was HEVC in a QuickTime container,
+which only Safari plays. To replace it:
+
+```
+ffmpeg -i <clip>.mov -an -vf "fps=24,scale=540:-2:flags=area" \
+  -c:v libx264 -profile:v main -pix_fmt yuv420p -crf 30 -preset slow \
+  -movflags +faststart site/media/ground.mp4
+```
+
+Its height is deliberately too tall — `100lvh` plus 60px, split over the top
+and bottom. Every viewport unit comes up short somewhere on iOS and
+overshooting is the one approach that does not; nobody notices a background
+sixty pixels too big. Autoplay is refused in low power mode even when muted and
+inline, so the first touch starts it instead, and nothing depends on it
+playing.
+
 ## Type and colour
 
 Both come from amaranthstudio.com, so the teaser sits in the same world:
