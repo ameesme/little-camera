@@ -68,7 +68,6 @@
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
-html{height:100%}
 body{
   min-height:100vh; min-height:100dvh;
   margin:0; background:var(--paper); color:var(--ink);
@@ -96,13 +95,21 @@ img{max-width:100%}
    is handed to html as a background-image. The image is --bleed larger than
    the viewport on all sides and centred on it, because the painting area is
    unbounded but the positioning area is not: an image the size of the viewport
-   would stop exactly where the bars begin. Attachment is fixed so the ground
-   is in viewport coordinates, the same ones the shader is given in uPage.
+   would stop exactly where the bars begin.
+
+   The attachment is the default rather than fixed. A fixed background hangs
+   its positioning area on the VISUAL viewport, which is the short one while
+   the bars are up; the default hangs it on the root's own padding box, which
+   paintVignette() then pins to the large viewport. html{height:100%} is not
+   enough on its own -- 100% of what, on iOS, is the short viewport again.
+   Since the page starts at the top of that box and does not scroll, the two
+   are the same coordinate system the shader is given in uPage.
 
    The element itself is kept only to be measured -- its box is the large
    viewport, which JS has no other reliable way to ask for -- and to be drawn
    into. Its backing store is the bleed size; its CSS box is not. */
-html{background:var(--paper) none 50% 50% / auto no-repeat fixed}
+html{height:100%; overscroll-behavior:none;
+     background:var(--paper) none 50% 50% / auto no-repeat}
 body{background:transparent}
 
 .vig{position:fixed; left:0; top:0; width:100%;
@@ -644,7 +651,11 @@ function paintVignette(){
   }
   ctx.putImageData(img, 0, 0);
 
+  // The root's box is the background's positioning area, and it is what
+  // html{height:100%} gets wrong on iOS: 100% of the short viewport. Pin it to
+  // the large one, which .vig has just been measured at.
   const root = document.documentElement;
+  root.style.height = h + 'px';
   root.style.backgroundSize = bw + 'px ' + bh + 'px';
   cv.toBlob((blob) => {
     if (!blob) return;

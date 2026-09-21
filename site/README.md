@@ -106,11 +106,18 @@ So the dither is drawn into a `<canvas>` that is never displayed, and its
 bitmap is handed to `html` as a `background-image`. The image is `--bleed`
 larger than the viewport on all sides and centred on it, because the painting
 area is unbounded but the *positioning* area is not: an image the size of the
-viewport would stop exactly where the bars begin. Attachment is `fixed`, so the
-ground is in viewport coordinates — the same ones the shader is given in
-`uPage`, which is what keeps the two dither grids aligned and leaves no seam
-where the device's canvas starts. `uPage` is re-read every frame, because the
-sheet moves under the canvas whenever the headline is refitted.
+viewport would stop exactly where the bars begin.
+
+The attachment is the default rather than `fixed`. A fixed background hangs its
+positioning area on the *visual* viewport, which is the short one while the
+bars are up; the default hangs it on the root's own padding box, and
+`paintVignette()` pins that to the large viewport in JS. `html{height:100%}` is
+not enough on its own — 100% of what, on iOS, is the short viewport again.
+Since the page starts at the top of that box and does not scroll, it is still
+the same coordinate system the shader is given in `uPage`, which is what keeps
+the two dither grids aligned and leaves no seam where the device's canvas
+starts. `uPage` is re-read every frame, because the sheet moves under the
+canvas whenever the headline is refitted.
 
 The canvas element is kept for two things it is good at: being measured, since
 its box is `100lvh` and JS has no other reliable way to ask for the large
