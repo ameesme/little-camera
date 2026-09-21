@@ -94,37 +94,31 @@ img{max-width:100%}
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
-/* A recording of this very page, zoomed until the dither came apart, playing
-   inside the headline and nowhere else.
+/* A recording of this very page, zoomed until the dither came apart, running
+   at full strength as a block behind the headline, with the words inverted on
+   top of it.
 
-   There is no way to give text a video for a background, so this is done with
-   a blend instead. The film fills the title's box; over it sits the heading
-   itself, its own box filled with the page's paper and its letters black.
-   Lighten keeps the brighter of the two, and the film never gets brighter than
-   the paper, so everything that is paper stays paper -- while every letter,
-   being black, loses to whatever the film is doing behind it. Isolate keeps
-   the blend inside the title rather than letting it reach the ground.
+   The inversion is the blend: white letters in difference mode come out as
+   255 minus whatever the film is doing behind each one, so they are always the
+   exact opposite of their own backdrop and can never sink into it, however the
+   film moves. Isolate keeps that reckoning inside the title, against the film,
+   rather than against the ground the title sits on.
 
    The heading's leading is 0.72, so its letters overflow its own line boxes.
-   It is padded to take them back in, which costs nothing visually -- that
-   padding is the same colour as the page -- and the film then fills the box
-   the padding made. Width and height are set rather than left to the insets:
+   It is padded to take them back in, which is also what gives the block its
+   margin. The film's width and height are set rather than left to the insets:
    a video is a replaced element, so width:auto takes its own 540x926 instead
    of stretching. */
 .title{position:relative; isolation:isolate; width:100%}
 .film{position:absolute; inset:0; width:100%; height:100%;
-      object-fit:cover; pointer-events:none; opacity:.85;
+      object-fit:cover; pointer-events:none;
       image-rendering:pixelated; image-rendering:crisp-edges}
-.title h1{position:relative; padding-block:.14em; color:#000;
-          mix-blend-mode:lighten;
-          /* Not a flat fill: that would lay a paper rectangle over the
-             dithered ground and show as a panel behind the words. It gets the
-             ground itself instead, handed over by paintVignette(), attached to
-             the viewport so it lines up dot for dot with the canvas behind. */
-          background:var(--paper) no-repeat 0 0 fixed}
+.title h1{position:relative; padding-block:.14em;
+          color:#fff; mix-blend-mode:difference}
 @media (prefers-reduced-motion:reduce){
   .film{display:none}
-  .title h1{mix-blend-mode:normal; background:none}
+  .title h1{color:var(--ink); mix-blend-mode:normal}
+}
 }
 
 /* The words, as one block. Full width so the headline fitter, which measures
@@ -659,21 +653,6 @@ function paintVignette(){
     }
   }
   ctx.putImageData(img, 0, 0);
-
-  // The headline blends against its own background, so that background has to
-  // be this exact ground rather than flat paper. Attached to the viewport at
-  // the same size, it lands dot for dot on top of the canvas behind it.
-  const h1 = document.querySelector('.title h1');
-  if (!h1) return;
-  h1.style.backgroundSize = w + 'px ' + h + 'px';
-  cv.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const old = h1.dataset.ground;
-    h1.style.backgroundImage = 'url("' + url + '")';
-    if (old) URL.revokeObjectURL(old);
-    h1.dataset.ground = url;
-  });
 }
 
 function uploadScreen(key){

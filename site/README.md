@@ -57,27 +57,21 @@ The panel is 400x240 and 1-bit, so keep the replacements at that size and
 
 ## The film
 
-A recording of this page, zoomed until the dither came apart, playing inside
-the headline and nowhere else.
+A recording of this page, zoomed until the dither came apart, running at full
+strength as a block behind the headline, with the words inverted on top of it.
 
-There is no way to give text a video for a background, so it is done with a
-blend. The film fills the title's box; over it sits the heading itself, its own
-box carrying the ground and its letters black. `mix-blend-mode: lighten` keeps
-the brighter of the two, and the film never gets brighter than the paper, so
-everything that is ground stays ground — while every letter, being black, loses
-to whatever the film is doing behind it. `isolation: isolate` keeps the blend
-inside the title rather than letting it reach the page.
-
-The heading's background is the dithered ground itself, handed over by
-`paintVignette()` as a blob and attached to the viewport, so it lands dot for
-dot on the canvas behind it. A flat fill would lay a paper rectangle over the
-ground and read as a panel behind the words.
+The inversion is the blend. White letters in `mix-blend-mode: difference` come
+out as 255 minus whatever the film is doing behind each one, so they are always
+the exact opposite of their own backdrop and can never sink into it, however
+the film moves. `isolation: isolate` keeps that reckoning inside the title,
+against the film, rather than against the ground the title sits on. It is the
+page's own rule — if a design needs emphasis, invert — doing the work.
 
 The heading's leading is 0.72, so its letters overflow its own line boxes; it
-is padded to take them back in, which costs nothing visually since that padding
-is the ground. The film's width and height are set rather than left to the
-insets — a video is a replaced element, so `width: auto` takes its own 540x926
-instead of stretching.
+is padded to take them back in, which is also what gives the block its margin.
+The film's width and height are set rather than left to the insets — a video is
+a replaced element, so `width: auto` takes its own 540x926 instead of
+stretching.
 
 `media/ground.mp4` is H.264 at 540x926, 24fps, ~790 KB, and comes first because
 it is what every iOS Safari decodes; `media/ground.webm` is VP9 for builds
