@@ -219,7 +219,11 @@ than the screen:
 The credit — "a project by amaranth studio", linking to amaranthstudio.com —
 sits under the headline, in the flow, aligned to the same left edge. It is set
 in Book rather than Bold, at a little over a quarter of the headline's size,
-with no underline and no colour of its own. The page does not scroll: at every
+with no underline — and it is inverted the same way the headline is. White
+letters in `mix-blend-mode: difference` come out as the exact opposite of the
+ground under them, so the line carries the page's own dots reversed rather than
+a colour of its own. Nothing between it and the ground may be a stacking
+context, which is the other reason `.sheet` has no `z-index`. The page does not scroll: at every
 width the document is exactly the viewport.
 
 The headline is fitted at runtime rather than calculated. Predicting the line

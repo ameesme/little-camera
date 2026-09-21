@@ -179,9 +179,14 @@ h1{margin:0; text-align:left; font-family:var(--font-bold);
 h1 span{display:block; width:fit-content; white-space:nowrap}
 
 /* Quieter than the headline by weight as well as size, so it reads as a
-   footnote rather than a fourth line. */
+   footnote rather than a fourth line -- but inverted the same way. White
+   letters in difference mode come out as the exact opposite of the ground
+   under them, so the line carries the page's own dots reversed rather than a
+   colour of its own. Nothing between it and the ground may be a stacking
+   context, which is why the sheet has no z-index. */
 .by{margin:0; font-family:var(--font); font-weight:400;
-    font-size:calc(var(--sheet) * 0.048); line-height:1.25}
+    font-size:calc(var(--sheet) * 0.048); line-height:1.25;
+    color:#fff; mix-blend-mode:difference}
 .by a{color:inherit; text-decoration:none}
 
 /* ---- the void ---- */
