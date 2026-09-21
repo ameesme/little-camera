@@ -72,7 +72,7 @@ body{
   margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
-  display:flex; position:relative;
+  display:flex;
   padding-block:clamp(20px,5vh,64px);
   padding-left:var(--pad-x); padding-right:var(--pad-x);
 }
@@ -149,10 +149,9 @@ img{max-width:100%}
    once -- one element cannot be in two places.
 
    A radial mask holds it back over the middle, where the camera and the words
-   are, and lets it up towards the edges. Nothing at all out to 60%, where the
-   camera and the words live, and from there it climbs to full at the corners.
-   The middle stays clean; the grain is something the page gathers as it runs
-   out of the frame. Under the sheet, so the words and
+   are, and lets it up towards the edges. It stays flat at about a tenth out to
+   60%, where the camera and the words live, so the middle is one even wash
+   rather than a gradient of its own, and climbs to full at the corners. Under the sheet, so the words and
    the camera sit on top of it. */
 .wash{position:fixed; left:0; top:-40px; width:100%;
       height:calc(100vh + 80px); height:calc(100lvh + 80px);
@@ -160,9 +159,9 @@ img{max-width:100%}
       filter:grayscale(1) contrast(2000%);   /* two values only; see .film */
       image-rendering:pixelated; image-rendering:crisp-edges;
       -webkit-mask-image:radial-gradient(78% 58% at 50% 46%,
-            rgba(0,0,0,0) 0%, rgba(0,0,0,0) 60%, #000 100%);
+            rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%);
       mask-image:radial-gradient(78% 58% at 50% 46%,
-            rgba(0,0,0,0) 0%, rgba(0,0,0,0) 60%, #000 100%)}
+            rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%)}
 @media (prefers-reduced-motion:reduce){ .wash{display:none} }
 
 /* The words, as one block. Full width so the headline fitter, which measures
@@ -178,14 +177,6 @@ h1{margin:0; text-align:left; font-family:var(--font-bold);
 /* Each line is its own block and never wraps, so three lines stay three lines
    whatever the font turns out to be. */
 h1 span{display:block; width:fit-content; white-space:nowrap}
-
-/* A full-width band a little past the bottom of the first screen, centred on
-   the page rather than aligned to the sheet: down there it is a footer, not a
-   fourth line of the headline. */
-.credit{position:absolute; top:120%; left:0; right:0;
-        padding-left:var(--pad-x); padding-right:var(--pad-x);
-        display:flex; justify-content:center}
-.credit .by{text-align:center}
 
 /* Quieter than the headline by weight as well as size, so it reads as a
    footnote rather than a fourth line. */
@@ -278,6 +269,7 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
       </video>
       <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
     </div>
+    <p class="by"><a href="https://amaranthstudio.com">a project by amaranth studio</a></p>
   </div>
 
   <div class="stage">
@@ -327,14 +319,6 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
     <canvas class="gl" id="gl"></canvas>
   </div>
 </main>
-
-<!-- Below the fold on purpose. It gives the document something to scroll,
-     which is what Safari wants before it will composite real pixels behind
-     its bars, and the credit is the one thing that can live down there
-     without being missed. -->
-<div class="credit">
-  <p class="by"><a href="https://amaranthstudio.com">a project by amaranth studio</a></p>
-</div>
 
 <script>
 // The loop is the product: it sleeps, and sleeping is where it spends its life.
