@@ -95,36 +95,35 @@ pixel, which on a phone lands close to the physical pixel pitch of the real
 panel. Output is strictly black and white: no intermediate values reach the
 canvas.
 
-The whole page is that dither, not just the device, and it is the ROOT
-element's background rather than an element of its own. That is the only thing
-that reaches behind mobile Safari's bars: a root background is propagated to
-the canvas and painted over the whole of it, past the viewport in every
-direction — which is exactly why a plain `background-color` shows up there and
-a fixed `div` does not.
+The whole page is that dither, not just the device: a fixed canvas behind the
+content carries a radial gradient from the middle of the viewport out, screened
+with the same matrix on the same grid. The device's shader indexes both the
+gradient and the grid in viewport coordinates, which is what `uPage` is for, so
+there is no seam where its canvas starts. `uPage` is re-read every frame,
+because the sheet moves under the canvas whenever the headline is refitted.
 
-So the dither is drawn into a `<canvas>` that is never displayed, and its
-bitmap is handed to `html` as a `background-image`. The image is `--bleed`
-larger than the viewport on all sides and centred on it, because the painting
-area is unbounded but the *positioning* area is not: an image the size of the
-viewport would stop exactly where the bars begin.
+`opacity: .999` on that canvas is load-bearing, and it took several wrong
+turns to find. Safari 26 on iOS treats a fixed layer with a *solid* background
+differently from a translucent one: the opaque one is clipped at the top edge
+of the floating bottom bar, the translucent one is composited separately and
+covers the screen. A canvas full of dots is as opaque as it gets, so the ground
+stopped dead where the bars began, and no amount of `viewport-fit`, `lvh`,
+`theme-color` or moving it onto the root background changed that — the bug is
+about compositing, not about the viewport. Anything below 1 routes through the
+compositor. ([Edoardo Lunardi has the
+details.](https://www.edoardolunardi.dev/blog/safari-26-and-the-strange-case-of-fixed-overlays))
 
-The attachment is the default rather than `fixed`. A fixed background hangs its
-positioning area on the *visual* viewport, which is the short one while the
-bars are up; the default hangs it on the root's own padding box, and
-`paintVignette()` pins that to the large viewport in JS. `html{height:100%}` is
-not enough on its own — 100% of what, on iOS, is the short viewport again.
-Since the page starts at the top of that box and does not scroll, it is still
-the same coordinate system the shader is given in `uPage`, which is what keeps
-the two dither grids aligned and leaves no seam where the device's canvas
-starts. `uPage` is re-read every frame, because the sheet moves under the
-canvas whenever the headline is refitted.
+Its height is the *large* viewport rather than the current one: the bars slide
+away over the page rather than reflowing it, so a layer sized to the small one
+is short the moment they do, and it would have to be redrawn on every slide. It
+then hangs `--bleed` past the top and bottom, which costs nothing — a fixed
+element scrolls nothing — and covers the case where the layout viewport is a
+hair shorter than the screen. The width has to be set explicitly: a canvas is a
+replaced element, so `width:auto` takes its aspect ratio off the height rather
+than stretching.
 
-The canvas element is kept for two things it is good at: being measured, since
-its box is `100lvh` and JS has no other reliable way to ask for the large
-viewport, and being drawn into. Its backing store is the bleed size; its CSS
-box is not.
-
-There is deliberately no `theme-color`.
+There is deliberately no `theme-color`. Safari fills the bars with it, which
+would put a flat `#ddd` back over the ground the overlay has just reached.
 
 The gradient is paper for the middle 70 per cent and then a straight ramp to
 0.30 darker at the corners. An ordered dither lays each new dot exactly on the

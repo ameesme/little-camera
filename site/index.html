@@ -85,36 +85,34 @@ img{max-width:100%}
    rather than centring on the body, because a flex container centred with
    align-items clips the top of anything taller than it, and on a very short
    window this composition should scroll rather than lose its head. */
-/* The ground is the ROOT element's background, not an element of its own.
-   That is the only thing that reaches behind mobile Safari's bars: a root
-   background is propagated to the canvas and painted over the whole of it,
-   past the viewport in every direction, which is exactly why a plain
-   background-color shows up there and a fixed div does not.
+/* The page's own ground, dithered, as a fixed overlay behind the content. The
+   device's canvas reads the same field in the same viewport coordinates, so
+   the two share one unbroken dot pattern.
 
-   So the dither is drawn into .vig, which is never displayed, and its bitmap
-   is handed to html as a background-image. The image is --bleed larger than
-   the viewport on all sides and centred on it, because the painting area is
-   unbounded but the positioning area is not: an image the size of the viewport
-   would stop exactly where the bars begin.
+   The opacity is the whole reason this works. Safari 26 on iOS treats a fixed
+   layer with a SOLID background differently from a translucent one: the opaque
+   one is clipped at the top edge of the floating bottom bar, the translucent
+   one is composited separately and covers the screen. A canvas full of dots is
+   as opaque as it gets. Anything below 1 routes through the compositor, so
+   .999 buys the whole screen and is invisible.
+   (https://www.edoardolunardi.dev/blog/safari-26-and-the-strange-case-of-fixed-overlays)
 
-   The attachment is the default rather than fixed. A fixed background hangs
-   its positioning area on the VISUAL viewport, which is the short one while
-   the bars are up; the default hangs it on the root's own padding box, which
-   paintVignette() then pins to the large viewport. html{height:100%} is not
-   enough on its own -- 100% of what, on iOS, is the short viewport again.
-   Since the page starts at the top of that box and does not scroll, the two
-   are the same coordinate system the shader is given in uPage.
+   Its height is the LARGE viewport, not the current one: the bars slide away
+   over the page rather than reflowing it, so a layer sized to the small one is
+   short the moment they do, and it would have to be redrawn on every slide.
+   100vh first for browsers without lvh; on iOS that has meant the large
+   viewport all along. It then hangs --bleed past the top and bottom, which
+   costs nothing -- a fixed element scrolls nothing -- and covers the case
+   where the layout viewport is a hair shorter than the screen.
 
-   The element itself is kept only to be measured -- its box is the large
-   viewport, which JS has no other reliable way to ask for -- and to be drawn
-   into. Its backing store is the bleed size; its CSS box is not. */
-html{height:100%; overscroll-behavior:none;
-     background:var(--paper) none 50% 50% / auto no-repeat}
-body{background:transparent}
-
-.vig{position:fixed; left:0; top:0; width:100%;
-     height:100vh; height:100lvh;
-     visibility:hidden; pointer-events:none}
+   The width is set rather than left to left/right, because a canvas is a
+   replaced element: with width auto it takes its own aspect ratio off the
+   height instead of stretching, and a fresh canvas is 300x150. */
+.vig{position:fixed; left:0; top:calc(0px - var(--bleed)); width:100%;
+     height:calc(100vh + var(--bleed) * 2);
+     height:calc(100lvh + var(--bleed) * 2);
+     display:block; pointer-events:none; opacity:.999;
+     image-rendering:pixelated; image-rendering:crisp-edges}
 
 .sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
        display:flex; flex-direction:column-reverse; align-items:flex-start;
@@ -618,53 +616,35 @@ function paintVignette(){
   // and the window is not. It is pinned to the top left, so a pixel of this
   // canvas is a viewport CSS pixel, which is the coordinate system the shader
   // is given in uPage.
-  // The element's box is the viewport; the bitmap is bigger than it by --bleed
-  // on every side, so the parts of the root background that fall outside the
-  // viewport -- behind the bars -- have something in them.
+  // The element hangs --bleed past the viewport, so its own pixels are not
+  // viewport pixels. Everything below works in viewport coordinates, which is
+  // the system the shader is given in uPage, so the two dither grids line up.
   const r = cv.getBoundingClientRect();
-  const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
-  const off = Math.max(0, Math.round(parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue('--bleed')) || 0));
-  const bw = w + off * 2, bh = h + off * 2;
+  const off = Math.max(0, Math.round(-r.top));
+  const w = Math.max(1, Math.round(r.width));
+  const bh = Math.max(1, Math.round(r.height));
+  const h = Math.max(1, bh - off * 2);             // the viewport box
   if (vigW === w && vigH === h) return;            // a sliding bar changes neither
   vigW = w; vigH = h;
 
-  cv.width = bw; cv.height = bh;
+  cv.width = w; cv.height = bh;
   const ctx = cv.getContext('2d');
   if (!ctx) return;
   const ink = cssColour('--ink').map((v) => Math.round(v * 255));
   const paper = cssColour('--paper').map((v) => Math.round(v * 255));
-  const img = ctx.createImageData(bw, bh), d = img.data;
-  // Everything is figured in viewport coordinates, which is the system the
-  // shader works in too, so the two dither grids line up across the seam.
+  const img = ctx.createImageData(w, bh), d = img.data;
   const cx = w / 2, cy = h / 2, R = 0.5 * Math.hypot(w, h);
   for (let y = 0; y < bh; y++){
     const vy = y - off;
-    for (let x = 0; x < bw; x++){
-      const vx = x - off;
-      const t = Math.hypot(vx - cx, vy - cy) / R;
+    for (let x = 0; x < w; x++){
+      const t = Math.hypot(x - cx, vy - cy) / R;
       const lum = 1 - VIG * Math.min(1, Math.max(0, (t - VIG_IN) / (1 - VIG_IN)));
-      const c = lum > bayer(vx, vy) ? paper : ink;
-      const i = (y * bw + x) * 4;
+      const c = lum > bayer(x, vy) ? paper : ink;
+      const i = (y * w + x) * 4;
       d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
-
-  // The root's box is the background's positioning area, and it is what
-  // html{height:100%} gets wrong on iOS: 100% of the short viewport. Pin it to
-  // the large one, which .vig has just been measured at.
-  const root = document.documentElement;
-  root.style.height = h + 'px';
-  root.style.backgroundSize = bw + 'px ' + bh + 'px';
-  cv.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const old = root.dataset.ground;
-    root.style.backgroundImage = 'url("' + url + '")';
-    if (old) URL.revokeObjectURL(old);
-    root.dataset.ground = url;
-  });
 }
 
 function uploadScreen(key){
