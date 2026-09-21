@@ -92,7 +92,7 @@ body{
   margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
-  display:flex;
+  display:flex; flex-direction:column;
   padding-block:clamp(20px,5vh,64px);
   padding-left:var(--pad-x); padding-right:var(--pad-x);
 }
@@ -184,20 +184,19 @@ img{max-width:100%}
             rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%)}
 @media (prefers-reduced-motion:reduce){ .wash{display:none} }
 
-/* Hard on purpose: no radius on it anywhere, where everything else on the page
-   is rounded. Greyed with the project's own grey -- a 2px checker -- rather
-   than a flat tint, because the page has no half-tones to spend. It does
+/* A header that is only a button: where a site would put its call to action,
+   so the page reads as a product page rather than a poster. Hard on purpose --
+   no radius on it anywhere, where everything else here is rounded. It does
    nothing yet, and both the disabled attribute and the cursor say so. */
-.pre{display:block; width:100%; margin:0; border-radius:0;
-     border:2px solid var(--ink);
-     padding:calc(var(--sheet) * 0.055) 0;
+.bar{position:relative;   /* or the fixed ground canvas paints over it */
+     display:flex; justify-content:flex-end; align-items:center; width:100%;
+     margin-bottom:calc(var(--sheet) * 0.05)}
+.pre{border:0; border-radius:0; margin:0;
+     padding:calc(var(--sheet) * 0.030) calc(var(--sheet) * 0.052);
      font-family:var(--font-bold); font-weight:700;
-     font-size:calc(var(--sheet) * 0.078); line-height:1;
-     letter-spacing:-.012em; text-align:center;
-     color:var(--ink); cursor:not-allowed;
-     background-color:var(--paper);
-     background-image:radial-gradient(var(--ink) 1px, transparent 1px);
-     background-size:4px 4px}
+     font-size:calc(var(--sheet) * 0.050); line-height:1;
+     letter-spacing:-.012em;
+     color:var(--paper); background:var(--ink); cursor:not-allowed}
 
 /* The words, as one block. Full width so the headline fitter, which measures
    against its parent, still gets the measure. */
@@ -296,6 +295,10 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
   <source src="media/ground.mp4" type="video/mp4">
   <source src="media/ground.webm" type="video/webm">
 </video>
+<header class="bar">
+  <button class="pre" type="button" disabled aria-disabled="true">pre-order</button>
+</header>
+
 <main class="sheet">
   <div class="say">
     <div class="title">
@@ -310,7 +313,6 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
       <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
     </div>
     <p class="by">0.07 megapixel • 1-bit monochrome • private picture blog</p>
-    <button class="pre" type="button" disabled aria-disabled="true">pre-order</button>
   </div>
 
   <div class="stage">

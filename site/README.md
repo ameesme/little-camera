@@ -170,7 +170,7 @@ document.querySelector('.pre').style.display = 'none';
 setScreen('gallery');
 window.setScreen = () => {};
 window.draw = function(){
-  gl.uniform1f(uni.uYaw,   32 * Math.PI / 180);   // positive yaw: viewer to the right
+  gl.uniform1f(uni.uYaw,  -32 * Math.PI / 180);   // negative yaw: viewer to the right
   gl.uniform1f(uni.uPitch, 22 * Math.PI / 180);   // positive pitch: viewer above
   gl.uniform1f(uni.uBob, 0);
   placeGL(); gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -192,15 +192,16 @@ Everything in the head is lower case, the way the page is set. The favicon is
 an inline SVG of the device in ink on the page's paper, so there is no second
 request and no 404 for `/favicon.ico`.
 
-The pre-order button under it is hard-edged on purpose — no radius anywhere on
-it, where everything else on the page is rounded — and greyed with dots rather
-than a flat tint, because the page has no half-tones to spend: one ink dot per
-four pixels, quarter strength, which leaves the label readable where a
-half-tone checker did not. It does nothing yet, and both the `disabled`
+The pre-order button sits top right in a header that is only a button — where a
+site would put its call to action, so the page reads as a product page rather
+than a poster. Solid ink, paper label, no border and no radius, where
+everything else here is rounded. It does nothing yet, and both the `disabled`
 attribute and the cursor say so.
 
-The block sits at the top of the viewport rather than centred in it, so the
-camera and the headline stay high and the button has room underneath.
+`.bar` is `position: relative` for a reason: the ground canvas is fixed, so it
+paints above ordinary block content and would hide the header entirely.
+
+The block below sits at the top of the viewport rather than centred in it.
 
 ## Type and colour
 
@@ -283,7 +284,7 @@ than the screen:
 |---|---|
 | headline | `--sheet` x 0.168 (a floor; the fitter takes over) |
 | spec line | `--sheet` x 0.048 |
-| pre-order button | `--sheet` x 0.078, padded 0.055 |
+| pre-order button | `--sheet` x 0.050, padded 0.030 / 0.052 |
 | camera | `--sheet` x 0.76 |
 | gap between them | `--sheet` x 0.12 |
 
