@@ -117,11 +117,10 @@ paper reads as a shade rather than a flat fill. That is a second element and so
 a second decoder, which is the price of having the film at two strengths at
 once: one element cannot be in two places.
 
-A radial mask holds that wash back over the middle, where the camera and the
-words are, and lets it up towards the edges. It stays flat at about a tenth out
-to 60% and only climbs after that, so the middle is one even wash rather than a
-gradient of its own — the grain still runs everywhere, it simply gets out of
-the way of the things that have to be read.
+A radial mask keeps that wash off the middle entirely. Nothing at all out to
+60%, where the camera and the words live, and from there it climbs to full at
+the corners — the grain is something the page gathers as it runs out of the
+frame.
 
 It sits under the sheet, which means the device's canvas has to let it through
 or the canvas would be a clean rectangle in the wash, a pale frame around the
