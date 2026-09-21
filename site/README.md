@@ -123,22 +123,11 @@ pixel, which on a phone lands close to the physical pixel pitch of the real
 panel. Output is strictly black and white: no intermediate values reach the
 canvas.
 
-The whole page is that dither, not just the device. A second canvas, fixed
-behind the content, carries a radial gradient from the middle of the viewport
-out, screened with the same matrix on the same page-aligned grid. The device's
-shader indexes both the gradient and the grid in page coordinates, which is
-what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
-re-read every frame, because the sheet moves under the canvas whenever the
-headline is refitted.
-
-The gradient is paper for the middle 70 per cent and then a straight ramp to
-0.30 darker at the corners. An ordered dither lays each new dot exactly on the
-lattice, so a linear ramp bands into evenly spaced rings — which is the point:
-the rings are the gradient, the same way the camera's own pictures are made of
-them. Distance is measured against the half-diagonal, so on a wide window the
-ramp reaches the top and bottom edges only towards the corners.
-`VIG` and `VIG_IN` at the top of the shader set the two numbers, and
-`paintVignette()` repeats them for the page behind.
+The canvas is a stencil, not a picture. Where the dither would put paper it is
+left transparent instead of filled, so the render contributes its ink and
+nothing else and whatever the page has behind it — the ground, the film — runs
+straight through. Filled, it was an opaque rectangle sitting on top of the
+film, which read as a white frame around the camera.
 
 Screen space is the whole point. A CSS pattern would rotate and foreshorten
 with the object and read as texture printed on it, so the object has to be
@@ -170,10 +159,12 @@ than the screen:
 | camera | `--sheet` x 0.76 |
 | gap between them | `--sheet` x 0.12 |
 
-The credit under the headline — "(a project by amaranth studio)", linking to
-amaranthstudio.com — is set in Book rather than Bold and at a little over a
-quarter of the headline's size, so it reads as a footnote rather than a fourth
-line. It carries no underline and no colour of its own.
+The credit — "(a project by amaranth studio)", linking to amaranthstudio.com —
+is a full-width band at `top: 110%`, below the fold. It is set in Book rather
+than Bold, at a little over a quarter of the headline's size, aligned to the
+sheet's left edge, with no underline and no colour of its own. Putting it down
+there also gives the document about a hundred pixels to scroll, which is what
+Safari wants before it will composite real pixels behind its own bars.
 
 The headline is fitted at runtime rather than calculated. Predicting the line
 width from font metrics was wrong on real devices: iOS renders Helvetica Neue,

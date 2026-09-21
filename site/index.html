@@ -70,7 +70,7 @@ body{
   margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
-  display:flex;
+  display:flex; position:relative;
   padding-block:clamp(20px,5vh,64px);
   padding-left:var(--pad-x); padding-right:var(--pad-x);
 }
@@ -82,12 +82,6 @@ img{max-width:100%}
    rather than centring on the body, because a flex container centred with
    align-items clips the top of anything taller than it, and on a very short
    window this composition should scroll rather than lose its head. */
-/* The page's own ground, dithered. It is fixed to the viewport and the
-   content sits above it; the device's canvas reads the same field in the same
-   page coordinates, so the two share one unbroken dot pattern. */
-.vig{position:fixed; inset:0; width:100%; height:100%; display:block;
-     image-rendering:pixelated; image-rendering:crisp-edges}
-
 .sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
@@ -121,6 +115,12 @@ h1{margin:0; text-align:left; font-family:var(--font-bold);
 /* Each line is its own block and never wraps, so three lines stay three lines
    whatever the font turns out to be. */
 h1 span{display:block; white-space:nowrap}
+
+/* A full-width band a little past the bottom of the first screen. */
+.credit{position:absolute; top:110%; left:0; right:0;
+        padding-left:var(--pad-x); padding-right:var(--pad-x);
+        display:flex; justify-content:center}
+.credit .by{width:var(--sheet)}
 
 /* Quieter than the headline by weight as well as size, so it reads as a
    footnote rather than a fourth line. */
@@ -195,7 +195,6 @@ h1 span{display:block; white-space:nowrap}
 </head>
 <body>
 
-<canvas class="vig" id="vig" aria-hidden="true"></canvas>
 <video class="film" id="film" preload="auto"
        autoplay muted loop playsinline aria-hidden="true">
   <!-- H.264 first: it is the one every iOS Safari decodes, and iOS is what
@@ -208,7 +207,6 @@ h1 span{display:block; white-space:nowrap}
 <main class="sheet">
   <div class="say">
     <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
-    <p class="by"><a href="https://amaranthstudio.com">(a project by amaranth studio)</a></p>
   </div>
 
   <div class="stage">
@@ -258,6 +256,14 @@ h1 span{display:block; white-space:nowrap}
     <canvas class="gl" id="gl"></canvas>
   </div>
 </main>
+
+<!-- Below the fold on purpose. It gives the document something to scroll,
+     which is what Safari wants before it will composite real pixels behind
+     its bars, and the credit is the one thing that can live down there
+     without being missed. -->
+<div class="credit">
+  <p class="by"><a href="https://amaranthstudio.com">(a project by amaranth studio)</a></p>
+</div>
 
 <script>
 // The loop is the product: it sleeps, and sleeping is where it spends its life.
@@ -321,8 +327,7 @@ uniform vec2  uRes;
 uniform float uViewH;    // world height visible at the object plane
 uniform float uYaw, uPitch, uBob;
 uniform sampler2D uScreen;
-uniform vec3  uInk, uGround;
-uniform vec4  uPage;     // canvas left, canvas bottom, viewport w, h -- all CSS px
+uniform vec3  uInk;
 
 const float CAM_Z  = 4.0;
 const vec3  HALF   = vec3(0.5, 0.3189, 0.0550);   // 63.6 x 40.6 x 7 mm, width = 1
@@ -331,13 +336,6 @@ const vec2  SCR    = vec2(0.4528, 0.2717);        // 57.6 x 34.56 mm of glass
 const float SCR_R  = 0.0275;                      // 1.75 mm on the panel's corners
 const float ALBEDO = 0.88;
 const float AMB    = 0.58;
-// Paper for the middle 70 per cent, then a straight ramp to VIG darker at the
-// corners. An ordered dither lays each new dot exactly on the 8x8 lattice, so
-// a linear ramp bands into evenly spaced rings -- which is the point. Distance
-// is measured against the half-diagonal, so on a wide window the ramp only
-// reaches the top and bottom edges at all in the corners.
-const float VIG    = 0.30;                        // how much darker the corners
-const float VIG_IN = 0.70;                        // and where the ramp starts
 
 // The back carries one thing: the lens, up in the top left. Seen from behind,
 // +x runs to the viewer's left. It is placed so the whole barrel stays on the
@@ -421,13 +419,6 @@ float backAlbedo(vec2 q){
   return a;
 }
 
-// One vignette for the whole page, in page coordinates, so the canvas has no
-// edge: the same curve is drawn behind it by paintVignette().
-float vignette(vec2 pg){
-  float t = length(pg - 0.5 * uPage.zw) / (0.5 * length(uPage.zw));
-  return 1.0 - VIG * clamp((t - VIG_IN) / (1.0 - VIG_IN), 0.0, 1.0);
-}
-
 // The firmware's BAYER4 (display.cpp), returned raw, 0..15.
 float bayer4(vec2 q){
   int x = int(mod(q.x, 4.0)), y = int(mod(q.y, 4.0));
@@ -502,20 +493,17 @@ void main(){
     vec2 c = vec2(0.0, -0.355);
     vec2 rad = vec2(0.46, 0.055) * (1.0 + uBob * 3.5);
     float d = length((q - c) / rad);
-    // Clamped, because uBob can push the fade term past zero, and a void
-    // brighter than paper used to be invisible -- it matched the flat page.
-    // Against a vignetted one it shows as a pale patch under the camera.
+    // Clamped: uBob can push the fade term past zero, and a void brighter than
+    // paper would dither to nothing at all, punching a hole in the shadow.
     lum = 1.0 - 0.26 * (1.0 - smoothstep(0.0, 1.0, d)) * max(0.0, 1.0 - uBob * 5.0);
   }
 
-  // Two levels only, and they are the page's own ink and paper, so the void
-  // the render sits in is exactly the background behind the canvas. Both the
-  // vignette and the dither grid are indexed in page coordinates rather than
-  // canvas ones, so neither has a seam at the canvas edge.
-  vec2 pg = vec2(uPage.x + gl_FragCoord.x, uPage.y - gl_FragCoord.y);
-  lum = clamp(lum, 0.0, 1.0) * vignette(pg);
-  float v = lum > bayer(pg) ? 1.0 : 0.0;
-  gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
+  // Two levels, and one of them is nothing at all: where the dither would put
+  // paper the canvas is left transparent instead of filled. That is what stops
+  // the render being an opaque rectangle sitting on top of whatever the page
+  // has behind it -- the ink is all it contributes.
+  float v = clamp(lum, 0.0, 1.0) > bayer(gl_FragCoord.xy) ? 1.0 : 0.0;
+  gl_FragColor = v > 0.5 ? vec4(0.0) : vec4(uInk, 1.0);
 }`;
 
 // One source of truth for the two colours: the stylesheet.
@@ -541,7 +529,8 @@ function compile(g, type, src){
 
 function initGL(){
   const cv = document.getElementById('gl');
-  const g = cv.getContext('webgl', { antialias: false, alpha: false });
+  // alpha, because the canvas is a stencil of ink dots and nothing else.
+  const g = cv.getContext('webgl', { antialias: false, alpha: true });
   if (!g) return false;
   const pr = g.createProgram();
   g.attachShader(pr, compile(g, g.VERTEX_SHADER, VERT));
@@ -557,7 +546,7 @@ function initGL(){
   g.enableVertexAttribArray(loc);
   g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
 
-  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk','uGround','uPage'])
+  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk'])
     uni[n] = g.getUniformLocation(pr, n);
 
   tex = g.createTexture();
@@ -568,7 +557,6 @@ function initGL(){
   g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
   g.uniform1i(uni.uScreen, 0);
   g.uniform3fv(uni.uInk, cssColour('--ink'));
-  g.uniform3fv(uni.uGround, cssColour('--paper'));
   gl = g;
   return true;
 }
@@ -583,47 +571,6 @@ function sizeGL(){
   gl.viewport(0, 0, w, h);
   gl.uniform2f(uni.uRes, w, h);
   gl.uniform1f(uni.uViewH, (1.0 / 0.94) / (w / h));   // device spans 94% of the width
-  placeGL();
-}
-
-// Where this canvas sits in the viewport, so the shader can index the page's
-// vignette and dither grid rather than its own. Read every frame: the sheet
-// moves under it whenever the headline is refitted or the page scrolls, and a
-// stale origin shows immediately as a rectangle of mismatched ground.
-function placeGL(){
-  const r = document.getElementById('gl').getBoundingClientRect();
-  gl.uniform4f(uni.uPage, r.left, r.top + r.height, innerWidth, innerHeight);
-}
-
-// The same vignette the shader applies, painted across the viewport and
-// dithered with the same matrix on the same page-aligned grid. It only changes
-// when the window does, so a per-pixel pass in JS is cheap enough.
-const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const VIG = 0.30, VIG_IN = 0.70;
-const bayer = (x, y) =>
-  (4 * BAYER4[((y & 3) << 2) | (x & 3)] +
-   [[0, 2], [3, 1]][(y >> 2) & 1][(x >> 2) & 1] + 0.5) / 64;
-
-function paintVignette(){
-  const cv = document.getElementById('vig');
-  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
-  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
-  const ctx = cv.getContext('2d');
-  if (!ctx) return;
-  const ink = cssColour('--ink').map((v) => Math.round(v * 255));
-  const paper = cssColour('--paper').map((v) => Math.round(v * 255));
-  const img = ctx.createImageData(w, h), d = img.data;
-  const cx = w / 2, cy = h / 2, R = 0.5 * Math.hypot(w, h);
-  for (let y = 0; y < h; y++){
-    for (let x = 0; x < w; x++){
-      const t = Math.hypot(x - cx, y - cy) / R;
-      const lum = 1 - VIG * Math.min(1, Math.max(0, (t - VIG_IN) / (1 - VIG_IN)));
-      const c = lum > bayer(x, y) ? paper : ink;
-      const i = (y * w + x) * 4;
-      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
 }
 
 function uploadScreen(key){
@@ -651,7 +598,6 @@ function draw(now){
             + Math.sin(now / 11000 * 2 * Math.PI) * 10.5 * RAD;
   const pitch = (-5 + Math.sin(now / 11000 * 2 * Math.PI) * 3.5) * RAD;
   const bob = Math.sin(now / 6500 * 2 * Math.PI) * 0.022;
-  placeGL();
   gl.uniform1f(uni.uYaw, still.matches ? spinTo * RAD : yaw);
   gl.uniform1f(uni.uPitch, still.matches ? -5 * RAD : pitch);
   gl.uniform1f(uni.uBob, still.matches ? 0 : bob);
@@ -708,8 +654,6 @@ function start(){
   try {
     if (!still.matches || true) glReady = initGL();
   } catch (e){ glReady = false; }
-  paintVignette();
-  addEventListener('resize', paintVignette);
   // Autoplay is refused in low power mode even when muted and inline, so the
   // first touch anywhere starts it instead. Nothing depends on it playing.
   const film = document.getElementById('film');
