@@ -95,28 +95,29 @@ pixel, which on a phone lands close to the physical pixel pitch of the real
 panel. Output is strictly black and white: no intermediate values reach the
 canvas.
 
-The whole page is that dither, not just the device. A second canvas, fixed
-behind the content, carries a radial gradient from the middle of the viewport
-out, screened with the same matrix on the same page-aligned grid. Its height is
-`100lvh`, the *large* viewport: mobile Safari's bars slide away over the page
-rather than reflowing it, so a canvas sized to `innerHeight` is trimmed the
-moment they do. At `100lvh` it is already as tall as the window can get, the
-bars merely uncover more of it, and nothing is repainted when they move. Its
-width has to be set explicitly — a canvas is a replaced element, so `width:auto`
-takes its aspect ratio off the height rather than stretching. It then hangs
-`--bleed` past the top and bottom, because even at the large viewport it would
-otherwise end exactly where the browser's bars begin, with nothing behind them
-to show. Overhanging costs nothing: a fixed element scrolls nothing, and the
-gradient is still measured on the viewport box, so the composition does not
-move.
+The whole page is that dither, not just the device, and it is the ROOT
+element's background rather than an element of its own. That is the only thing
+that reaches behind mobile Safari's bars: a root background is propagated to
+the canvas and painted over the whole of it, past the viewport in every
+direction — which is exactly why a plain `background-color` shows up there and
+a fixed `div` does not.
 
-There is deliberately no `theme-color`. Mobile Safari fills the status bar and
-the toolbar with it, and a flat `#ddd` there is what made the ground look cut
-off at both ends of a phone screen. The device's
-shader indexes both the gradient and the grid in page coordinates, which is
-what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
-re-read every frame, because the sheet moves under the canvas whenever the
-headline is refitted.
+So the dither is drawn into a `<canvas>` that is never displayed, and its
+bitmap is handed to `html` as a `background-image`. The image is `--bleed`
+larger than the viewport on all sides and centred on it, because the painting
+area is unbounded but the *positioning* area is not: an image the size of the
+viewport would stop exactly where the bars begin. Attachment is `fixed`, so the
+ground is in viewport coordinates — the same ones the shader is given in
+`uPage`, which is what keeps the two dither grids aligned and leaves no seam
+where the device's canvas starts. `uPage` is re-read every frame, because the
+sheet moves under the canvas whenever the headline is refitted.
+
+The canvas element is kept for two things it is good at: being measured, since
+its box is `100lvh` and JS has no other reliable way to ask for the large
+viewport, and being drawn into. Its backing store is the bleed size; its CSS
+box is not.
+
+There is deliberately no `theme-color`.
 
 The gradient is paper for the middle 70 per cent and then a straight ramp to
 0.30 darker at the corners. An ordered dither lays each new dot exactly on the
