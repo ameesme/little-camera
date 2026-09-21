@@ -66,11 +66,8 @@
 *{box-sizing:border-box}
 html{height:100%}
 body{
-  /* svh, not dvh. dvh tracks the bars as they slide, so every scroll on a
-     phone changes the body's height, which moves the credit, which is what
-     the film measures itself against -- the whole background would shift
-     while you scrolled. svh is the viewport at its smallest and never
-     changes, so nothing reflows. */
+  /* svh, not dvh: dvh tracks the bars as they slide, so every scroll on a
+     phone would change this height and move the credit with it. */
   min-height:100vh; min-height:100svh;
   margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font);
@@ -87,33 +84,48 @@ img{max-width:100%}
    rather than centring on the body, because a flex container centred with
    align-items clips the top of anything taller than it, and on a very short
    window this composition should scroll rather than lose its head. */
+/* The page's own ground, dithered. It is fixed to the viewport and the
+   content sits above it; the device's canvas reads the same field in the same
+   page coordinates, so the two share one unbroken dot pattern. */
+.vig{position:fixed; inset:0; width:100%; height:100%; display:block;
+     image-rendering:pixelated; image-rendering:crisp-edges}
+
 .sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
-/* A recording of this very page, zoomed until the dither came apart, laid back
-   over it at low opacity. The two dot grids never line up, so they interfere:
-   that moire is the whole effect, and it is the one place on the page where
-   intermediate greys are allowed, since the layer is composited rather than
-   screened.
+/* A recording of this very page, zoomed until the dither came apart, playing
+   inside the headline and nowhere else.
 
-   It is absolute over the whole document rather than fixed to the viewport.
-   Ordinary page content flows behind mobile Safari's bars without trouble; it
-   is fixed layers that get clipped at the bar's edge, and a video full of dots
-   is exactly the kind of layer that does. Scrolling it with the page rather
-   than pinning it costs nothing here, since there is only a screenful and a
-   bit to scroll.
+   There is no way to give text a video for a background, so this is done with
+   a blend instead. The film fills the title's box; over it sits the heading
+   itself, its own box filled with the page's paper and its letters black.
+   Lighten keeps the brighter of the two, and the film never gets brighter than
+   the paper, so everything that is paper stays paper -- while every letter,
+   being black, loses to whatever the film is doing behind it. Isolate keeps
+   the blend inside the title rather than letting it reach the ground.
 
-   The height comes from JS -- the credit is absolutely positioned, so the
-   document is taller than any box the film could inherit from. The CSS value
-   is only what holds until that runs, and like the 30px above the top it is
-   deliberately generous: every viewport unit comes up short somewhere on iOS,
-   and nobody notices a background sixty pixels too big. */
-.film{position:absolute; left:0; top:-30px; width:100%;
-      height:calc(100vh + 60px); height:calc(100lvh + 60px);   /* until JS sizes it */
-      object-fit:cover; opacity:.12; pointer-events:none;
+   The heading's leading is 0.72, so its letters overflow its own line boxes.
+   It is padded to take them back in, which costs nothing visually -- that
+   padding is the same colour as the page -- and the film then fills the box
+   the padding made. Width and height are set rather than left to the insets:
+   a video is a replaced element, so width:auto takes its own 540x926 instead
+   of stretching. */
+.title{position:relative; isolation:isolate; width:100%}
+.film{position:absolute; inset:0; width:100%; height:100%;
+      object-fit:cover; pointer-events:none; opacity:.85;
       image-rendering:pixelated; image-rendering:crisp-edges}
-@media (prefers-reduced-motion:reduce){ .film{display:none} }
+.title h1{position:relative; padding-block:.14em; color:#000;
+          mix-blend-mode:lighten;
+          /* Not a flat fill: that would lay a paper rectangle over the
+             dithered ground and show as a panel behind the words. It gets the
+             ground itself instead, handed over by paintVignette(), attached to
+             the viewport so it lines up dot for dot with the canvas behind. */
+          background:var(--paper) no-repeat 0 0 fixed}
+@media (prefers-reduced-motion:reduce){
+  .film{display:none}
+  .title h1{mix-blend-mode:normal; background:none}
+}
 
 /* The words, as one block. Full width so the headline fitter, which measures
    against its parent, still gets the measure. */
@@ -210,18 +222,20 @@ h1 span{display:block; white-space:nowrap}
 </head>
 <body>
 
-<video class="film" id="film" preload="auto"
-       autoplay muted loop playsinline aria-hidden="true">
-  <!-- H.264 first: it is the one every iOS Safari decodes, and iOS is what
-       this page is looked at on. The WebM is for builds without the
-       proprietary codecs. -->
-  <source src="media/ground.mp4" type="video/mp4">
-  <source src="media/ground.webm" type="video/webm">
-</video>
-
+<canvas class="vig" id="vig" aria-hidden="true"></canvas>
 <main class="sheet">
   <div class="say">
-    <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
+    <div class="title">
+      <video class="film" id="film" preload="auto"
+             autoplay muted loop playsinline aria-hidden="true">
+        <!-- H.264 first: it is the one every iOS Safari decodes, and iOS is
+             what this page is looked at on. The WebM is for builds without
+             the proprietary codecs. -->
+        <source src="media/ground.mp4" type="video/mp4">
+        <source src="media/ground.webm" type="video/webm">
+      </video>
+      <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
+    </div>
   </div>
 
   <div class="stage">
@@ -343,6 +357,7 @@ uniform float uViewH;    // world height visible at the object plane
 uniform float uYaw, uPitch, uBob;
 uniform sampler2D uScreen;
 uniform vec3  uInk, uGround;
+uniform vec4  uPage;     // canvas left, canvas bottom, viewport w, h -- all CSS px
 
 const float CAM_Z  = 4.0;
 const vec3  HALF   = vec3(0.5, 0.3189, 0.0550);   // 63.6 x 40.6 x 7 mm, width = 1
@@ -351,6 +366,13 @@ const vec2  SCR    = vec2(0.4528, 0.2717);        // 57.6 x 34.56 mm of glass
 const float SCR_R  = 0.0275;                      // 1.75 mm on the panel's corners
 const float ALBEDO = 0.88;
 const float AMB    = 0.58;
+// Paper for the middle 70 per cent, then a straight ramp to VIG darker at the
+// corners. An ordered dither lays each new dot exactly on the 8x8 lattice, so
+// a linear ramp bands into evenly spaced rings -- which is the point. Distance
+// is measured against the half-diagonal, so on a wide window the ramp only
+// reaches the top and bottom edges at all in the corners.
+const float VIG    = 0.30;                        // how much darker the corners
+const float VIG_IN = 0.70;                        // and where the ramp starts
 
 // The back carries one thing: the lens, up in the top left. Seen from behind,
 // +x runs to the viewer's left. It is placed so the whole barrel stays on the
@@ -434,6 +456,13 @@ float backAlbedo(vec2 q){
   return a;
 }
 
+// One vignette for the whole page, in page coordinates, so the canvas has no
+// edge: the same curve is drawn behind it by paintVignette().
+float vignette(vec2 pg){
+  float t = length(pg - 0.5 * uPage.zw) / (0.5 * length(uPage.zw));
+  return 1.0 - VIG * clamp((t - VIG_IN) / (1.0 - VIG_IN), 0.0, 1.0);
+}
+
 // The firmware's BAYER4 (display.cpp), returned raw, 0..15.
 float bayer4(vec2 q){
   int x = int(mod(q.x, 4.0)), y = int(mod(q.y, 4.0));
@@ -508,20 +537,20 @@ void main(){
     vec2 c = vec2(0.0, -0.355);
     vec2 rad = vec2(0.46, 0.055) * (1.0 + uBob * 3.5);
     float d = length((q - c) / rad);
-    // Clamped: uBob can push the fade term past zero, and a void brighter than
-    // paper would dither to nothing at all, punching a hole in the shadow.
+    // Clamped, because uBob can push the fade term past zero, and a void
+    // brighter than paper used to be invisible -- it matched the flat page.
+    // Against a vignetted one it shows as a pale patch under the camera.
     lum = 1.0 - 0.26 * (1.0 - smoothstep(0.0, 1.0, d)) * max(0.0, 1.0 - uBob * 5.0);
   }
 
-  // The device is a solid object and the void is not. Both dither to the same
-  // two levels, but where the ray hit something the paper level is painted and
-  // the canvas is opaque, so nothing behind the page shows through the camera;
-  // where it missed, paper is left transparent and only the shadow's ink dots
-  // are contributed. Filling the void as well was what put a white rectangle
-  // around the render.
-  float v = clamp(lum, 0.0, 1.0) > bayer(gl_FragCoord.xy) ? 1.0 : 0.0;
-  if (hit) gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
-  else     gl_FragColor = v > 0.5 ? vec4(0.0) : vec4(uInk, 1.0);
+  // Two levels only, and they are the page's own ink and paper, so the void
+  // the render sits in is exactly the background behind the canvas. Both the
+  // vignette and the dither grid are indexed in page coordinates rather than
+  // canvas ones, so neither has a seam at the canvas edge.
+  vec2 pg = vec2(uPage.x + gl_FragCoord.x, uPage.y - gl_FragCoord.y);
+  lum = clamp(lum, 0.0, 1.0) * vignette(pg);
+  float v = lum > bayer(pg) ? 1.0 : 0.0;
+  gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
 }`;
 
 // One source of truth for the two colours: the stylesheet.
@@ -547,8 +576,7 @@ function compile(g, type, src){
 
 function initGL(){
   const cv = document.getElementById('gl');
-  // alpha, because the canvas is a stencil of ink dots and nothing else.
-  const g = cv.getContext('webgl', { antialias: false, alpha: true });
+  const g = cv.getContext('webgl', { antialias: false, alpha: false });
   if (!g) return false;
   const pr = g.createProgram();
   g.attachShader(pr, compile(g, g.VERTEX_SHADER, VERT));
@@ -564,7 +592,7 @@ function initGL(){
   g.enableVertexAttribArray(loc);
   g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
 
-  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk','uGround'])
+  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk','uGround','uPage'])
     uni[n] = g.getUniformLocation(pr, n);
 
   tex = g.createTexture();
@@ -590,6 +618,62 @@ function sizeGL(){
   gl.viewport(0, 0, w, h);
   gl.uniform2f(uni.uRes, w, h);
   gl.uniform1f(uni.uViewH, (1.0 / 0.94) / (w / h));   // device spans 94% of the width
+  placeGL();
+}
+
+// Where this canvas sits in the viewport, so the shader can index the page's
+// vignette and dither grid rather than its own. Read every frame: the sheet
+// moves under it whenever the headline is refitted or the page scrolls, and a
+// stale origin shows immediately as a rectangle of mismatched ground.
+function placeGL(){
+  const r = document.getElementById('gl').getBoundingClientRect();
+  gl.uniform4f(uni.uPage, r.left, r.top + r.height, innerWidth, innerHeight);
+}
+
+// The same vignette the shader applies, painted across the viewport and
+// dithered with the same matrix on the same page-aligned grid. It only changes
+// when the window does, so a per-pixel pass in JS is cheap enough.
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const VIG = 0.30, VIG_IN = 0.70;
+const bayer = (x, y) =>
+  (4 * BAYER4[((y & 3) << 2) | (x & 3)] +
+   [[0, 2], [3, 1]][(y >> 2) & 1][(x >> 2) & 1] + 0.5) / 64;
+
+function paintVignette(){
+  const cv = document.getElementById('vig');
+  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d');
+  if (!ctx) return;
+  const ink = cssColour('--ink').map((v) => Math.round(v * 255));
+  const paper = cssColour('--paper').map((v) => Math.round(v * 255));
+  const img = ctx.createImageData(w, h), d = img.data;
+  const cx = w / 2, cy = h / 2, R = 0.5 * Math.hypot(w, h);
+  for (let y = 0; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const t = Math.hypot(x - cx, y - cy) / R;
+      const lum = 1 - VIG * Math.min(1, Math.max(0, (t - VIG_IN) / (1 - VIG_IN)));
+      const c = lum > bayer(x, y) ? paper : ink;
+      const i = (y * w + x) * 4;
+      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // The headline blends against its own background, so that background has to
+  // be this exact ground rather than flat paper. Attached to the viewport at
+  // the same size, it lands dot for dot on top of the canvas behind it.
+  const h1 = document.querySelector('.title h1');
+  if (!h1) return;
+  h1.style.backgroundSize = w + 'px ' + h + 'px';
+  cv.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const old = h1.dataset.ground;
+    h1.style.backgroundImage = 'url("' + url + '")';
+    if (old) URL.revokeObjectURL(old);
+    h1.dataset.ground = url;
+  });
 }
 
 function uploadScreen(key){
@@ -617,6 +701,7 @@ function draw(now){
             + Math.sin(now / 11000 * 2 * Math.PI) * 10.5 * RAD;
   const pitch = (-5 + Math.sin(now / 11000 * 2 * Math.PI) * 3.5) * RAD;
   const bob = Math.sin(now / 6500 * 2 * Math.PI) * 0.022;
+  placeGL();
   gl.uniform1f(uni.uYaw, still.matches ? spinTo * RAD : yaw);
   gl.uniform1f(uni.uPitch, still.matches ? -5 * RAD : pitch);
   gl.uniform1f(uni.uBob, still.matches ? 0 : bob);
@@ -673,23 +758,11 @@ function start(){
   try {
     if (!still.matches || true) glReady = initGL();
   } catch (e){ glReady = false; }
+  paintVignette();
+  addEventListener('resize', paintVignette);
   // Autoplay is refused in low power mode even when muted and inline, so the
   // first touch anywhere starts it instead. Nothing depends on it playing.
-  // The film covers the document, and the document ends at the credit, which
-  // is absolutely positioned and so is not in any box the film could inherit
-  // from. Measured off the credit rather than off scrollHeight, because the
-  // film's own height feeds into that.
-  function sizeFilm(){
-    const c = document.querySelector('.credit');
-    if (!film || !c) return;
-    const r = c.getBoundingClientRect();
-    film.style.height = Math.round(r.bottom + scrollY + 60) + 'px';
-  }
-
   const film = document.getElementById('film');
-  sizeFilm();
-  addEventListener('resize', sizeFilm);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(sizeFilm);
   if (film && !still.matches){
     const kick = () => film.play().catch(() => {});
     kick();

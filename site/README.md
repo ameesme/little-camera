@@ -57,13 +57,27 @@ The panel is 400x240 and 1-bit, so keep the replacements at that size and
 
 ## The film
 
-A recording of this page, zoomed until the dither came apart, laid back over it
-at `opacity: .12`. The two dot grids never line up, so they interfere, and that
-moire is the whole effect.
+A recording of this page, zoomed until the dither came apart, playing inside
+the headline and nowhere else.
 
-It is the one place on the page where intermediate greys appear: the layer is
-composited rather than screened, so the output there is no longer strictly two
-levels. Everything else still is. `.film { opacity }` is the dial.
+There is no way to give text a video for a background, so it is done with a
+blend. The film fills the title's box; over it sits the heading itself, its own
+box carrying the ground and its letters black. `mix-blend-mode: lighten` keeps
+the brighter of the two, and the film never gets brighter than the paper, so
+everything that is ground stays ground — while every letter, being black, loses
+to whatever the film is doing behind it. `isolation: isolate` keeps the blend
+inside the title rather than letting it reach the page.
+
+The heading's background is the dithered ground itself, handed over by
+`paintVignette()` as a blob and attached to the viewport, so it lands dot for
+dot on the canvas behind it. A flat fill would lay a paper rectangle over the
+ground and read as a panel behind the words.
+
+The heading's leading is 0.72, so its letters overflow its own line boxes; it
+is padded to take them back in, which costs nothing visually since that padding
+is the ground. The film's width and height are set rather than left to the
+insets — a video is a replaced element, so `width: auto` takes its own 540x926
+instead of stretching.
 
 `media/ground.mp4` is H.264 at 540x926, 24fps, ~790 KB, and comes first because
 it is what every iOS Safari decodes; `media/ground.webm` is VP9 for builds
@@ -75,25 +89,6 @@ ffmpeg -i <clip>.mov -an -vf "fps=24,scale=540:-2:flags=area" \
   -c:v libx264 -profile:v main -pix_fmt yuv420p -crf 30 -preset slow \
   -movflags +faststart site/media/ground.mp4
 ```
-
-It is absolute over the whole document rather than fixed to the viewport.
-Ordinary page content flows behind mobile Safari's bars without trouble; it is
-*fixed* layers that get clipped at the bar's edge, and a video full of dots is
-exactly that kind of layer. Scrolling it with the page costs nothing here,
-since there is only a screenful and a bit to scroll.
-
-Its height comes from JS, measured off the credit: the credit is absolutely
-positioned, so the document is taller than any box the film could inherit from,
-and measuring `scrollHeight` instead would feed the film's own height back into
-itself. The CSS value is only what holds until that runs. Like the 30px above
-the top it is deliberately generous — every viewport unit comes up short
-somewhere on iOS, and nobody notices a background sixty pixels too big.
-
-The body is sized in `svh` rather than `dvh` for the film's sake. `dvh` tracks
-the bars as they slide, so every scroll on a phone would change the body's
-height, which moves the credit, which is what the film measures itself against
-— the whole background would shift as you scrolled. `svh` is the viewport at
-its smallest and never changes.
 
 Autoplay is refused in low power mode even when muted and inline, so the first
 touch starts it instead, and nothing depends on it playing.
@@ -138,13 +133,19 @@ pixel, which on a phone lands close to the physical pixel pitch of the real
 panel. Output is strictly black and white: no intermediate values reach the
 canvas.
 
-The canvas is opaque where the device is and transparent where it is not. Both
-halves dither to the same two levels, but where the ray hit something the paper
-level is painted and the canvas is solid, so nothing behind the page shows
-through the camera; where it missed, paper is left transparent and only the
-shadow's ink dots are contributed. Filling the void as well made the render an
-opaque rectangle sitting on top of the film — a white frame around the camera.
-Leaving the device transparent too put the film straight through it.
+The whole page is that dither, not just the device. A second canvas, fixed
+behind the content, carries a radial gradient from the middle of the viewport
+out, screened with the same matrix on the same page-aligned grid. The device's
+shader indexes both the gradient and the grid in page coordinates, which is
+what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
+re-read every frame, because the sheet moves under the canvas whenever the
+headline is refitted.
+
+The gradient is paper for the middle 70 per cent and then a straight ramp to
+0.30 darker at the corners. An ordered dither lays each new dot exactly on the
+lattice, so a linear ramp bands into evenly spaced rings — which is the point:
+the rings are the gradient, the same way the camera's own pictures are made of
+them.
 
 Screen space is the whole point. A CSS pattern would rotate and foreshorten
 with the object and read as texture printed on it, so the object has to be
