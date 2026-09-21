@@ -95,45 +95,13 @@ pixel, which on a phone lands close to the physical pixel pitch of the real
 panel. Output is strictly black and white: no intermediate values reach the
 canvas.
 
-The whole page is that dither, not just the device: a fixed canvas behind the
-content carries a radial gradient from the middle of the viewport out, screened
-with the same matrix on the same grid. The device's shader indexes both the
-gradient and the grid in viewport coordinates, which is what `uPage` is for, so
-there is no seam where its canvas starts. `uPage` is re-read every frame,
-because the sheet moves under the canvas whenever the headline is refitted.
-
-Getting it to reach behind mobile Safari's bars took several wrong turns, and
-none of the obvious levers were the answer. Safari 26 ignores `theme-color`
-outright, does not treat a root background *image* as a tint source, and at
-`scrollY: 0` paints the top status area with the root `background-color`
-regardless of what is drawn there. `viewport-fit=cover` and `lvh` were already
-right and changed nothing on their own.
-
-What works is a **scroll runway**: the page is made exactly one runway taller
-than it needs to be, the shell is pushed down by the same amount, and JS
-scrolls to it on load. The margin and the scroll cancel out — the first frame
-is identical — but Safari now has a non-zero scroll position, and only then
-does it composite real page pixels behind the status area. `--runway` is 64px
-below 760px wide and zero above it, since desktop needs none of it. `body` is
-`display: flow-root` so the shell's top margin stays inside it; collapsed, it
-would escape to the document and add a second runway's worth of scroll.
-
-`html` and `body` both declare `background-color`, because that is the tint
-fallback and a transparent root comes out white. `opacity: .999` on the ground
-canvas is kept as well: Safari 26 clips a *fully opaque* fixed layer at the top
-edge of the floating bottom bar, where a translucent one is composited
-separately. ([The tinting rules are
-here](https://1ar.io/updates/safari-26-liquid-glass-web/); [the opacity
-quirk here](https://www.edoardolunardi.dev/blog/safari-26-and-the-strange-case-of-fixed-overlays).)
-
-Its height is the *large* viewport rather than the current one: the bars slide
-away over the page rather than reflowing it, so a layer sized to the small one
-is short the moment they do, and it would have to be redrawn on every slide. It
-then hangs `--bleed` past the top and bottom, which costs nothing — a fixed
-element scrolls nothing — and covers the case where the layout viewport is a
-hair shorter than the screen. The width has to be set explicitly: a canvas is a
-replaced element, so `width:auto` takes its aspect ratio off the height rather
-than stretching.
+The whole page is that dither, not just the device. A second canvas, fixed
+behind the content, carries a radial gradient from the middle of the viewport
+out, screened with the same matrix on the same page-aligned grid. The device's
+shader indexes both the gradient and the grid in page coordinates, which is
+what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
+re-read every frame, because the sheet moves under the canvas whenever the
+headline is refitted.
 
 The gradient is paper for the middle 70 per cent and then a straight ramp to
 0.30 darker at the corners. An ordered dither lays each new dot exactly on the

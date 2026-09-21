@@ -6,10 +6,7 @@
 <title>A Little Camera</title>
 <meta name="description" content="A small black-and-white camera that sleeps, breathes and posts to its own tiny blog.">
 <meta name="color-scheme" content="light">
-<!-- No theme-color on purpose. Mobile Safari fills the status bar and the
-     toolbar with it, and a flat #ddd there is exactly what made the dithered
-     ground look cut off at both ends of a phone. Without it the bars take the
-     page behind them instead. -->
+<meta name="theme-color" content="#dddddd">
 <meta property="og:title" content="A Little Camera">
 <meta property="og:description" content="A small black-and-white camera that sleeps, breathes and posts to its own tiny blog.">
 <meta property="og:type" content="website">
@@ -42,8 +39,6 @@
   --shell:#dadada; --shell-lit:#efefef; --shell-dim:#c3c3c3;
   --glass:#fff; --cast:0,0,0;
   --pad-x:clamp(20px, 5vw, 72px);
-  --bleed:140px;      /* how far the ground hangs past the viewport, top and bottom */
-  --runway:0px;       /* see the scroll runway below; only mobile needs it */
   /* The block: as wide as the screen allows, capped so it stays whole above
      the fold on a laptop. The headline is fitted to it at runtime (see the
      script): sizing it by calculation meant guessing the font's metrics, and
@@ -58,7 +53,7 @@
      for browsers without svh, and is the same number. */
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54svh);
-  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass, and
+  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass, and 1.75 mm of bezel at
      3 mm of bezel all round makes the device 63.6 x 40.6 x 7 mm. There is no
      chin: the border is the same width on every side, and the body is only as
      tall as that makes it. Every proportion below comes off that rectangle. */
@@ -66,47 +61,17 @@
   --h:calc(var(--w) * 0.6377);
   --d:calc(var(--w) * 0.1101);
   --r:calc(var(--w) * 0.055);
+  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
-
-/* Safari 26 derives its toolbar tint from CSS rather than from theme-color,
-   which it ignores outright, and falls back to the root background-color when
-   it finds no fixed element carrying one near the edge. Transparent roots come
-   out white, so both html and body declare it. */
-html{min-height:100%; overscroll-behavior:none; background:var(--paper)}
-
-/* The scroll runway. At scrollY 0 Safari fills the top status area with that
-   fallback colour; once the document has scrolled at all it composites real
-   page pixels there instead. So the page is made exactly one runway taller
-   than it needs to be, the shell is pushed down by the same amount, and JS
-   scrolls to it on load. The margin and the scroll cancel out -- the first
-   frame is identical -- but Safari now has a non-zero scroll position and the
-   ground reaches the top of the screen.
-   (https://1ar.io/updates/safari-26-liquid-glass-web/)
-   Desktop needs none of it, so there the runway is zero. */
-@media (max-width:760px){
-  :root{--runway:64px}
-  html{overflow-y:scroll}
-}
-
+html{height:100%}
 body{
-  /* flow-root so the shell's top margin stays inside it. Collapsed, it would
-     escape to the document and add a second runway's worth of scroll. */
-  margin:0; display:flow-root; min-height:calc(100dvh + var(--runway));
-  background:var(--paper); color:var(--ink);
+  min-height:100vh; min-height:100dvh;
+  margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
-}
-
-/* What used to be the body's own box. The safe-area insets live here rather
-   than on the root, so they pad the content without lengthening the document
-   and eating the runway. */
-.shell{
-  min-height:100vh; min-height:100dvh;
-  margin-top:var(--runway);
   display:flex;
-  padding-block:calc(env(safe-area-inset-top,0px) + clamp(20px,5vh,64px))
-               calc(env(safe-area-inset-bottom,0px) + clamp(20px,5vh,64px));
+  padding-block:clamp(20px,5vh,64px);
   padding-left:var(--pad-x); padding-right:var(--pad-x);
 }
 img{max-width:100%}
@@ -117,33 +82,10 @@ img{max-width:100%}
    rather than centring on the body, because a flex container centred with
    align-items clips the top of anything taller than it, and on a very short
    window this composition should scroll rather than lose its head. */
-/* The page's own ground, dithered, as a fixed overlay behind the content. The
-   device's canvas reads the same field in the same viewport coordinates, so
-   the two share one unbroken dot pattern.
-
-   The opacity is the whole reason this works. Safari 26 on iOS treats a fixed
-   layer with a SOLID background differently from a translucent one: the opaque
-   one is clipped at the top edge of the floating bottom bar, the translucent
-   one is composited separately and covers the screen. A canvas full of dots is
-   as opaque as it gets. Anything below 1 routes through the compositor, so
-   .999 buys the whole screen and is invisible.
-   (https://www.edoardolunardi.dev/blog/safari-26-and-the-strange-case-of-fixed-overlays)
-
-   Its height is the LARGE viewport, not the current one: the bars slide away
-   over the page rather than reflowing it, so a layer sized to the small one is
-   short the moment they do, and it would have to be redrawn on every slide.
-   100vh first for browsers without lvh; on iOS that has meant the large
-   viewport all along. It then hangs --bleed past the top and bottom, which
-   costs nothing -- a fixed element scrolls nothing -- and covers the case
-   where the layout viewport is a hair shorter than the screen.
-
-   The width is set rather than left to left/right, because a canvas is a
-   replaced element: with width auto it takes its own aspect ratio off the
-   height instead of stretching, and a fresh canvas is 300x150. */
-.vig{position:fixed; left:0; top:calc(0px - var(--bleed)); width:100%;
-     height:calc(100vh + var(--bleed) * 2);
-     height:calc(100lvh + var(--bleed) * 2);
-     display:block; pointer-events:none; opacity:.999;
+/* The page's own ground, dithered. It is fixed to the viewport and the
+   content sits above it; the device's canvas reads the same field in the same
+   page coordinates, so the two share one unbroken dot pattern. */
+.vig{position:fixed; inset:0; width:100%; height:100%; display:block;
      image-rendering:pixelated; image-rendering:crisp-edges}
 
 .sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
@@ -239,7 +181,6 @@ h1 span{display:block; white-space:nowrap}
 
 <canvas class="vig" id="vig" aria-hidden="true"></canvas>
 
-<div class="shell">
 <main class="sheet">
   <div class="say">
     <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
@@ -293,7 +234,6 @@ h1 span{display:block; white-space:nowrap}
     <canvas class="gl" id="gl"></canvas>
   </div>
 </main>
-</div>
 
 <script>
 // The loop is the product: it sleeps, and sleeping is where it spends its life.
@@ -625,12 +565,10 @@ function sizeGL(){
 // Where this canvas sits in the viewport, so the shader can index the page's
 // vignette and dither grid rather than its own. Read every frame: the sheet
 // moves under it whenever the headline is refitted or the page scrolls, and a
-// stale origin shows immediately as a rectangle of mismatched ground. The
-// field's own size is the ground canvas's, which is the large viewport, not
-// the current one -- see .vig.
+// stale origin shows immediately as a rectangle of mismatched ground.
 function placeGL(){
   const r = document.getElementById('gl').getBoundingClientRect();
-  gl.uniform4f(uni.uPage, r.left, r.top + r.height, vigW, vigH);
+  gl.uniform4f(uni.uPage, r.left, r.top + r.height, innerWidth, innerHeight);
 }
 
 // The same vignette the shader applies, painted across the viewport and
@@ -642,38 +580,21 @@ const bayer = (x, y) =>
   (4 * BAYER4[((y & 3) << 2) | (x & 3)] +
    [[0, 2], [3, 1]][(y >> 2) & 1][(x >> 2) & 1] + 0.5) / 64;
 
-let vigW = 1, vigH = 1;
-
 function paintVignette(){
   const cv = document.getElementById('vig');
-  // Measure the element rather than the window: its box is the large viewport
-  // and the window is not. It is pinned to the top left, so a pixel of this
-  // canvas is a viewport CSS pixel, which is the coordinate system the shader
-  // is given in uPage.
-  // The element hangs --bleed past the viewport, so its own pixels are not
-  // viewport pixels. Everything below works in viewport coordinates, which is
-  // the system the shader is given in uPage, so the two dither grids line up.
-  const r = cv.getBoundingClientRect();
-  const off = Math.max(0, Math.round(-r.top));
-  const w = Math.max(1, Math.round(r.width));
-  const bh = Math.max(1, Math.round(r.height));
-  const h = Math.max(1, bh - off * 2);             // the viewport box
-  if (vigW === w && vigH === h) return;            // a sliding bar changes neither
-  vigW = w; vigH = h;
-
-  cv.width = w; cv.height = bh;
+  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
   const ctx = cv.getContext('2d');
   if (!ctx) return;
   const ink = cssColour('--ink').map((v) => Math.round(v * 255));
   const paper = cssColour('--paper').map((v) => Math.round(v * 255));
-  const img = ctx.createImageData(w, bh), d = img.data;
+  const img = ctx.createImageData(w, h), d = img.data;
   const cx = w / 2, cy = h / 2, R = 0.5 * Math.hypot(w, h);
-  for (let y = 0; y < bh; y++){
-    const vy = y - off;
+  for (let y = 0; y < h; y++){
     for (let x = 0; x < w; x++){
-      const t = Math.hypot(x - cx, vy - cy) / R;
+      const t = Math.hypot(x - cx, y - cy) / R;
       const lum = 1 - VIG * Math.min(1, Math.max(0, (t - VIG_IN) / (1 - VIG_IN)));
-      const c = lum > bayer(x, vy) ? paper : ink;
+      const c = lum > bayer(x, y) ? paper : ink;
       const i = (y * w + x) * 4;
       d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
     }
@@ -759,24 +680,12 @@ for (const [key, src] of Object.entries(SCREENS)){
   img.src = src;
 }
 
-// Safari 26 composites real page pixels behind the top status area only once
-// the document has a non-zero scroll position; at zero it paints the root
-// background colour there instead. The runway (see the stylesheet) makes the
-// page exactly that much taller and the shell starts that much lower, so
-// taking it up costs nothing visually.
-function takeRunway(){
-  const runway = parseFloat(getComputedStyle(document.documentElement)
-                   .getPropertyValue('--runway')) || 0;
-  if (runway > 0 && scrollY < runway) scrollTo({ top: runway, left: 0, behavior: 'instant' });
-}
-
 function start(){
   try {
     if (!still.matches || true) glReady = initGL();
   } catch (e){ glReady = false; }
   paintVignette();
-  takeRunway();
-  addEventListener('resize', () => { paintVignette(); takeRunway(); });
+  addEventListener('resize', paintVignette);
   if (glReady){
     stage.classList.add('gl-on');
     sizeGL();
