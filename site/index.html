@@ -92,11 +92,19 @@ img{max-width:100%}
    intermediate greys are allowed, since the layer is composited rather than
    screened.
 
-   The height is deliberately too tall: 100lvh plus 60px, with the slack split
-   over the top and bottom so neither end can show a gap. Every viewport unit
-   comes up short somewhere on iOS, and overshooting is the one approach that
-   does not -- nobody notices a background that is sixty pixels too big. */
-.film{position:fixed; left:0; top:-30px; width:100%;
+   It is absolute over the whole document rather than fixed to the viewport.
+   Ordinary page content flows behind mobile Safari's bars without trouble; it
+   is fixed layers that get clipped at the bar's edge, and a video full of dots
+   is exactly the kind of layer that does. Scrolling it with the page rather
+   than pinning it costs nothing here, since there is only a screenful and a
+   bit to scroll.
+
+   The height comes from JS -- the credit is absolutely positioned, so the
+   document is taller than any box the film could inherit from. The CSS value
+   is only what holds until that runs, and like the 30px above the top it is
+   deliberately generous: every viewport unit comes up short somewhere on iOS,
+   and nobody notices a background sixty pixels too big. */
+.film{position:absolute; left:0; top:-30px; width:100%;
       height:calc(100vh + 60px); height:calc(100lvh + 60px);
       object-fit:cover; opacity:.12; pointer-events:none;
       image-rendering:pixelated; image-rendering:crisp-edges}
@@ -660,7 +668,21 @@ function start(){
   } catch (e){ glReady = false; }
   // Autoplay is refused in low power mode even when muted and inline, so the
   // first touch anywhere starts it instead. Nothing depends on it playing.
+  // The film covers the document, and the document ends at the credit, which
+  // is absolutely positioned and so is not in any box the film could inherit
+  // from. Measured off the credit rather than off scrollHeight, because the
+  // film's own height feeds into that.
+  function sizeFilm(){
+    const c = document.querySelector('.credit');
+    if (!film || !c) return;
+    const r = c.getBoundingClientRect();
+    film.style.height = Math.round(r.bottom + scrollY + 60) + 'px';
+  }
+
   const film = document.getElementById('film');
+  sizeFilm();
+  addEventListener('resize', sizeFilm);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(sizeFilm);
   if (film && !still.matches){
     const kick = () => film.play().catch(() => {});
     kick();

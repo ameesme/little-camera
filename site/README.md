@@ -76,12 +76,21 @@ ffmpeg -i <clip>.mov -an -vf "fps=24,scale=540:-2:flags=area" \
   -movflags +faststart site/media/ground.mp4
 ```
 
-Its height is deliberately too tall — `100lvh` plus 60px, split over the top
-and bottom. Every viewport unit comes up short somewhere on iOS and
-overshooting is the one approach that does not; nobody notices a background
-sixty pixels too big. Autoplay is refused in low power mode even when muted and
-inline, so the first touch starts it instead, and nothing depends on it
-playing.
+It is absolute over the whole document rather than fixed to the viewport.
+Ordinary page content flows behind mobile Safari's bars without trouble; it is
+*fixed* layers that get clipped at the bar's edge, and a video full of dots is
+exactly that kind of layer. Scrolling it with the page costs nothing here,
+since there is only a screenful and a bit to scroll.
+
+Its height comes from JS, measured off the credit: the credit is absolutely
+positioned, so the document is taller than any box the film could inherit from,
+and measuring `scrollHeight` instead would feed the film's own height back into
+itself. The CSS value is only what holds until that runs. Like the 30px above
+the top it is deliberately generous — every viewport unit comes up short
+somewhere on iOS, and nobody notices a background sixty pixels too big.
+
+Autoplay is refused in low power mode even when muted and inline, so the first
+touch starts it instead, and nothing depends on it playing.
 
 ## Type and colour
 
