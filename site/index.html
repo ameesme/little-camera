@@ -66,7 +66,12 @@
 *{box-sizing:border-box}
 html{height:100%}
 body{
-  min-height:100vh; min-height:100dvh;
+  /* svh, not dvh. dvh tracks the bars as they slide, so every scroll on a
+     phone changes the body's height, which moves the credit, which is what
+     the film measures itself against -- the whole background would shift
+     while you scrolled. svh is the viewport at its smallest and never
+     changes, so nothing reflows. */
+  min-height:100vh; min-height:100svh;
   margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
@@ -105,7 +110,7 @@ img{max-width:100%}
    deliberately generous: every viewport unit comes up short somewhere on iOS,
    and nobody notices a background sixty pixels too big. */
 .film{position:absolute; left:0; top:-30px; width:100%;
-      height:calc(100vh + 60px); height:calc(100lvh + 60px);
+      height:calc(100vh + 60px); height:calc(100lvh + 60px);   /* until JS sizes it */
       object-fit:cover; opacity:.12; pointer-events:none;
       image-rendering:pixelated; image-rendering:crisp-edges}
 @media (prefers-reduced-motion:reduce){ .film{display:none} }
@@ -127,7 +132,7 @@ h1 span{display:block; white-space:nowrap}
 /* A full-width band a little past the bottom of the first screen, centred on
    the page rather than aligned to the sheet: down there it is a footer, not a
    fourth line of the headline. */
-.credit{position:absolute; top:110%; left:0; right:0;
+.credit{position:absolute; top:120%; left:0; right:0;
         padding-left:var(--pad-x); padding-right:var(--pad-x);
         display:flex; justify-content:center}
 .credit .by{text-align:center}
@@ -272,7 +277,7 @@ h1 span{display:block; white-space:nowrap}
      its bars, and the credit is the one thing that can live down there
      without being missed. -->
 <div class="credit">
-  <p class="by"><a href="https://amaranthstudio.com">(a project by amaranth studio)</a></p>
+  <p class="by"><a href="https://amaranthstudio.com">a project by amaranth studio</a></p>
 </div>
 
 <script>

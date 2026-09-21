@@ -89,6 +89,12 @@ itself. The CSS value is only what holds until that runs. Like the 30px above
 the top it is deliberately generous — every viewport unit comes up short
 somewhere on iOS, and nobody notices a background sixty pixels too big.
 
+The body is sized in `svh` rather than `dvh` for the film's sake. `dvh` tracks
+the bars as they slide, so every scroll on a phone would change the body's
+height, which moves the credit, which is what the film measures itself against
+— the whole background would shift as you scrolled. `svh` is the viewport at
+its smallest and never changes.
+
 Autoplay is refused in low power mode even when muted and inline, so the first
 touch starts it instead, and nothing depends on it playing.
 
@@ -170,8 +176,8 @@ than the screen:
 | camera | `--sheet` x 0.76 |
 | gap between them | `--sheet` x 0.12 |
 
-The credit — "(a project by amaranth studio)", linking to amaranthstudio.com —
-is a full-width band at `top: 110%`, below the fold, centred on the page: down
+The credit — "a project by amaranth studio", linking to amaranthstudio.com —
+is a full-width band at `top: 120%`, below the fold, centred on the page: down
 there it is a footer, not a fourth line of the headline. It is set in Book
 rather than Bold, at a little over a quarter of the headline's size, with no
 underline and no colour of its own. Putting it down
