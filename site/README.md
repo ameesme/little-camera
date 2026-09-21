@@ -163,7 +163,7 @@ say.style.flex = '0 0 auto';
 say.style.width = col + 'px';
 
 const by = document.querySelector('.by');
-by.textContent = '0.07 megapixel \u2022 1-bit monochrome \u2022 uploads to a private website';
+by.textContent = '0.07 megapixel \u2022 1-bit monochrome \u2022 private picture blog';
 by.style.whiteSpace = 'nowrap';
 
 spinFrom = 0; spinTo = 0; spinAt = -1e9;
