@@ -290,7 +290,7 @@ than the screen:
 | headline | `--sheet` x 0.168 (a floor; the fitter takes over) |
 | spec line | `--sheet` x 0.048 |
 | pre-order button | `--sheet` x 0.050, padded 0.030 / 0.052 |
-| camera | `--sheet` x 0.76 |
+| camera | `--sheet` x 0.88 |
 | gap between them | `--sheet` x 0.12 |
 
 The spec line under the headline — "0.07 megapixel • 1-bit monochrome • private
