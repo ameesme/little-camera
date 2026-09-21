@@ -164,7 +164,11 @@ say.style.flex = '0 0 auto';
 say.style.width = col + 'px';
 
 const by = document.querySelector('.by');
-by.querySelector('span').style.whiteSpace = 'nowrap';
+const bySpan = by.querySelector('span');
+bySpan.style.whiteSpace = 'nowrap';
+bySpan.style.background = 'none';        // no band on the card
+bySpan.style.color = 'var(--ink)';
+bySpan.style.padding = '0';
 document.querySelector('.pre').style.display = 'none';
 
 setScreen('gallery');
