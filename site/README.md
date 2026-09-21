@@ -201,7 +201,8 @@ attribute and the cursor say so.
 `.bar` is `position: relative` for a reason: the ground canvas is fixed, so it
 paints above ordinary block content and would hide the header entirely.
 
-The block below sits at the top of the viewport rather than centred in it.
+The block below is centred in what the header leaves, which puts it a little
+lower than true centre — the header takes its space off the top.
 
 ## Type and colour
 

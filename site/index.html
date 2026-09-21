@@ -113,7 +113,7 @@ img{max-width:100%}
 /* No z-index. The sheet only needs to paint after the ground, which document
    order already does, and a z-index would make it a stacking context -- which
    would trap the title's blend inside it, against nothing. */
-.sheet{position:relative; width:var(--sheet); margin:0 auto auto;
+.sheet{position:relative; width:var(--sheet); margin:auto;
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
