@@ -92,11 +92,16 @@ ffmpeg -i <clip>.mov -an -vf "fps=24,scale=540:-2:flags=area" \
   -movflags +faststart site/media/ground.mp4
 ```
 
-The block is let down onto the page at `opacity: .8` rather than sitting on top
-of it at full strength: the whites come back as a shade of grey and the blacks
-pick up the dither underneath. `isolation: isolate` is what makes that safe —
-the difference blend inside happens first, at full strength, and only the
-finished block is faded onto the ground.
+The block itself is multiplied onto the page, so the white of the words becomes
+whatever the ground is under them — its grey, its dither, its gradient — while
+the block's black stays black. `isolation: isolate` on the same element keeps
+the inversion inside from taking part: the difference blend resolves first, at
+full strength, and only the finished block is multiplied onto the ground.
+
+For that to reach the ground at all, nothing between the two may be a stacking
+context, which is why `.sheet` carries no `z-index`. It only needs to paint
+after the ground, and document order already does that; a `z-index` there would
+trap the blend inside the sheet, against nothing.
 
 Autoplay is refused in low power mode even when muted and inline, so the first
 touch starts both instead, and nothing depends on them playing.
