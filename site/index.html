@@ -149,9 +149,10 @@ img{max-width:100%}
    once -- one element cannot be in two places.
 
    A radial mask holds it back over the middle, where the camera and the words
-   are, and lets it up towards the edges. Not off in the centre, just down to
-   about a tenth: the grain still runs everywhere, it simply gets out of the
-   way of the things that have to be read. Under the sheet, so the words and
+   are, and lets it up towards the edges. It holds flat at about a tenth out to
+   60% and only climbs after that, so the middle is one even wash rather than a
+   gradient of its own -- the grain still runs everywhere, it simply gets out
+   of the way of the things that have to be read. Under the sheet, so the words and
    the camera sit on top of it. */
 .wash{position:fixed; left:0; top:-40px; width:100%;
       height:calc(100vh + 80px); height:calc(100lvh + 80px);
@@ -159,9 +160,9 @@ img{max-width:100%}
       filter:grayscale(1) contrast(2000%);   /* two values only; see .film */
       image-rendering:pixelated; image-rendering:crisp-edges;
       -webkit-mask-image:radial-gradient(78% 58% at 50% 46%,
-            rgba(0,0,0,.10) 0%, rgba(0,0,0,.38) 55%, #000 100%);
+            rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%);
       mask-image:radial-gradient(78% 58% at 50% 46%,
-            rgba(0,0,0,.10) 0%, rgba(0,0,0,.38) 55%, #000 100%)}
+            rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%)}
 @media (prefers-reduced-motion:reduce){ .wash{display:none} }
 
 /* The words, as one block. Full width so the headline fitter, which measures

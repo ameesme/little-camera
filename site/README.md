@@ -118,9 +118,10 @@ a second decoder, which is the price of having the film at two strengths at
 once: one element cannot be in two places.
 
 A radial mask holds that wash back over the middle, where the camera and the
-words are, and lets it up towards the edges. Not off in the centre, just down
-to about a tenth -- the grain still runs everywhere, it simply gets out of the
-way of the things that have to be read.
+words are, and lets it up towards the edges. It stays flat at about a tenth out
+to 60% and only climbs after that, so the middle is one even wash rather than a
+gradient of its own — the grain still runs everywhere, it simply gets out of
+the way of the things that have to be read.
 
 It sits under the sheet, which means the device's canvas has to let it through
 or the canvas would be a clean rectangle in the wash, a pale frame around the
