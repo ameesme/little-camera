@@ -294,8 +294,8 @@ than the screen:
 | gap between them | `--sheet` x 0.12 |
 
 The spec line under the headline — "0.07 megapixel • 1-bit monochrome • private
-picture blog" — sits in the flow, aligned to the same left edge. It is set in
-Book rather than Bold, at a little over a quarter of the headline's size, and
+picture blog included" — sits in the flow, aligned to the same left edge. It is
+set in Book rather than Bold, at a little over a quarter of the headline's size, and
 set solid on hard black where the headline is film and inversion.
 
 That band is on an inline span inside the paragraph, not on the paragraph
