@@ -123,11 +123,13 @@ pixel, which on a phone lands close to the physical pixel pitch of the real
 panel. Output is strictly black and white: no intermediate values reach the
 canvas.
 
-The canvas is a stencil, not a picture. Where the dither would put paper it is
-left transparent instead of filled, so the render contributes its ink and
-nothing else and whatever the page has behind it — the ground, the film — runs
-straight through. Filled, it was an opaque rectangle sitting on top of the
-film, which read as a white frame around the camera.
+The canvas is opaque where the device is and transparent where it is not. Both
+halves dither to the same two levels, but where the ray hit something the paper
+level is painted and the canvas is solid, so nothing behind the page shows
+through the camera; where it missed, paper is left transparent and only the
+shadow's ink dots are contributed. Filling the void as well made the render an
+opaque rectangle sitting on top of the film — a white frame around the camera.
+Leaving the device transparent too put the film straight through it.
 
 Screen space is the whole point. A CSS pattern would rotate and foreshorten
 with the object and read as texture printed on it, so the object has to be

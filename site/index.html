@@ -327,7 +327,7 @@ uniform vec2  uRes;
 uniform float uViewH;    // world height visible at the object plane
 uniform float uYaw, uPitch, uBob;
 uniform sampler2D uScreen;
-uniform vec3  uInk;
+uniform vec3  uInk, uGround;
 
 const float CAM_Z  = 4.0;
 const vec3  HALF   = vec3(0.5, 0.3189, 0.0550);   // 63.6 x 40.6 x 7 mm, width = 1
@@ -498,12 +498,15 @@ void main(){
     lum = 1.0 - 0.26 * (1.0 - smoothstep(0.0, 1.0, d)) * max(0.0, 1.0 - uBob * 5.0);
   }
 
-  // Two levels, and one of them is nothing at all: where the dither would put
-  // paper the canvas is left transparent instead of filled. That is what stops
-  // the render being an opaque rectangle sitting on top of whatever the page
-  // has behind it -- the ink is all it contributes.
+  // The device is a solid object and the void is not. Both dither to the same
+  // two levels, but where the ray hit something the paper level is painted and
+  // the canvas is opaque, so nothing behind the page shows through the camera;
+  // where it missed, paper is left transparent and only the shadow's ink dots
+  // are contributed. Filling the void as well was what put a white rectangle
+  // around the render.
   float v = clamp(lum, 0.0, 1.0) > bayer(gl_FragCoord.xy) ? 1.0 : 0.0;
-  gl_FragColor = v > 0.5 ? vec4(0.0) : vec4(uInk, 1.0);
+  if (hit) gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
+  else     gl_FragColor = v > 0.5 ? vec4(0.0) : vec4(uInk, 1.0);
 }`;
 
 // One source of truth for the two colours: the stylesheet.
@@ -546,7 +549,7 @@ function initGL(){
   g.enableVertexAttribArray(loc);
   g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
 
-  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk'])
+  for (const n of ['uRes','uViewH','uYaw','uPitch','uBob','uScreen','uInk','uGround'])
     uni[n] = g.getUniformLocation(pr, n);
 
   tex = g.createTexture();
@@ -557,6 +560,7 @@ function initGL(){
   g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
   g.uniform1i(uni.uScreen, 0);
   g.uniform3fv(uni.uInk, cssColour('--ink'));
+  g.uniform3fv(uni.uGround, cssColour('--paper'));
   gl = g;
   return true;
 }
