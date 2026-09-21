@@ -81,6 +81,15 @@ The film's width and height are set rather than left to the insets — a video i
 a replaced element, so `width: auto` takes its own 540x926 instead of
 stretching.
 
+Both layers are thresholded back to two values with
+`filter: grayscale(1) contrast(2000%)`. The clip is 1-bit to begin with, but
+the encode, the chroma subsampling and the scale on the way to the screen turn
+those two levels into a spread — and a spread laid over a dithered ground gives
+muddy half-tones where there should be dots. Enormous contrast is a threshold:
+everything either side of mid-grey clamps, so what comes out is black or white
+and nothing between. Grayscale first, because a subsampled encode of grey is
+not exactly grey.
+
 `media/ground.mp4` is H.264 at 540x926, 24fps, ~790 KB, and comes first because
 it is what every iOS Safari decodes; `media/ground.webm` is VP9 for builds
 without the proprietary codecs. The source was HEVC in a QuickTime container,
