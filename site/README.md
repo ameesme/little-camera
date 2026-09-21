@@ -132,6 +132,29 @@ as the ground underneath they land on exactly the dots already there.
 Autoplay is refused in low power mode even when muted and inline, so the first
 touch starts both instead, and nothing depends on them playing.
 
+## The card
+
+`media/og.png` is a real frame of this page rather than a mock-up: the same
+ground, the same dither, the same glitched headline, the device held face on
+showing a photo. It is 1200x630 at one device pixel per CSS pixel, because the
+dither is one dot per CSS pixel and scaling it would turn the dots to mush.
+
+To remake it, load the page at that size, pin the device, enlarge the measure
+so the composition fills the frame, and shoot:
+
+```js
+document.documentElement.style.setProperty('--sheet', '380px');
+spinFrom = 0; spinTo = 0; spinAt = -1e9;
+setScreen('gallery');
+fitAndMask(); sizeGL();
+```
+
+380px is as large as the measure goes before the stack outgrows 630.
+
+Everything in the head is lower case, the way the page is set. The favicon is
+an inline SVG of the device in ink on the page's paper, so there is no second
+request and no 404 for `/favicon.ico`.
+
 ## Type and colour
 
 Both come from amaranthstudio.com, so the teaser sits in the same world:
