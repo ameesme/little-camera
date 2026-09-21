@@ -5,58 +5,33 @@ self-contained (the firmware screens are inlined as base64 PNGs), so it can be
 dropped on any static host or served by Caddy with a two-line site block.
 
 The device is a placeholder: a rounded grey slab at roughly the real
-dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass and 1.75
-mm of bezel at the sides makes the body 61.1 mm wide; its height is a
-compromise between the L on the back, which wants a tall body, and the screen,
-which wants a thin chin, and lands at 61.1 x 48 x 7 mm -- 6.7 mm above and
-below the glass. The glass has a 1.75 mm corner radius of its own, the width of
-its own bezel. The front is all screen, with no button on
-it. The shell's corner radius is 3.5 mm and the glass radius is that less the
-bezel, so the two curves stay concentric. Replace it when the industrial design
-lands; every proportion is derived from that rectangle, so changing `--w`,
-`--h`, `--d` and `--r` at the top of the stylesheet is enough.
+dimensions. The 2.7" 400x240 Sharp panel is 57.6 x 34.56 mm of glass, and 3 mm
+of bezel on every side makes the body 63.6 x 40.6 x 7 mm. There is no chin: the
+border is the same width all round, and the body is only as tall as that makes
+it. The shell's corner radius is 3.5 mm and the panel has 1.75 mm of its own.
+Replace it when the industrial design lands; every proportion is derived from
+that rectangle, so changing `--w`, `--h`, `--d` and `--r` at the top of the
+stylesheet is enough.
 
 ## The back
 
-Three things live on an L-shaped boss on the back, and the L is why the top and
-bottom bezels are wider than the sides:
+One thing lives on the back: the lens, up in the top left seen from behind. It
+sits about 8 mm in from each of the two edges it is near, which is what keeps
+the whole barrel on the flat of the back rather than climbing the shell's
+rounded edge.
 
-| Part | Where |
-|---|---|
-| lens | the geometric centre of the back |
-| piezo hole | out to the left (seen from behind), on the same centre line |
-| shutter | directly above the piezo, in the corner |
+The barrel is raised 1.3 mm and blended into the back with a smooth union, so
+it grows out of the shell rather than standing on it, and the glass is sunk
+0.8 mm into its face. Only the glass is dark; the barrel is the shell's own
+colour, carried by that blend and by the contact shading at its foot — the line
+a raised part lays down on what it stands on, which is what tells the eye it is
+raised rather than drawn. A hard step would not survive: an extrusion shares
+its surface normal with the panel it stands on, so the two shade identically
+and the shape vanishes.
 
-The L stands 1.8 mm proud of the back. Its foot runs from the lens out to the
-piezo and its upright from there up to the shutter, both the same 11.2 mm
-thickness. The foot is longer than the upright, so the L is wider than it is
-tall, in the proportion of the body it sits on: each arm runs out to the same
-small margin from its own edge, 3 mm at the side and 1.7 mm at the top, rather
-than both stopping at the shorter of the two.
-
-One thickness throughout means every curve on it is the same 5.6 mm: the cap
-concentric with the lens, the cap concentric with the button, and the outer
-corner, which is centred on the piezo. That is as round as the outside of an
-arm this thick can be. The inside of the elbow is filleted at 4 mm, and that
-fillet is measured as a true distance rather than stuck on as its own piece of
-material: the boss is extruded from this field and its edge is broken by it, so
-a false zero in the field comes out as a real crease in the round.
-
-The piezo takes no part in the outline. It is far smaller than the arm is
-thick, so it sits in the corner without moving an edge.
-
-All three parts are sunk into the L's face rather than standing on it. The L
-itself has no colour of its own — it is the shell, raised — and it is blended
-into the back rather than stepped off it: the union with the slab is a smooth
-one, so the L grows out of the shell on a 1.8 mm fillet and the whole back
-reads as a single moulding. What makes it read at sixteen dither levels is that
-blend, which turns through every shade between the two faces, plus the contact
-shading at its foot and the walls of the three wells. Only the piezo hole and the lens glass
-are actually dark, because one is a hole and the other is glass.
-
- In the shader, seen from behind, `+x` runs to the viewer's left; `P_LENS`,
-`P_PIEZO`, `P_SHUT`, `ARM` and the `R_*` radii next to them are the whole
-layout, in units where the device is one wide.
+In the shader, seen from behind, `+x` runs to the viewer's left; `P_LENS` and
+the `R_*` and `LENS_*` constants next to it are the whole layout, in units
+where the device is one wide.
 
 ## The screens
 

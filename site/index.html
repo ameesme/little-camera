@@ -46,22 +46,21 @@
      its longest line wrapped there and the three lines became four. The
      factor below is only the pre-script fallback, deliberately short.
 
-     The whole stack is about 1.6 measures tall, so the height cap is what
+     The whole stack is about 1.5 measures tall, so the height cap is what
      keeps it inside one screen. It is svh, the viewport at its smallest: dvh
      would resize the composition every time a mobile URL bar slid away, and
      each resize re-fits the headline. The vh line above it is the fallback
      for browsers without svh, and is the same number. */
-  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 50vh);
-  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 50svh);
+  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
+  --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54svh);
   /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass, and 1.75 mm of bezel at
-     the sides makes the device 61.1 mm wide. Height is a compromise: the L on
-     the back wants a tall body, the screen wants a thin chin, and 48 mm splits
-     it -- 6.7 mm above and below the glass. Every proportion below comes off
-     that rectangle. */
+     3 mm of bezel all round makes the device 63.6 x 40.6 x 7 mm. There is no
+     chin: the border is the same width on every side, and the body is only as
+     tall as that makes it. Every proportion below comes off that rectangle. */
   --w:calc(var(--sheet) * 0.76);
-  --h:calc(var(--w) * 0.7856);
-  --d:calc(var(--w) * 0.1146);
-  --r:calc(var(--w) * 0.057);
+  --h:calc(var(--w) * 0.6377);
+  --d:calc(var(--w) * 0.1101);
+  --r:calc(var(--w) * 0.055);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
@@ -141,10 +140,9 @@ h1 span{display:block; white-space:nowrap}
      transition:transform 1.25s cubic-bezier(.62,.02,.34,1)}
 .slice{position:absolute; left:0; top:0; width:var(--w); height:var(--h);
        border-radius:var(--r); transform:translateZ(calc(var(--d) * var(--z)))}
-/* The fallback back gets the lens only, at the dead centre. The L and the
-   other two parts are the renderer's; drawing them in CSS would mean faces
-   that never dither. */
-.lens{position:absolute; left:44.5%; top:44.5%; width:11%; aspect-ratio:1; border-radius:50%;
+/* The one thing on the back, up in the top left. Mirrored from the renderer's
+   placement, because the fallback shows the back from the front's handedness. */
+.lens{position:absolute; left:6.8%; top:9.5%; width:13.5%; aspect-ratio:1; border-radius:50%;
       background:radial-gradient(circle at 38% 34%,#4c4c4c 0%,#1a1a1a 44%,#080808 100%);
       box-shadow:0 0 0 calc(var(--w) * .008) var(--shell-dim),
                  0 0 0 calc(var(--w) * .0115) rgba(0,0,0,.2)}
@@ -159,9 +157,8 @@ h1 span{display:block; white-space:nowrap}
 .back{transform:rotateY(180deg) translateZ(calc(var(--d) / 2));
       background:linear-gradient(202deg,var(--shell-lit) 0%,var(--shell) 58%,var(--shell-dim) 100%)}
 
-/* The panel: 1.75 mm of bezel at the sides, 6.7 mm above and below, with
-   corners of its own. */
-.screen{position:absolute; inset:14.0% 2.86%;
+/* The panel: 3 mm of bezel on every side, with corners of its own. */
+.screen{position:absolute; inset:7.40% 4.72%;
         border:var(--rule); border-radius:calc(var(--r) * .5);
         background:var(--glass); overflow:hidden}
 .screen img{display:block; width:100%; height:100%; image-rendering:pixelated;
@@ -304,10 +301,10 @@ uniform vec3  uInk, uGround;
 uniform vec4  uPage;     // canvas left, canvas bottom, viewport w, h -- all CSS px
 
 const float CAM_Z  = 4.0;
-const vec3  HALF   = vec3(0.5, 0.3928, 0.0573);   // 61.1 x 48 x 7 mm, width = 1
-const float ROUND  = 0.0573;                      // 3.5 mm corner, fully round edge
-const vec2  SCR    = vec2(0.4714, 0.2828);        // 57.6 x 34.56 mm of glass
-const float SCR_R  = 0.0287;                      // 1.75 mm, the bezel's own width
+const vec3  HALF   = vec3(0.5, 0.3189, 0.0550);   // 63.6 x 40.6 x 7 mm, width = 1
+const float ROUND  = 0.0550;                      // 3.5 mm corner, fully round edge
+const vec2  SCR    = vec2(0.4528, 0.2717);        // 57.6 x 34.56 mm of glass
+const float SCR_R  = 0.0275;                      // 1.75 mm on the panel's corners
 const float ALBEDO = 0.88;
 const float AMB    = 0.58;
 // Paper for the middle 70 per cent, then a straight ramp to VIG darker at the
@@ -318,42 +315,22 @@ const float AMB    = 0.58;
 const float VIG    = 0.30;                        // how much darker the corners
 const float VIG_IN = 0.70;                        // and where the ramp starts
 
-// The back. The lens sits at the dead centre; the L runs from it out to the
-// left edge, where the piezo hole is, still on the centre line; the shutter is
-// directly above that, in the corner. Seen from behind, +x runs to the
-// viewer's left.
+// The back carries one thing: the lens, up in the top left. Seen from behind,
+// +x runs to the viewer's left. It is placed so the whole barrel stays on the
+// flat of the back rather than climbing the shell's rounded edge, which puts
+// it about 8 mm in from each of the two edges it sits near.
 //
-// The L is one arm thickness throughout, 11.2 mm, set by the two things that
-// have to fit inside it: the lens with 1.3 mm to spare, the button with 1.8.
-// Every curve on it is therefore the same 5.6 mm radius: the cap concentric
-// with the lens, the cap concentric with the button, and the outer corner, all
-// one arc, the last of them centred on the piezo. That is as round as the
-// outer corner of an arm this thick can be. The inside of the elbow is
-// filleted at 4 mm.
-//
-// The piezo takes no part in any of it. It is far smaller than the arm is
-// thick, so it sits in the corner without moving an edge.
-//
-// The foot is longer than the upright, so the L is wider than it is tall, in
-// the proportion of the body it sits on. Each arm runs out to the same small
-// margin from its own edge -- 3 mm at the side, 1.7 mm at the top -- rather
-// than both stopping at the shorter of the two, which is what a square L on a
-// body this shape would have forced.
-const vec2  P_LENS  = vec2(0.0000, 0.0000);       // dead centre of the back
-const vec2  P_PIEZO = vec2(0.3590, 0.0000);       // out to the left, same line
-const vec2  P_SHUT  = vec2(0.3590, 0.2728);       // above it, in the corner
-const float ARM     = 0.092;                      // half-thickness, both arms
-const float FILLET  = 0.065;                      // 4 mm inside the elbow
-const float R_SHUT  = 0.062;                      // 7.6 mm button
-const float R_PIEZO = 0.024;                      // 2.9 mm hole
-const float R_LENS  = 0.070;                      // 8.6 mm barrel
-const float R_GLASS = 0.048;                      // 5.9 mm of glass
-const float BOSS_H  = 0.034;                      // the L stands 2.1 mm proud
-const float BOSS_R  = 0.014;                      // with a 0.9 mm break on top
-const float BOSS_K  = 0.030;                      // and a 1.8 mm fillet at its foot
-const float W_SHUT  = 0.013;                      // the button lies 0.8 mm into it
-const float W_LENS  = 0.017;                      // the lens 1.0 mm
-const float W_PIEZO = 0.040;                      // the piezo goes right through
+// The barrel is raised and blended into the back with a smooth union, so it
+// grows out of the shell rather than standing on it, and the glass is sunk
+// into its face. Only the glass is dark; the barrel is the shell's own colour,
+// carried by that blend and by the contact shading in backAlbedo.
+const vec2  P_LENS  = vec2(0.3700, 0.1900);       // top left, on the flat
+const float R_LENS  = 0.0673;                     // 8.6 mm barrel
+const float R_GLASS = 0.0464;                     // 5.9 mm of glass
+const float LENS_H  = 0.020;                      // stands 1.3 mm proud
+const float LENS_R  = 0.008;                      // with a 0.5 mm break on top
+const float LENS_K  = 0.018;                      // and a 1.1 mm fillet at its foot
+const float W_GLASS = 0.012;                      // the glass lies 0.8 mm in
 
 mat3 rotY(float a){ float c=cos(a), s=sin(a); return mat3(c,0.,-s, 0.,1.,0., s,0.,c); }
 mat3 rotX(float a){ float c=cos(a), s=sin(a); return mat3(1.,0.,0., 0.,c,s, 0.,-s,c); }
@@ -368,72 +345,32 @@ float sdRect2(vec2 p, vec2 b, float r){
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
 }
 
-float sdSeg(vec2 p, vec2 a, vec2 b){
-  vec2 pa = p - a, ba = b - a;
-  return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
-}
-
-// Two capsules of one thickness, drawn along lens -> piezo -> button, unioned
-// exactly. One thickness throughout means the cap at the lens, the cap at the
-// button and the whole outer corner are arcs of the same ARM -- and because
-// the two capsules share an end point, that corner is centred on the piezo and
-// is as round as an arm this thick can be. Nothing widens anywhere.
-//
-// The inside of the elbow is filleted, and the fillet has to be exact, not a
-// smooth min and not a piece of material stuck on. A smooth min inflates the
-// outer arc wherever the two capsules are within k of each other, which put a
-// lump in the bottom edge where it should have been straight; a stuck-on
-// corner square leaves its own edges reading as zero in the field, and since
-// this field is what the boss is extruded from, a false zero is a real crease
-// in the raised edge.
-//
-// So: inside the corner square the arc is the only boundary there is, and the
-// distance to it is exact. Everywhere else the two capsules answer. The two
-// agree along the square's edges, so the field stays continuous.
-float sdL(vec2 q){
-  float d = min(sdSeg(q, P_LENS, P_PIEZO), sdSeg(q, P_PIEZO, P_SHUT)) - ARM;
-  vec2 v = vec2(P_PIEZO.x - ARM, ARM);      // where the two inner edges meet
-  vec2 c = v + vec2(-FILLET, FILLET);       // centre of the arc that rounds them
-  vec2 r = q - c;
-  vec2 s = abs(r - vec2(FILLET, -FILLET) * 0.5) - vec2(FILLET * 0.5);
-  if (max(s.x, s.y) < 0.0) d = min(d, FILLET - length(r));
-  return d;
-}
-
-// A 2D outline pushed out of the back face by h, its edges broken by r. It
-// starts a hair inside the shell so the two fuse rather than z-fight.
+// A disc pushed out of the back face by h, its edges broken by r. It starts a
+// hair inside the shell so the two fuse rather than z-fight.
 float raised(float d2, float z, float h, float r){
   vec2 w = vec2(d2 + r, abs(z + HALF.z + h*0.5 - 0.006) - (h + 0.012)*0.5 + r);
   return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - r;
 }
 
-// A round well cut into the outer face of the L, so a part lies in the boss
-// rather than standing on it. The cutter runs out past the face so it opens.
-float wellIn(vec3 p, vec2 c, float rad, float depth){
-  float zc = -(HALF.z + BOSS_H) + depth * 0.5 - 0.015;
+// A round well cut into the outer face of the barrel, so the glass lies in it
+// rather than on it. The cutter runs out past the face so the well opens.
+float wellIn(vec3 p, vec2 c, float rad, float depth, float face){
+  float zc = -(HALF.z + face) + depth * 0.5 - 0.015;
   vec2 w = vec2(length(p.xy - c) - rad + 0.004,
                 abs(p.z - zc) - (depth * 0.5 + 0.015) + 0.004);
   return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - 0.004;
 }
 
-// The body: the slab, the L growing out of its back, and the three parts sunk
-// into the L's face. Nothing stands taller than the L. The L is real geometry
-// and keeps the shell's own colour -- it is raised, not a patch of darker
-// paint -- and it is blended into the back rather than stepped off it, so the
-// shell reads as one moulding. What carries it at sixteen dither levels is
-// that blend, which turns through every shade between the two faces, plus the
-// contact shading in backAlbedo and the walls of the three wells.
+// The slab, the lens barrel growing out of its back, and the glass sunk into
+// the barrel. The union is a smooth one, so the barrel rises on a fillet
+// instead of a step and the back reads as one moulding. The blend runs round
+// its foot, where the two surfaces come within LENS_K of each other, and stops
+// short of its face, which stands LENS_H clear.
 float sdBody(vec3 p){
   vec3 q = abs(p) - (HALF - ROUND);
   float d = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - ROUND;
-  // A smooth union rather than a plain one, so the L rises out of the back on
-  // a fillet instead of a step. The blend runs the whole way round its base,
-  // because that is where the two surfaces come within BOSS_K of each other,
-  // and it stops short of the top face, which stands BOSS_H clear.
-  d = smin(d, raised(sdL(p.xy), p.z, BOSS_H, BOSS_R), BOSS_K);
-  d = max(d, -wellIn(p, P_SHUT,  R_SHUT,  W_SHUT));
-  d = max(d, -wellIn(p, P_LENS,  R_LENS,  W_LENS));
-  d = max(d, -wellIn(p, P_PIEZO, R_PIEZO, W_PIEZO));
+  d = smin(d, raised(length(p.xy - P_LENS) - R_LENS, p.z, LENS_H, LENS_R), LENS_K);
+  d = max(d, -wellIn(p, P_LENS, R_GLASS, W_GLASS, LENS_H));
   return d;
 }
 
@@ -444,21 +381,18 @@ vec3 nrm(vec3 p){
                         sdBody(p+e.yyx)-sdBody(p-e.yyx)));
 }
 
-// Everything facing backwards, as one albedo lookup. The L and the button have
-// no colour of their own: they are the shell. All this adds is the contact
-// shading at the foot of the L -- the line a raised part lays down on what it
-// stands on, which is what tells the eye it is raised rather than drawn -- and
-// then the two things that really are dark, because one is a hole and the
-// other is glass.
+// Everything facing backwards, as one albedo lookup. The barrel has no colour
+// of its own -- it is the shell, raised. All this adds is the contact shading
+// at its foot, the line a raised part lays down on what it stands on, which is
+// what tells the eye it is raised rather than drawn, and then the glass, which
+// really is dark, because it is glass.
 float backAlbedo(vec2 q){
   float a = ALBEDO;
-  float dL = sdL(q);
-  if (dL > 0.0) a -= 0.30 * exp(-dL * 42.0);            // at the foot of the L
-
-  if (length(q - P_PIEZO) < R_PIEZO) a = 0.20;           // a hole is a hole
+  float dB = length(q - P_LENS) - R_LENS;
+  if (dB > 0.0) a -= 0.30 * exp(-dB * 42.0);
 
   float dl = length(q - P_LENS);
-  if (dl < R_GLASS) a = 0.16;               // the glass stays dark; it is glass
+  if (dl < R_GLASS) a = 0.16;
   if (length(q - P_LENS - vec2(0.014, 0.014)) < 0.011) a = 0.94;   // a glint
   return a;
 }
