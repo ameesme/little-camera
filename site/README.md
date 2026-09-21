@@ -58,7 +58,9 @@ The panel is 400x240 and 1-bit, so keep the replacements at that size and
 ## The film
 
 A recording of this page, zoomed until the dither came apart, running at full
-strength as a block behind the headline, with the words inverted on top of it.
+strength behind the headline with the words inverted on top of it — and masked
+down to the lines themselves, so it reads as a selected surface rather than a
+panel.
 
 The inversion is the blend. White letters in `mix-blend-mode: difference` come
 out as 255 minus whatever the film is doing behind each one, so they are always
@@ -67,8 +69,14 @@ the film moves. `isolation: isolate` keeps that reckoning inside the title,
 against the film, rather than against the ground the title sits on. It is the
 page's own rule — if a design needs emphasis, invert — doing the work.
 
-The heading's leading is 0.72, so its letters overflow its own line boxes; it
-is padded to take them back in, which is also what gives the block its margin.
+The mask is three solid gradient layers, one per line, placed and sized from
+the lines' own boxes once the headline has been fitted. A `clip-path` cannot
+describe three disjoint rectangles, and three `<video>` elements would mean
+three decoders. The lines are `width: fit-content` so their boxes hug the
+words, and the bands are bled a little past them, because the leading is 0.72
+and the letters overflow their line boxes. The heading is padded for the same
+reason.
+
 The film's width and height are set rather than left to the insets — a video is
 a replaced element, so `width: auto` takes its own 540x926 instead of
 stretching.

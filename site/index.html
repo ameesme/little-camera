@@ -104,9 +104,15 @@ img{max-width:100%}
    film moves. Isolate keeps that reckoning inside the title, against the film,
    rather than against the ground the title sits on.
 
-   The heading's leading is 0.72, so its letters overflow its own line boxes.
-   It is padded to take them back in, which is also what gives the block its
-   margin. The film's width and height are set rather than left to the insets:
+   The film is masked down to the three lines, each band only as wide as its
+   own line, so it reads as a selected surface rather than a panel. The mask is
+   three solid gradient layers, one per line, placed and sized from the lines'
+   own boxes once the headline has been fitted -- a clip-path cannot describe
+   three disjoint rectangles, and three video elements would mean three
+   decoders. The bands are bled a little past the line boxes, because the
+   leading is 0.72 and the letters overflow them.
+
+   The heading is padded for the same reason, to take those letters back in. The film's width and height are set rather than left to the insets:
    a video is a replaced element, so width:auto takes its own 540x926 instead
    of stretching. */
 .title{position:relative; isolation:isolate; width:100%}
@@ -132,7 +138,7 @@ h1{margin:0; text-align:left; font-family:var(--font-bold);
    letter-spacing:-.012em}
 /* Each line is its own block and never wraps, so three lines stay three lines
    whatever the font turns out to be. */
-h1 span{display:block; white-space:nowrap}
+h1 span{display:block; width:fit-content; white-space:nowrap}
 
 /* A full-width band a little past the bottom of the first screen, centred on
    the page rather than aligned to the sheet: down there it is a footer, not a
@@ -318,9 +324,35 @@ function fitHeadline() {
   h1.removeChild(probe);
   if (widest > 0) h1.style.fontSize = 100 * avail / widest + 'px';
 }
-fitHeadline();
-addEventListener('resize', fitHeadline);
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitHeadline);
+// Cut the film down to the lines themselves. One mask layer per line, each
+// placed and sized from that line's own box, so the film shows up as three
+// bands hugging the words rather than one rectangle behind them.
+function maskLines(){
+  const film = document.getElementById('film');
+  if (!film || !h1.children.length) return;
+  const box = film.getBoundingClientRect();
+  if (!box.width) return;
+  const bleed = parseFloat(getComputedStyle(h1).fontSize) * 0.11;
+  const layers = [], pos = [], size = [];
+  for (const line of h1.children){
+    const r = line.getBoundingClientRect();
+    layers.push('linear-gradient(#000,#000)');
+    pos.push(Math.round(r.left - box.left) + 'px ' +
+             Math.round(r.top - box.top - bleed) + 'px');
+    size.push(Math.ceil(r.width) + 'px ' + Math.ceil(r.height + bleed * 2) + 'px');
+  }
+  for (const k of ['webkitMask', 'mask']){
+    film.style[k + 'Image'] = layers.join(',');
+    film.style[k + 'Position'] = pos.join(',');
+    film.style[k + 'Size'] = size.join(',');
+    film.style[k + 'Repeat'] = 'no-repeat';
+  }
+}
+
+function fitAndMask(){ fitHeadline(); maskLines(); }
+fitAndMask();
+addEventListener('resize', fitAndMask);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAndMask);
 
 const stage = document.querySelector('.stage');
 const screenImg = document.getElementById('screen');
