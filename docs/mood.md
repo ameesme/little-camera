@@ -40,7 +40,7 @@ The sleep face is 16 px block art, white on black, drawn in code (`Display::draw
 
 The eyes carry the happiness: the happy face needs no smile, it just has lifted eyes over the same square mouth. Below the top band the eyes go flat and stay flat, and the mouth does the rest of the work.
 
-It **breathes**: every second the other of two frames goes up, eyes four pixels higher and mouth eight pixels lower, so the distance between them grows and shrinks. Awake behind the sleep face that is a timer in `loop()`; in light sleep the breath sets the wake interval and the VCOM keep-alive (which only has a ceiling) rides along. A breath pushes only the face rows to the panel; a full frame is sent when the face first goes up and when the band changes.
+It **breathes**: every 5 s the other of two frames goes up, eyes four pixels higher and mouth eight pixels lower, so the distance between them grows and shrinks. Awake behind the sleep face that is a timer in `loop()`; in light sleep it rides the 5 s VCOM wake that exists anyway. A breath pushes only the face rows to the panel; a full frame is sent when the face first goes up and when the band changes.
 
 Preview without hardware: `cd firmware/tools/preview && make scenes` renders `sleep`, `sleep-content`, `sleep-glum`, `sleep-sad` and `sleep-breath`.
 
@@ -76,5 +76,5 @@ Bit-banged square waves on the buzzer pin, like the shutter click, because the L
 
 ## Open points
 
-- The breath costs a partial frame push every second in light sleep, and the wake to make it: about 8 ms of CPU and 4.6 KB of SPI, call it +0.2 mA on a ~0.3 mA idle. There is no current sense on the board; if the idle draw turns out to matter, the breath period is one constant.
+- The breath costs a partial frame push every 5 s in light sleep. There is no current sense on the board; if the idle draw turns out to matter, the breath period is one constant.
 - Whether the one-hour chirp should also play while the phone is actively syncing (currently: it waits).

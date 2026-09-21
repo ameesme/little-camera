@@ -154,15 +154,7 @@ void enterSleepMode();
 // runs through light sleep, never wraps. The wall clock only exists once a
 // phone has set it. -DLC_MOOD_FAST makes uptime run 600x — an hour in six
 // seconds, the whole week in about seventeen minutes — for bench testing.
-// Sleep face breath period, awake and asleep alike. At 5s it read as the panel
-// twitching rather than the camera breathing, so it is a second. Asleep that
-// means the light-sleep timer fires at 1Hz instead of 0.2Hz: five times the
-// wakeups, each ~8ms of CPU and 4.6KB of SPI for the face rows, which works out
-// at roughly +0.2mA average on a ~0.3mA idle. The panel is happy either way --
-// VCOM only has a ceiling on its interval, and this lowers it.
-constexpr uint32_t BREATH_MS = 1000;
-static_assert(BREATH_MS <= Display::VCOM_INTERVAL_MS,
-              "the sleep tick is also the VCOM keep-alive; it may not be slower");
+constexpr uint32_t BREATH_MS = 5000;  // Sleep face breath period, awake; asleep it is the VCOM tick
 
 static Mood::State moodState;
 static Chirp::Rng moodRng(1);
@@ -551,10 +543,7 @@ void enterSleepMode() {
     // rejected sleep call, an undefined cause — is not a person, and treating
     // it as one is exactly how the camera "wakes by itself".
     for (;;) {
-        // BREATH_MS, not VCOM_INTERVAL_MS: the face sets the tick now and the
-        // keep-alive rides along, which the static_assert above guarantees is
-        // still often enough for the panel.
-        esp_sleep_enable_timer_wakeup((uint64_t)BREATH_MS * 1000);
+        esp_sleep_enable_timer_wakeup((uint64_t)Display::VCOM_INTERVAL_MS * 1000);
         esp_err_t err = esp_light_sleep_start();
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
 
