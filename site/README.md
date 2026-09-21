@@ -141,7 +141,9 @@ dither is one dot per CSS pixel and scaling it would turn the dots to mush.
 
 It is laid out landscape rather than in the page's own stack — device left,
 words right — because a portrait composition in a 1200x630 frame leaves most of
-it empty. To remake it, load the page at that size and run:
+it empty, and the device is held from up and to the right so the screen still
+reads while the top and right edges show how thin it is. To remake it, load the
+page at that size and run:
 
 ```js
 const WIDE = 1080, GAP = 64;
@@ -151,38 +153,54 @@ const sheet = document.querySelector('.sheet');
 const stage = document.querySelector('.stage');
 const say   = document.querySelector('.say');
 sheet.style.width = WIDE + 'px';
+sheet.style.margin = 'auto';                 // the page pins it up; the card centres it
 sheet.style.flexDirection = 'row-reverse';   // the stage is second in the DOM
 sheet.style.alignItems = 'center';
 sheet.style.gap = GAP + 'px';
 stage.style.flex = '0 0 auto';
 
-// Fixed columns, not flexible ones: the credit is set nowrap below and would
-// otherwise widen its own column and shove the device off the frame.
 const col = WIDE - Math.round(stage.getBoundingClientRect().width) - GAP;
 say.style.flex = '0 0 auto';
 say.style.width = col + 'px';
 
 const by = document.querySelector('.by');
-by.textContent = '0.07 megapixel \u2022 1-bit monochrome \u2022 private picture blog';
 by.style.whiteSpace = 'nowrap';
+document.querySelector('.pre').style.display = 'none';
 
-spinFrom = 0; spinTo = 0; spinAt = -1e9;
 setScreen('gallery');
-window.setScreen = () => {};   // the state loop would put the viewfinder back
+window.setScreen = () => {};
+window.draw = function(){
+  gl.uniform1f(uni.uYaw,   32 * Math.PI / 180);   // positive yaw: viewer to the right
+  gl.uniform1f(uni.uPitch, 22 * Math.PI / 180);   // positive pitch: viewer above
+  gl.uniform1f(uni.uBob, 0);
+  placeGL(); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  requestAnimationFrame(window.draw);
+};
 fitAndMask(); sizeGL();
 
 const now = parseFloat(getComputedStyle(by).fontSize);
 if (by.scrollWidth > col) by.style.fontSize = Math.floor(now * col / by.scrollWidth) + 'px';
 ```
 
-Two things there are not decoration. `window.setScreen` has to be nailed shut
-or the state loop puts the viewfinder back before the shutter, and the columns
-have to be fixed widths or the nowrap credit widens its own column and shoves
-the device off the frame.
-
+Three things there are not decoration. `window.setScreen` has to be nailed shut
+or the state loop puts the viewfinder back before the shutter; the columns have
+to be fixed widths or the nowrap spec line widens its own column and shoves the
+device off the frame; and the draw loop is *replaced* rather than stopped,
+because without `preserveDrawingBuffer` a single draw is gone by the time the
+screenshot is taken.
 Everything in the head is lower case, the way the page is set. The favicon is
 an inline SVG of the device in ink on the page's paper, so there is no second
 request and no 404 for `/favicon.ico`.
+
+The pre-order button under it is hard-edged on purpose — no radius anywhere on
+it, where everything else on the page is rounded — and greyed with dots rather
+than a flat tint, because the page has no half-tones to spend: one ink dot per
+four pixels, quarter strength, which leaves the label readable where a
+half-tone checker did not. It does nothing yet, and both the `disabled`
+attribute and the cursor say so.
+
+The block sits at the top of the viewport rather than centred in it, so the
+camera and the headline stay high and the button has room underneath.
 
 ## Type and colour
 
@@ -264,14 +282,15 @@ than the screen:
 | Part | Size |
 |---|---|
 | headline | `--sheet` x 0.168 (a floor; the fitter takes over) |
-| credit line | `--sheet` x 0.048 |
+| spec line | `--sheet` x 0.048 |
+| pre-order button | `--sheet` x 0.078, padded 0.055 |
 | camera | `--sheet` x 0.76 |
 | gap between them | `--sheet` x 0.12 |
 
-The credit — "a project by amaranth studio", linking to amaranthstudio.com —
-sits under the headline, in the flow, aligned to the same left edge. It is set
-in Book rather than Bold, at a little over a quarter of the headline's size,
-with no underline — and it is inverted the same way the headline is. White
+The spec line under the headline — "0.07 megapixel • 1-bit monochrome • private
+picture blog" — sits in the flow, aligned to the same left edge. It is set in
+Book rather than Bold, at a little over a quarter of the headline's size, and
+it is inverted the same way the headline is. White
 letters in `mix-blend-mode: difference` come out as the exact opposite of the
 ground under them, so the line carries the page's own dots reversed rather than
 a colour of its own. Nothing between it and the ground may be a stacking
