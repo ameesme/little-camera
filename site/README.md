@@ -171,9 +171,10 @@ than the screen:
 | gap between them | `--sheet` x 0.12 |
 
 The credit — "(a project by amaranth studio)", linking to amaranthstudio.com —
-is a full-width band at `top: 110%`, below the fold. It is set in Book rather
-than Bold, at a little over a quarter of the headline's size, aligned to the
-sheet's left edge, with no underline and no colour of its own. Putting it down
+is a full-width band at `top: 110%`, below the fold, centred on the page: down
+there it is a footer, not a fourth line of the headline. It is set in Book
+rather than Bold, at a little over a quarter of the headline's size, with no
+underline and no colour of its own. Putting it down
 there also gives the document about a hundred pixels to scroll, which is what
 Safari wants before it will composite real pixels behind its own bars.
 

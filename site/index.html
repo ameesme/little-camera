@@ -124,11 +124,13 @@ h1{margin:0; text-align:left; font-family:var(--font-bold);
    whatever the font turns out to be. */
 h1 span{display:block; white-space:nowrap}
 
-/* A full-width band a little past the bottom of the first screen. */
+/* A full-width band a little past the bottom of the first screen, centred on
+   the page rather than aligned to the sheet: down there it is a footer, not a
+   fourth line of the headline. */
 .credit{position:absolute; top:110%; left:0; right:0;
         padding-left:var(--pad-x); padding-right:var(--pad-x);
         display:flex; justify-content:center}
-.credit .by{width:var(--sheet)}
+.credit .by{text-align:center}
 
 /* Quieter than the headline by weight as well as size, so it reads as a
    footnote rather than a fourth line. */
