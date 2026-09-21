@@ -135,6 +135,26 @@ img{max-width:100%}
   .title h1{color:var(--ink); mix-blend-mode:normal}
 }
 
+/* The same film again, over the whole page and barely there: enough that the
+   paper reads as a shade rather than a flat fill. A second element and so a
+   second decoder, which is the price of having the film at two strengths at
+   once -- one element cannot be in two places.
+
+   A radial mask holds it back over the middle, where the camera and the words
+   are, and lets it up towards the edges. Not off in the centre, just down to
+   about a tenth: the grain still runs everywhere, it simply gets out of the
+   way of the things that have to be read. Under the sheet, so the words and
+   the camera sit on top of it. */
+.wash{position:fixed; left:0; top:-40px; width:100%;
+      height:calc(100vh + 80px); height:calc(100lvh + 80px);
+      object-fit:cover; opacity:.14; pointer-events:none;
+      image-rendering:pixelated; image-rendering:crisp-edges;
+      -webkit-mask-image:radial-gradient(78% 58% at 50% 46%,
+            rgba(0,0,0,.10) 0%, rgba(0,0,0,.38) 55%, #000 100%);
+      mask-image:radial-gradient(78% 58% at 50% 46%,
+            rgba(0,0,0,.10) 0%, rgba(0,0,0,.38) 55%, #000 100%)}
+@media (prefers-reduced-motion:reduce){ .wash{display:none} }
+
 /* The words, as one block. Full width so the headline fitter, which measures
    against its parent, still gets the measure. */
 .say{width:100%; display:flex; flex-direction:column; align-items:flex-start;
@@ -231,6 +251,10 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 <body>
 
 <canvas class="vig" id="vig" aria-hidden="true"></canvas>
+<video class="wash" preload="auto" autoplay muted loop playsinline aria-hidden="true">
+  <source src="media/ground.mp4" type="video/mp4">
+  <source src="media/ground.webm" type="video/webm">
+</video>
 <main class="sheet">
   <div class="say">
     <div class="title">
@@ -584,7 +608,14 @@ void main(){
   vec2 pg = vec2(uPage.x + gl_FragCoord.x, uPage.y - gl_FragCoord.y);
   lum = clamp(lum, 0.0, 1.0) * vignette(pg);
   float v = lum > bayer(pg) ? 1.0 : 0.0;
-  gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
+  // Opaque where the ray hit the device, transparent where it missed. Solid,
+  // and the wash would show through the camera; opaque everywhere, and the
+  // canvas would be a clean rectangle in the wash -- a pale frame around it.
+  // The void's ink dots are still drawn, so the shadow and the vignette's own
+  // grain survive, and being computed from the same page-aligned field as the
+  // ground underneath they land on exactly the dots already there.
+  if (hit) gl_FragColor = vec4(mix(uInk, uGround, v), 1.0);
+  else     gl_FragColor = v > 0.5 ? vec4(0.0) : vec4(uInk, 1.0);
 }`;
 
 // One source of truth for the two colours: the stylesheet.
@@ -610,7 +641,8 @@ function compile(g, type, src){
 
 function initGL(){
   const cv = document.getElementById('gl');
-  const g = cv.getContext('webgl', { antialias: false, alpha: false });
+  // alpha, because the void is left transparent for the wash behind it.
+  const g = cv.getContext('webgl', { antialias: false, alpha: true });
   if (!g) return false;
   const pr = g.createProgram();
   g.attachShader(pr, compile(g, g.VERTEX_SHADER, VERT));
