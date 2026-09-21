@@ -90,7 +90,10 @@ img{max-width:100%}
 .vig{position:fixed; inset:0; width:100%; height:100%; display:block;
      image-rendering:pixelated; image-rendering:crisp-edges}
 
-.sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
+/* No z-index. The sheet only needs to paint after the ground, which document
+   order already does, and a z-index would make it a stacking context -- which
+   would trap the title's blend inside it, against nothing. */
+.sheet{position:relative; width:var(--sheet); margin:auto;
        display:flex; flex-direction:column-reverse; align-items:flex-start;
        gap:calc(var(--sheet) * 0.12)}
 
@@ -115,11 +118,13 @@ img{max-width:100%}
    The heading is padded for the same reason, to take those letters back in. The film's width and height are set rather than left to the insets:
    a video is a replaced element, so width:auto takes its own 540x926 instead
    of stretching. */
-/* Not quite opaque, so the block settles onto the ground instead of sitting on
-   top of it: the whites come back as a shade of grey and the blacks pick up
-   the dither underneath. Isolate means the blend inside happens first, at full
-   strength, and only the finished block is let down onto the page. */
-.title{position:relative; isolation:isolate; width:100%; opacity:.8}
+/* Multiply, so the white of the words becomes whatever the ground is under
+   them -- its grey, its dither, its gradient -- while the block's black stays
+   black. Isolate on the same element keeps the inversion inside from taking
+   part: the difference blend resolves first, at full strength, and only the
+   finished block is multiplied onto the page. */
+.title{position:relative; isolation:isolate; width:100%;
+       mix-blend-mode:multiply}
 .film{position:absolute; inset:0; width:100%; height:100%;
       object-fit:cover; pointer-events:none;
       image-rendering:pixelated; image-rendering:crisp-edges}
