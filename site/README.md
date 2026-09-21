@@ -102,16 +102,29 @@ gradient and the grid in viewport coordinates, which is what `uPage` is for, so
 there is no seam where its canvas starts. `uPage` is re-read every frame,
 because the sheet moves under the canvas whenever the headline is refitted.
 
-`opacity: .999` on that canvas is load-bearing, and it took several wrong
-turns to find. Safari 26 on iOS treats a fixed layer with a *solid* background
-differently from a translucent one: the opaque one is clipped at the top edge
-of the floating bottom bar, the translucent one is composited separately and
-covers the screen. A canvas full of dots is as opaque as it gets, so the ground
-stopped dead where the bars began, and no amount of `viewport-fit`, `lvh`,
-`theme-color` or moving it onto the root background changed that — the bug is
-about compositing, not about the viewport. Anything below 1 routes through the
-compositor. ([Edoardo Lunardi has the
-details.](https://www.edoardolunardi.dev/blog/safari-26-and-the-strange-case-of-fixed-overlays))
+Getting it to reach behind mobile Safari's bars took several wrong turns, and
+none of the obvious levers were the answer. Safari 26 ignores `theme-color`
+outright, does not treat a root background *image* as a tint source, and at
+`scrollY: 0` paints the top status area with the root `background-color`
+regardless of what is drawn there. `viewport-fit=cover` and `lvh` were already
+right and changed nothing on their own.
+
+What works is a **scroll runway**: the page is made exactly one runway taller
+than it needs to be, the shell is pushed down by the same amount, and JS
+scrolls to it on load. The margin and the scroll cancel out — the first frame
+is identical — but Safari now has a non-zero scroll position, and only then
+does it composite real page pixels behind the status area. `--runway` is 64px
+below 760px wide and zero above it, since desktop needs none of it. `body` is
+`display: flow-root` so the shell's top margin stays inside it; collapsed, it
+would escape to the document and add a second runway's worth of scroll.
+
+`html` and `body` both declare `background-color`, because that is the tint
+fallback and a transparent root comes out white. `opacity: .999` on the ground
+canvas is kept as well: Safari 26 clips a *fully opaque* fixed layer at the top
+edge of the floating bottom bar, where a translucent one is composited
+separately. ([The tinting rules are
+here](https://1ar.io/updates/safari-26-liquid-glass-web/); [the opacity
+quirk here](https://www.edoardolunardi.dev/blog/safari-26-and-the-strange-case-of-fixed-overlays).)
 
 Its height is the *large* viewport rather than the current one: the bars slide
 away over the page rather than reflowing it, so a layer sized to the small one
@@ -121,9 +134,6 @@ element scrolls nothing — and covers the case where the layout viewport is a
 hair shorter than the screen. The width has to be set explicitly: a canvas is a
 replaced element, so `width:auto` takes its aspect ratio off the height rather
 than stretching.
-
-There is deliberately no `theme-color`. Safari fills the bars with it, which
-would put a flat `#ddd` back over the ground the overlay has just reached.
 
 The gradient is paper for the middle 70 per cent and then a straight ramp to
 0.30 darker at the corners. An ordered dither lays each new dot exactly on the

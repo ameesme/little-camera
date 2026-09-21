@@ -43,6 +43,7 @@
   --glass:#fff; --cast:0,0,0;
   --pad-x:clamp(20px, 5vw, 72px);
   --bleed:140px;      /* how far the ground hangs past the viewport, top and bottom */
+  --runway:0px;       /* see the scroll runway below; only mobile needs it */
   /* The block: as wide as the screen allows, capped so it stays whole above
      the fold on a laptop. The headline is fitted to it at runtime (see the
      script): sizing it by calculation meant guessing the font's metrics, and
@@ -57,7 +58,7 @@
      for browsers without svh, and is the same number. */
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54vh);
   --sheet:min(calc(100vw - var(--pad-x) * 2), 480px, 54svh);
-  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass, and 1.75 mm of bezel at
+  /* The 2.7" Sharp panel is 57.6 x 34.56 mm of glass, and
      3 mm of bezel all round makes the device 63.6 x 40.6 x 7 mm. There is no
      chin: the border is the same width on every side, and the body is only as
      tall as that makes it. Every proportion below comes off that rectangle. */
@@ -65,16 +66,47 @@
   --h:calc(var(--w) * 0.6377);
   --d:calc(var(--w) * 0.1101);
   --r:calc(var(--w) * 0.055);
-  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
+
+/* Safari 26 derives its toolbar tint from CSS rather than from theme-color,
+   which it ignores outright, and falls back to the root background-color when
+   it finds no fixed element carrying one near the edge. Transparent roots come
+   out white, so both html and body declare it. */
+html{min-height:100%; overscroll-behavior:none; background:var(--paper)}
+
+/* The scroll runway. At scrollY 0 Safari fills the top status area with that
+   fallback colour; once the document has scrolled at all it composites real
+   page pixels there instead. So the page is made exactly one runway taller
+   than it needs to be, the shell is pushed down by the same amount, and JS
+   scrolls to it on load. The margin and the scroll cancel out -- the first
+   frame is identical -- but Safari now has a non-zero scroll position and the
+   ground reaches the top of the screen.
+   (https://1ar.io/updates/safari-26-liquid-glass-web/)
+   Desktop needs none of it, so there the runway is zero. */
+@media (max-width:760px){
+  :root{--runway:64px}
+  html{overflow-y:scroll}
+}
+
 body{
-  min-height:100vh; min-height:100dvh;
-  margin:0; background:var(--paper); color:var(--ink);
+  /* flow-root so the shell's top margin stays inside it. Collapsed, it would
+     escape to the document and add a second runway's worth of scroll. */
+  margin:0; display:flow-root; min-height:calc(100dvh + var(--runway));
+  background:var(--paper); color:var(--ink);
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
+}
+
+/* What used to be the body's own box. The safe-area insets live here rather
+   than on the root, so they pad the content without lengthening the document
+   and eating the runway. */
+.shell{
+  min-height:100vh; min-height:100dvh;
+  margin-top:var(--runway);
   display:flex;
-  padding-block:clamp(20px,5vh,64px);
+  padding-block:calc(env(safe-area-inset-top,0px) + clamp(20px,5vh,64px))
+               calc(env(safe-area-inset-bottom,0px) + clamp(20px,5vh,64px));
   padding-left:var(--pad-x); padding-right:var(--pad-x);
 }
 img{max-width:100%}
@@ -207,6 +239,7 @@ h1 span{display:block; white-space:nowrap}
 
 <canvas class="vig" id="vig" aria-hidden="true"></canvas>
 
+<div class="shell">
 <main class="sheet">
   <div class="say">
     <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
@@ -260,6 +293,7 @@ h1 span{display:block; white-space:nowrap}
     <canvas class="gl" id="gl"></canvas>
   </div>
 </main>
+</div>
 
 <script>
 // The loop is the product: it sleeps, and sleeping is where it spends its life.
@@ -725,12 +759,24 @@ for (const [key, src] of Object.entries(SCREENS)){
   img.src = src;
 }
 
+// Safari 26 composites real page pixels behind the top status area only once
+// the document has a non-zero scroll position; at zero it paints the root
+// background colour there instead. The runway (see the stylesheet) makes the
+// page exactly that much taller and the shell starts that much lower, so
+// taking it up costs nothing visually.
+function takeRunway(){
+  const runway = parseFloat(getComputedStyle(document.documentElement)
+                   .getPropertyValue('--runway')) || 0;
+  if (runway > 0 && scrollY < runway) scrollTo({ top: runway, left: 0, behavior: 'instant' });
+}
+
 function start(){
   try {
     if (!still.matches || true) glReady = initGL();
   } catch (e){ glReady = false; }
   paintVignette();
-  addEventListener('resize', paintVignette);
+  takeRunway();
+  addEventListener('resize', () => { paintVignette(); takeRunway(); });
   if (glReady){
     stage.classList.add('gl-on');
     sizeGL();
