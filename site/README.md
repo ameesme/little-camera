@@ -97,7 +97,13 @@ canvas.
 
 The whole page is that dither, not just the device. A second canvas, fixed
 behind the content, carries a radial gradient from the middle of the viewport
-out, screened with the same matrix on the same page-aligned grid. The device's
+out, screened with the same matrix on the same page-aligned grid. Its height is
+`100lvh`, the *large* viewport: mobile Safari's bars slide away over the page
+rather than reflowing it, so a canvas sized to `innerHeight` is trimmed the
+moment they do. At `100lvh` it is already as tall as the window can get, the
+bars merely uncover more of it, and nothing is repainted when they move. Its
+width has to be set explicitly — a canvas is a replaced element, so `width:auto`
+takes its aspect ratio off the height rather than stretching. The device's
 shader indexes both the gradient and the grid in page coordinates, which is
 what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
 re-read every frame, because the sheet moves under the canvas whenever the

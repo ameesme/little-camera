@@ -84,8 +84,21 @@ img{max-width:100%}
    window this composition should scroll rather than lose its head. */
 /* The page's own ground, dithered. It is fixed to the viewport and the
    content sits above it; the device's canvas reads the same field in the same
-   page coordinates, so the two share one unbroken dot pattern. */
-.vig{position:fixed; inset:0; width:100%; height:100%; display:block;
+   page coordinates, so the two share one unbroken dot pattern.
+
+   Its height is the LARGE viewport, not the current one. Mobile Safari's
+   address bar and toolbar slide away over the page rather than reflowing it,
+   so a canvas sized to innerHeight is trimmed the moment they do -- and it
+   would also have to be redrawn on every slide. At 100lvh it is already as
+   tall as the window can get, the bars simply uncover more of it, and nothing
+   is repainted. 100vh first for browsers without lvh; on iOS that has always
+   meant the large viewport anyway, which is the case this is for.
+
+   The width is set rather than left to left/right, because a canvas is a
+   replaced element: with width auto it takes its own aspect ratio off the
+   height instead of stretching, and a fresh canvas is 300x150. */
+.vig{position:fixed; left:0; top:0; width:100%;
+     height:100vh; height:100lvh; display:block;
      image-rendering:pixelated; image-rendering:crisp-edges}
 
 .sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
@@ -565,10 +578,12 @@ function sizeGL(){
 // Where this canvas sits in the viewport, so the shader can index the page's
 // vignette and dither grid rather than its own. Read every frame: the sheet
 // moves under it whenever the headline is refitted or the page scrolls, and a
-// stale origin shows immediately as a rectangle of mismatched ground.
+// stale origin shows immediately as a rectangle of mismatched ground. The
+// field's own size is the ground canvas's, which is the large viewport, not
+// the current one -- see .vig.
 function placeGL(){
   const r = document.getElementById('gl').getBoundingClientRect();
-  gl.uniform4f(uni.uPage, r.left, r.top + r.height, innerWidth, innerHeight);
+  gl.uniform4f(uni.uPage, r.left, r.top + r.height, vigW, vigH);
 }
 
 // The same vignette the shader applies, painted across the viewport and
@@ -580,10 +595,19 @@ const bayer = (x, y) =>
   (4 * BAYER4[((y & 3) << 2) | (x & 3)] +
    [[0, 2], [3, 1]][(y >> 2) & 1][(x >> 2) & 1] + 0.5) / 64;
 
+let vigW = 1, vigH = 1;
+
 function paintVignette(){
   const cv = document.getElementById('vig');
-  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
-  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  // Measure the element rather than the window: its box is the large viewport
+  // and the window is not. It is pinned to the top left, so a pixel of this
+  // canvas is a viewport CSS pixel, which is the coordinate system the shader
+  // is given in uPage.
+  const r = cv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+  vigW = w; vigH = h;
+  if (cv.width === w && cv.height === h) return;   // a sliding bar changes neither
+  cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d');
   if (!ctx) return;
   const ink = cssColour('--ink').map((v) => Math.round(v * 255));
