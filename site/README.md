@@ -164,7 +164,7 @@ say.style.flex = '0 0 auto';
 say.style.width = col + 'px';
 
 const by = document.querySelector('.by');
-by.style.whiteSpace = 'nowrap';
+by.querySelector('span').style.whiteSpace = 'nowrap';
 document.querySelector('.pre').style.display = 'none';
 
 setScreen('gallery');
@@ -292,7 +292,13 @@ than the screen:
 The spec line under the headline — "0.07 megapixel • 1-bit monochrome • private
 picture blog" — sits in the flow, aligned to the same left edge. It is set in
 Book rather than Bold, at a little over a quarter of the headline's size, and
-it is inverted the same way the headline is. White
+set solid on hard black where the headline is film and inversion.
+
+That band is on an inline span inside the paragraph, not on the paragraph
+itself: a flex item is blockified, so a background there would run the full
+measure instead of hugging the words. Inline, it breaks with the text and each
+line gets its own band, which `box-decoration-break: clone` gives its own
+padding too. The leading is opened to 1.55 to keep those bands off each other. White
 letters in `mix-blend-mode: difference` come out as the exact opposite of the
 ground under them, so the line carries the page's own dots reversed rather than
 a colour of its own. Nothing between it and the ground may be a stacking
