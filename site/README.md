@@ -139,17 +139,26 @@ ground, the same dither, the same glitched headline, the device held face on
 showing a photo. It is 1200x630 at one device pixel per CSS pixel, because the
 dither is one dot per CSS pixel and scaling it would turn the dots to mush.
 
-To remake it, load the page at that size, pin the device, enlarge the measure
-so the composition fills the frame, and shoot:
+It is laid out landscape rather than in the page's own stack — device left,
+words right — because a portrait composition in a 1200x630 frame leaves most of
+it empty. To remake it, load the page at that size, turn the sheet into a row,
+pin the device face on, swap the credit for the spec line, and shoot:
 
 ```js
-document.documentElement.style.setProperty('--sheet', '380px');
+document.documentElement.style.setProperty('--sheet', '470px');
+const sheet = document.querySelector('.sheet');
+sheet.style.width = '1080px';
+sheet.style.flexDirection = 'row-reverse';   // the stage is second in the DOM
+sheet.style.alignItems = 'center';
+sheet.style.gap = '64px';
+document.querySelector('.stage').style.flex = '0 0 auto';
+document.querySelector('.say').style.flex = '1 1 auto';
+document.querySelector('.by').textContent =
+  '0.07 megapixel \u2022 1-bit monochrome \u2022 uploads to a private microblog';
 spinFrom = 0; spinTo = 0; spinAt = -1e9;
 setScreen('gallery');
 fitAndMask(); sizeGL();
 ```
-
-380px is as large as the measure goes before the stack outgrows 630.
 
 Everything in the head is lower case, the way the page is set. The favicon is
 an inline SVG of the device in ink on the page's paper, so there is no second
