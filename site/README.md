@@ -103,7 +103,16 @@ rather than reflowing it, so a canvas sized to `innerHeight` is trimmed the
 moment they do. At `100lvh` it is already as tall as the window can get, the
 bars merely uncover more of it, and nothing is repainted when they move. Its
 width has to be set explicitly — a canvas is a replaced element, so `width:auto`
-takes its aspect ratio off the height rather than stretching. The device's
+takes its aspect ratio off the height rather than stretching. It then hangs
+`--bleed` past the top and bottom, because even at the large viewport it would
+otherwise end exactly where the browser's bars begin, with nothing behind them
+to show. Overhanging costs nothing: a fixed element scrolls nothing, and the
+gradient is still measured on the viewport box, so the composition does not
+move.
+
+There is deliberately no `theme-color`. Mobile Safari fills the status bar and
+the toolbar with it, and a flat `#ddd` there is what made the ground look cut
+off at both ends of a phone screen. The device's
 shader indexes both the gradient and the grid in page coordinates, which is
 what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
 re-read every frame, because the sheet moves under the canvas whenever the

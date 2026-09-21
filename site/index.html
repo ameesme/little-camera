@@ -6,7 +6,10 @@
 <title>A Little Camera</title>
 <meta name="description" content="A small black-and-white camera that sleeps, breathes and posts to its own tiny blog.">
 <meta name="color-scheme" content="light">
-<meta name="theme-color" content="#dddddd">
+<!-- No theme-color on purpose. Mobile Safari fills the status bar and the
+     toolbar with it, and a flat #ddd there is exactly what made the dithered
+     ground look cut off at both ends of a phone. Without it the bars take the
+     page behind them instead. -->
 <meta property="og:title" content="A Little Camera">
 <meta property="og:description" content="A small black-and-white camera that sleeps, breathes and posts to its own tiny blog.">
 <meta property="og:type" content="website">
@@ -39,6 +42,7 @@
   --shell:#dadada; --shell-lit:#efefef; --shell-dim:#c3c3c3;
   --glass:#fff; --cast:0,0,0;
   --pad-x:clamp(20px, 5vw, 72px);
+  --bleed:140px;      /* how far the ground hangs past the viewport, top and bottom */
   /* The block: as wide as the screen allows, capped so it stays whole above
      the fold on a laptop. The headline is fitted to it at runtime (see the
      script): sizing it by calculation meant guessing the font's metrics, and
@@ -96,9 +100,16 @@ img{max-width:100%}
 
    The width is set rather than left to left/right, because a canvas is a
    replaced element: with width auto it takes its own aspect ratio off the
-   height instead of stretching, and a fresh canvas is 300x150. */
-.vig{position:fixed; left:0; top:0; width:100%;
-     height:100vh; height:100lvh; display:block;
+   height instead of stretching, and a fresh canvas is 300x150.
+
+   It also hangs --bleed past the top and bottom. Even at the large viewport it
+   would otherwise end exactly where the browser's bars begin, with nothing
+   behind them to show. Overhanging costs nothing -- a fixed element scrolls
+   nothing -- and the gradient is still measured on the viewport box, so the
+   composition does not move. */
+.vig{position:fixed; left:0; top:calc(0px - var(--bleed)); width:100%;
+     height:calc(100vh + var(--bleed) * 2);
+     height:calc(100lvh + var(--bleed) * 2); display:block;
      image-rendering:pixelated; image-rendering:crisp-edges}
 
 .sheet{position:relative; z-index:1; width:var(--sheet); margin:auto;
@@ -605,7 +616,10 @@ function paintVignette(){
   // is given in uPage.
   const r = cv.getBoundingClientRect();
   const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
-  vigW = w; vigH = h;
+  // The canvas overhangs, so its own pixels are not viewport pixels: everything
+  // below works in viewport coordinates, which is what the shader is given.
+  const off = Math.round(-r.top);
+  vigW = w; vigH = Math.max(1, h - off * 2);
   if (cv.width === w && cv.height === h) return;   // a sliding bar changes neither
   cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d');
@@ -613,12 +627,13 @@ function paintVignette(){
   const ink = cssColour('--ink').map((v) => Math.round(v * 255));
   const paper = cssColour('--paper').map((v) => Math.round(v * 255));
   const img = ctx.createImageData(w, h), d = img.data;
-  const cx = w / 2, cy = h / 2, R = 0.5 * Math.hypot(w, h);
+  const cx = vigW / 2, cy = vigH / 2, R = 0.5 * Math.hypot(vigW, vigH);
   for (let y = 0; y < h; y++){
+    const vy = y - off;
     for (let x = 0; x < w; x++){
-      const t = Math.hypot(x - cx, y - cy) / R;
+      const t = Math.hypot(x - cx, vy - cy) / R;
       const lum = 1 - VIG * Math.min(1, Math.max(0, (t - VIG_IN) / (1 - VIG_IN)));
-      const c = lum > bayer(x, y) ? paper : ink;
+      const c = lum > bayer(x, vy) ? paper : ink;
       const i = (y * w + x) * 4;
       d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
     }
