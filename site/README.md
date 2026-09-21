@@ -141,24 +141,44 @@ dither is one dot per CSS pixel and scaling it would turn the dots to mush.
 
 It is laid out landscape rather than in the page's own stack — device left,
 words right — because a portrait composition in a 1200x630 frame leaves most of
-it empty. To remake it, load the page at that size, turn the sheet into a row,
-pin the device face on, swap the credit for the spec line, and shoot:
+it empty. To remake it, load the page at that size and run:
 
 ```js
-document.documentElement.style.setProperty('--sheet', '470px');
+const WIDE = 1080, GAP = 64;
+document.documentElement.style.setProperty('--sheet', '540px');   // sizes the device
+
 const sheet = document.querySelector('.sheet');
-sheet.style.width = '1080px';
+const stage = document.querySelector('.stage');
+const say   = document.querySelector('.say');
+sheet.style.width = WIDE + 'px';
 sheet.style.flexDirection = 'row-reverse';   // the stage is second in the DOM
 sheet.style.alignItems = 'center';
-sheet.style.gap = '64px';
-document.querySelector('.stage').style.flex = '0 0 auto';
-document.querySelector('.say').style.flex = '1 1 auto';
-document.querySelector('.by').textContent =
-  '0.07 megapixel \u2022 1-bit monochrome \u2022 uploads to a private microblog';
+sheet.style.gap = GAP + 'px';
+stage.style.flex = '0 0 auto';
+
+// Fixed columns, not flexible ones: the credit is set nowrap below and would
+// otherwise widen its own column and shove the device off the frame.
+const col = WIDE - Math.round(stage.getBoundingClientRect().width) - GAP;
+say.style.flex = '0 0 auto';
+say.style.width = col + 'px';
+
+const by = document.querySelector('.by');
+by.textContent = '0.07 megapixel \u2022 1-bit monochrome \u2022 uploads to a private website';
+by.style.whiteSpace = 'nowrap';
+
 spinFrom = 0; spinTo = 0; spinAt = -1e9;
 setScreen('gallery');
+window.setScreen = () => {};   // the state loop would put the viewfinder back
 fitAndMask(); sizeGL();
+
+const now = parseFloat(getComputedStyle(by).fontSize);
+if (by.scrollWidth > col) by.style.fontSize = Math.floor(now * col / by.scrollWidth) + 'px';
 ```
+
+Two things there are not decoration. `window.setScreen` has to be nailed shut
+or the state loop puts the viewfinder back before the shutter, and the columns
+have to be fixed widths or the nowrap credit widens its own column and shoves
+the device off the frame.
 
 Everything in the head is lower case, the way the page is set. The favicon is
 an inline SVG of the device in ink on the page's paper, so there is no second
