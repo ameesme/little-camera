@@ -92,8 +92,20 @@ ffmpeg -i <clip>.mov -an -vf "fps=24,scale=540:-2:flags=area" \
   -movflags +faststart site/media/ground.mp4
 ```
 
+The same film runs a second time over the whole page at 12%, just enough that
+the paper reads as a shade of grey rather than a flat fill. That is a second
+element and so a second decoder, which is the price of having the film at two
+strengths at once: one element cannot be in two places.
+
+It sits under the sheet, which means the device's canvas has to let it through
+or the canvas would be a clean rectangle in the wash — a pale frame around the
+camera. So the canvas is opaque where the ray hit the device and transparent
+where it missed. The void's ink dots are still drawn, so the shadow and the
+vignette's grain survive, and since they come from the same page-aligned field
+as the ground underneath they land on exactly the dots already there.
+
 Autoplay is refused in low power mode even when muted and inline, so the first
-touch starts it instead, and nothing depends on it playing.
+touch starts both instead, and nothing depends on them playing.
 
 ## Type and colour
 
