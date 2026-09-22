@@ -191,8 +191,17 @@ img{max-width:100%}
    by 40px top and bottom against lvh so an iOS bar sliding away could not
    uncover its edge. The box has a settled height of its own, so it can simply
    fill it. */
+/* Multiply, not plain opacity. The clip is two values, so at .14 opacity a
+   white pixel computed 0.86 x ground + 0.14 x 255 -- 226 over the page's 221,
+   brighter than the background it is supposed to be shading, and it washed out
+   the ground's dots on the way. Multiplied, white is the identity: the ground
+   passes through untouched, dither and all, and only the clip's black darkens.
+   It cannot exceed the ground by construction rather than by a tuned number.
+   That throws away the half of the signal that used to lighten, hence .28
+   where .14 used to do. */
 .wash{position:absolute; inset:0; width:100%; height:100%;
-      object-fit:cover; opacity:.14; pointer-events:none;
+      object-fit:cover; opacity:.28; mix-blend-mode:multiply;
+      pointer-events:none;
       filter:grayscale(1) contrast(2000%);   /* two values only; see .film */
       image-rendering:pixelated; image-rendering:crisp-edges;
       -webkit-mask-image:radial-gradient(78% 58% at 50% 46%,
