@@ -125,8 +125,8 @@ paper at any opacity, so the ceiling holds by construction and the opacity is
 free to carry the texture; measured across a background strip the brightest
 pixel is exactly the paper.
 
-The wash also carries **`mix-blend-mode: overlay`, and that is load-bearing
-beyond how it looks.** A bare `<video>` is hardware-composited, and WebKit then
+In Safari the wash also carries **`mix-blend-mode: overlay`, and that is not a
+look — it is the fix.** A bare `<video>` is hardware-composited, and WebKit then
 paints it without the opacity or the mask this rule asks for: Safari ran the
 wash at full strength straight across the middle, where Firefox and Chromium
 kept it to the edges. Every property was correct in the inspector; the paint
@@ -136,14 +136,21 @@ blend mode forces the subtree to be rendered and blended instead of handed
 to the compositor, and the wash comes right. **Don't remove it without opening
 the page in Safari.**
 
-Overlay costs the ceiling, though. It screens against a backdrop lighter than
-mid-grey, and the paper is 221, so the wash can again be a little brighter than
-the ground it is shading: the same strip measures max 210 against the paper's
-206, and the average lifts from 169 to 194. `multiply` would keep the ceiling
-*and* leave the ground's dots alone — and it should force the same
-non-composited path, since it is the presence of a blend and not this
-particular one that fixes Safari. Untried in front of a real Safari; worth a
-swap in the inspector next time there is one to hand.
+It is scoped to Safari with `@supports (background: -webkit-named-image(i))`,
+which is WebKit's own function and one Blink dropped, so the test is false in
+Chrome and in Firefox. Scoped because it is not free: overlay screens against a
+backdrop lighter than mid-grey, and the paper is 221, so it lifts the wash
+above the ceiling the `brightness` cap exists to hold — the same strip goes
+from 169/206 to 194/210. Unscoped it made Firefox visibly brighter, which is
+what sent it behind the query. Better one engine slightly light than one engine
+wrong.
+
+Two things to try if this comes round again, neither tested in front of a real
+Safari. `multiply` in place of `overlay` should force the same non-composited
+path — it looks like the *presence* of a blend is what fixes WebKit, not which
+one — while keeping the ceiling and leaving the ground's dots alone. And
+`isolation: isolate` might force it too, at no cost to the colour at all, which
+would retire the browser query entirely. Both are one line in the inspector.
 
 A radial mask keeps that wash off the middle entirely. Nothing at all out to
 60%, where the camera and the words live, and from there it climbs to full at
