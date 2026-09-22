@@ -226,9 +226,15 @@ distance inside it as an absolute bar did. Fixed also takes it out of the box's
 `overflow: hidden`, which is what lets it sit over content passing underneath.
 
 It comes *after* the ground canvas and the wash in the markup — all three are
-positioned and none carries a `z-index`, so document order is the only thing
-putting the button on top of them. Before them, the ground painted straight
-over it.
+positioned, so document order is what puts the button on top of them. Before
+them, the ground painted straight over it.
+
+Document order is not enough against the sheet, though, which is positioned and
+comes later still: the camera and the badge painted over the button the moment
+anything scrolled under it, which is the whole point of the bar being fixed. So
+the bar carries the page's one `z-index`. It is safe there because the bar is a
+*sibling* of the sheet, not an ancestor — the stacking context it makes is
+nowhere near the title's blend.
 
 ## The bento
 

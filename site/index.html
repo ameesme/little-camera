@@ -213,7 +213,14 @@ img{max-width:100%}
    two from reading as the same corner at different sizes. */
 .bar{position:fixed; top:calc(var(--gutter) * 2);
      left:calc(var(--gutter) * 2); right:calc(var(--gutter) * 2);
-     display:flex; justify-content:flex-end; align-items:center}
+     display:flex; justify-content:flex-end; align-items:center;
+     /* The one z-index on the page. The sheet is positioned too and comes
+        later in the markup, so document order alone paints the camera and the
+        badge over this the moment anything scrolls under it -- which is the
+        whole reason the bar is fixed. Safe here because .bar is a sibling of
+        the sheet, not an ancestor: the stacking context it makes is nowhere
+        near the title's blend. */
+     z-index:2}
 .pre{border:0; border-radius:calc(var(--bento) / 2); margin:0;
      padding:calc(var(--sheet) * 0.030) calc(var(--sheet) * 0.052);
      font-family:var(--font-bold); font-weight:700;
