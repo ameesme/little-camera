@@ -201,13 +201,19 @@ img{max-width:100%}
    dots it would leave them alone where this lifts them; it is not used because
    a blended layer over a full-screen video breaks the page on iOS Safari --
    both on the video itself and on a wrapping div. */
-/* The opacity and the mask are on a wrapping div; the <video> carries only
-   object-fit and the threshold. A video is hardware-composited, and how much
-   of a painting operation reaches that layer is engine-specific -- Safari and
-   Firefox disagree visibly about this element. A div composites like anything
-   else, so the two operations that shape the wash are taken off the video. */
+/* The opacity, the blend and the mask are on a wrapping div; the <video>
+   carries only object-fit and the threshold.
+
+   The blend is load-bearing beyond how it looks. A bare video is
+   hardware-composited, and WebKit then paints it without the opacity, the mask
+   or much else this rule asks for -- Safari rendered the wash at full strength
+   across the middle where Firefox and Chromium kept it to the edges. Hiding
+   .wash was the one thing that made Safari correct, which is what identified
+   it. A mix-blend-mode forces the subtree to be rendered and blended rather
+   than handed to the compositor, and the wash comes right. Don't remove it
+   without checking Safari; overlay is not only a look. */
 .wash{position:absolute; inset:0; overflow:hidden;
-      opacity:.28; pointer-events:none;
+      opacity:.28; mix-blend-mode:overlay; pointer-events:none;
       -webkit-mask-image:radial-gradient(78% 58% at 50% 46%,
             rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%);
       mask-image:radial-gradient(78% 58% at 50% 46%,
