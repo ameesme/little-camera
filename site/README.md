@@ -125,13 +125,25 @@ paper at any opacity, so the ceiling holds by construction and the opacity is
 free to carry the texture; measured across a background strip the brightest
 pixel is exactly the paper.
 
-`mix-blend-mode: multiply` does this more exactly — white becomes a true no-op,
-so the ground's black dots survive under it where `brightness` lifts them. It
-is not used: **a blended layer over this full-screen video breaks the page on
-iOS Safari**, painting the clip at full strength and its intrinsic 540x926 over
-everything. Putting the blend on a wrapping div instead of the video itself
-does not help, so it is the blended layer and not which element carries it.
-Don't reach for `mix-blend-mode` here again without an iOS device to hand.
+The wash also carries **`mix-blend-mode: overlay`, and that is load-bearing
+beyond how it looks.** A bare `<video>` is hardware-composited, and WebKit then
+paints it without the opacity or the mask this rule asks for: Safari ran the
+wash at full strength straight across the middle, where Firefox and Chromium
+kept it to the edges. Every property was correct in the inspector; the paint
+just ignored them. Hiding `.wash` was the one change that made Safari right,
+which is what pinned it on this element rather than on the ground canvas. A
+blend mode forces the subtree to be rendered and blended instead of handed
+to the compositor, and the wash comes right. **Don't remove it without opening
+the page in Safari.**
+
+Overlay costs the ceiling, though. It screens against a backdrop lighter than
+mid-grey, and the paper is 221, so the wash can again be a little brighter than
+the ground it is shading: the same strip measures max 210 against the paper's
+206, and the average lifts from 169 to 194. `multiply` would keep the ceiling
+*and* leave the ground's dots alone — and it should force the same
+non-composited path, since it is the presence of a blend and not this
+particular one that fixes Safari. Untried in front of a real Safari; worth a
+swap in the inspector next time there is one to hand.
 
 A radial mask keeps that wash off the middle entirely. Nothing at all out to
 60%, where the camera and the words live, and from there it climbs to full at
