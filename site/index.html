@@ -82,6 +82,8 @@
   --d:calc(var(--w) * 0.1101);
   --r:calc(var(--w) * 0.055);
   --burst:calc(var(--w) * 0.30);   /* the price sticker over the top right corner */
+  --gutter:8px;                    /* the page's margin around the bento */
+  --bento:16px;                    /* its corner radius */
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
@@ -94,8 +96,7 @@ body{
   font-family:var(--font);
   font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
   display:flex; flex-direction:column;
-  padding-block:clamp(20px,5vh,64px);
-  padding-left:var(--pad-x); padding-right:var(--pad-x);
+  padding:var(--gutter);
 }
 img{max-width:100%}
 
@@ -105,10 +106,22 @@ img{max-width:100%}
    rather than centring on the body, because a flex container centred with
    align-items clips the top of anything taller than it, and on a very short
    window this composition should scroll rather than lose its head. */
-/* The page's own ground, dithered. It is fixed to the viewport and the
-   content sits above it; the device's canvas reads the same field in the same
-   page coordinates, so the two share one unbroken dot pattern. */
-.vig{position:fixed; inset:0; width:100%; height:100%; display:block;
+/* Everything that moves lives in one rounded box: the ground, the wash and
+   the composition on top of them. The header stays outside it.
+
+   flex:1 0 auto, not a height: the box fills the first screen and will push
+   whatever comes after it down the page rather than shrinking to make room.
+   No z-index -- it is not a stacking context, so the title's blend still
+   reaches the ground inside it. overflow:hidden is what the radius needs to
+   bite on the two full-bleed layers below. */
+.bento{position:relative; flex:1 0 auto; overflow:hidden;
+       border-radius:var(--bento);
+       display:flex; flex-direction:column}
+
+/* The box's ground, dithered. Absolute rather than fixed, so the radius clips
+   it; the device's canvas reads the same field in the same box coordinates,
+   so the two share one unbroken dot pattern. */
+.vig{position:absolute; left:0; top:0; display:block;
      image-rendering:pixelated; image-rendering:crisp-edges}
 
 /* No z-index. The sheet only needs to paint after the ground, which document
@@ -174,8 +187,11 @@ img{max-width:100%}
    60%, where the camera and the words live, so the middle is one even wash
    rather than a gradient of its own, and climbs to full at the corners. Under the sheet, so the words and
    the camera sit on top of it. */
-.wash{position:fixed; left:0; top:-40px; width:100%;
-      height:calc(100vh + 80px); height:calc(100lvh + 80px);
+/* Absolute in the box, not fixed to the viewport: it used to be overscanned
+   by 40px top and bottom against lvh so an iOS bar sliding away could not
+   uncover its edge. The box has a settled height of its own, so it can simply
+   fill it. */
+.wash{position:absolute; inset:0; width:100%; height:100%;
       object-fit:cover; opacity:.14; pointer-events:none;
       filter:grayscale(1) contrast(2000%);   /* two values only; see .film */
       image-rendering:pixelated; image-rendering:crisp-edges;
@@ -186,13 +202,15 @@ img{max-width:100%}
 @media (prefers-reduced-motion:reduce){ .wash{display:none} }
 
 /* A header that is only a button: where a site would put its call to action,
-   so the page reads as a product page rather than a poster. Hard on purpose --
-   no radius on it anywhere, where everything else here is rounded. It does
-   nothing yet, and both the disabled attribute and the cursor say so. */
-.bar{position:relative;   /* or the fixed ground canvas paints over it */
-     display:flex; justify-content:flex-end; align-items:center; width:100%;
-     margin-bottom:calc(var(--sheet) * 0.05)}
-.pre{border:0; border-radius:0; margin:0;
+   so the page reads as a product page rather than a poster. It does nothing
+   yet, and both the disabled attribute and the cursor say so.
+
+   Floating on the box rather than sitting above it, inset by the same gutter
+   the page keeps around the box. Its radius is half the box's, which is what
+   keeps the two from reading as the same corner at different sizes. */
+.bar{position:absolute; top:var(--gutter); left:var(--gutter); right:var(--gutter);
+     display:flex; justify-content:flex-end; align-items:center}
+.pre{border:0; border-radius:calc(var(--bento) / 2); margin:0;
      padding:calc(var(--sheet) * 0.030) calc(var(--sheet) * 0.052);
      font-family:var(--font-bold); font-weight:700;
      font-size:calc(var(--sheet) * 0.050); line-height:1;
@@ -339,11 +357,14 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 </head>
 <body>
 
+<section class="bento" id="bento">
 <canvas class="vig" id="vig" aria-hidden="true"></canvas>
 <video class="wash" preload="auto" autoplay muted loop playsinline aria-hidden="true">
   <source src="media/ground.mp4" type="video/mp4">
   <source src="media/ground.webm" type="video/webm">
 </video>
+<!-- After the two full-bleed layers: all three are positioned and none carries
+     a z-index, so document order is what puts the button on top of them. -->
 <header class="bar">
   <button class="pre" type="button" disabled aria-disabled="true">pre-order</button>
 </header>
@@ -419,6 +440,7 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
     </div>
   </div>
 </main>
+</section>
 
 <script>
 // The loop is the product: it sleeps, and sleeping is where it spends its life.
@@ -794,18 +816,31 @@ function sizeGL(){
 // vignette and dither grid rather than its own. Read every frame: the sheet
 // moves under it whenever the headline is refitted or the page scrolls, and a
 // stale origin shows immediately as a rectangle of mismatched ground.
+// The box is the origin both canvases share -- for the dither lattice and for
+// the vignette, which is centred on the box rather than the viewport now. Its
+// size is rounded up: the header's height is set by font metrics and lands on
+// fractions, and half a pixel of scaling would smear the dither. The extra
+// pixel is under the box's own clip.
+function bentoBox(){
+  const b = document.getElementById('bento').getBoundingClientRect();
+  return {left:b.left, top:b.top,
+          w:Math.max(1, Math.ceil(b.width)), h:Math.max(1, Math.ceil(b.height))};
+}
+
 function placeGL(){
   const r = document.getElementById('gl').getBoundingClientRect();
+  const b = bentoBox();
   // Rounded, so this canvas's dither grid falls on the same integer lattice as
   // the ground's. Half a pixel out and the two sets of dots interleave instead
   // of coinciding, which doubles the density wherever they overlap.
-  gl.uniform4f(uni.uPage, Math.round(r.left), Math.round(r.top + r.height),
-               innerWidth, innerHeight);
+  gl.uniform4f(uni.uPage,
+               Math.round(r.left - b.left), Math.round(r.top + r.height - b.top),
+               b.w, b.h);
 }
 
-// The same vignette the shader applies, painted across the viewport and
-// dithered with the same matrix on the same page-aligned grid. It only changes
-// when the window does, so a per-pixel pass in JS is cheap enough.
+// The same vignette the shader applies, painted across the box and dithered
+// with the same matrix on the same box-aligned grid. It only changes when the
+// window does, so a per-pixel pass in JS is cheap enough.
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const VIG = 0.30, VIG_IN = 0.70;
 const bayer = (x, y) =>
@@ -814,8 +849,13 @@ const bayer = (x, y) =>
 
 function paintVignette(){
   const cv = document.getElementById('vig');
-  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
-  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const {w, h} = bentoBox();
+  if (cv.width !== w || cv.height !== h){
+    cv.width = w; cv.height = h;
+    // CSS size too, and the same integers: left to stretch to the box it would
+    // be resampled onto a fractional width and the dots would smear.
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  }
   const ctx = cv.getContext('2d');
   if (!ctx) return;
   const ink = cssColour('--ink').map((v) => Math.round(v * 255));

@@ -126,7 +126,7 @@ It sits under the sheet, which means the device's canvas has to let it through
 or the canvas would be a clean rectangle in the wash, a pale frame around the
 camera. So the canvas is opaque where the ray hit the device and transparent
 where it missed. The void's ink dots are still drawn, so the shadow and the
-vignette's grain survive, and since they come from the same page-aligned field
+vignette's grain survive, and since they come from the same box-aligned field
 as the ground underneath they land on exactly the dots already there.
 
 Autoplay is refused in low power mode even when muted and inline, so the first
@@ -148,6 +148,10 @@ page at that size and run:
 ```js
 const WIDE = 1080, GAP = 64;
 document.documentElement.style.setProperty('--sheet', '540px');   // sizes the device
+// Full bleed: a share image is cropped and letterboxed by whoever shows it,
+// so the page's gutter and rounded corners would read as a mistake.
+document.documentElement.style.setProperty('--gutter', '0px');
+document.documentElement.style.setProperty('--bento', '0px');
 
 const sheet = document.querySelector('.sheet');
 const stage = document.querySelector('.stage');
@@ -210,12 +214,34 @@ request and no 404 for `/favicon.ico`.
 
 The pre-order button sits top right in a header that is only a button — where a
 site would put its call to action, so the page reads as a product page rather
-than a poster. Solid ink, paper label, no border and no radius, where
-everything else here is rounded. It does nothing yet, and both the `disabled`
-attribute and the cursor say so.
+than a poster. Solid ink, paper label, no border. It does nothing yet, and both
+the `disabled` attribute and the cursor say so.
 
-`.bar` is `position: relative` for a reason: the ground canvas is fixed, so it
-paints above ordinary block content and would hide the header entirely.
+Its radius is `--bento / 2`, not a number of its own: at half the box's corner
+the two never read as the same curve at two sizes, and tuning the box carries
+the button with it.
+
+The header floats on the box rather than sitting above it, inset by the same
+gutter the page keeps around the box. It comes *after* the ground canvas and
+the wash in the markup — all three are positioned and none carries a
+`z-index`, so document order is the only thing putting the button on top of
+them. Before them, the ground painted straight over it.
+
+## The bento
+
+Everything that moves — the ground, the wash and the composition on top of them
+— lives in one rounded section, with the page keeping an 8px gutter around it
+(`--gutter`) and the box a 16px radius (`--bento`). `overflow: hidden` is what
+lets the radius bite on the two full-bleed layers inside.
+
+It is `flex: 1 0 auto`, not a height: it fills the first screen, and anything
+added after it is pushed down the page and scrolls rather than squeezing the
+box. The box carries no `z-index` and so is not a stacking context, which is
+what keeps the title's blend reaching the ground inside it.
+
+The card overrides both variables to 0 and goes full bleed. A share image is
+cropped and letterboxed by whoever displays it, so a gutter and rounded corners
+there read as a mistake rather than as a frame.
 
 ## The badge
 
@@ -300,13 +326,19 @@ pixel, which on a phone lands close to the physical pixel pitch of the real
 panel. Output is strictly black and white: no intermediate values reach the
 canvas.
 
-The whole page is that dither, not just the device. A second canvas, fixed
-behind the content, carries a radial gradient from the middle of the viewport
-out, screened with the same matrix on the same page-aligned grid. The device's
-shader indexes both the gradient and the grid in page coordinates, which is
-what `uPage` is for, so there is no seam where its canvas starts. `uPage` is
-re-read every frame, because the sheet moves under the canvas whenever the
-headline is refitted.
+The whole box is that dither, not just the device. A second canvas, filling the
+bento behind the content, carries a radial gradient from the middle of the box
+out, screened with the same matrix on the same box-aligned grid. The device's
+shader indexes both the gradient and the grid in box coordinates, which is what
+`uPage` is for, so there is no seam where its canvas starts. `uPage` is re-read
+every frame, because the sheet moves under the canvas whenever the headline is
+refitted.
+
+Both canvases take the box's size rounded **up**. The header's height comes
+from font metrics and lands on fractions, and a canvas resampled onto a
+fractional width smears its dots; the spare pixel falls under the box's own
+clip. Get this wrong in either canvas and the two dot lattices interleave
+instead of coinciding, which doubles the density wherever they overlap.
 
 The gradient is paper for the middle 70 per cent and then a straight ramp to
 0.30 darker at the corners. An ordered dither lays each new dot exactly on the
