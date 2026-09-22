@@ -237,6 +237,12 @@ italic gets the browser's synthetic oblique at about 14° — enough to stop
 looking like the typeface. Nine degrees of our own reads as a slant instead. If
 a real italic cut turns up it wants a second `@font-face`, not either of these.
 
+The star turns as a `<path>`, not as the `<svg>` element. Rotating the element
+swings its axis-aligned box out to √2 of its width, which on a 393px phone
+pokes a couple of pixels past the viewport and gives the page a horizontal
+scrollbar for part of every revolution. `transform-box: fill-box` lets the path
+spin about its own centre inside a box that never moves.
+
 It is placed against the stage, not tracked to the device, because the device
 turns and bobs and a tracked corner would make the sticker swim. Its centre is
 0.07w in from the stage's right edge rather than on the geometric corner at
