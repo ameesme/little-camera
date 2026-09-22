@@ -83,7 +83,7 @@
   --r:calc(var(--w) * 0.055);
   --burst:calc(var(--w) * 0.30);   /* the price sticker over the top right corner */
   --gutter:8px;                    /* the page's margin around the bento */
-  --bento:8px;                     /* its corner radius */
+  --bento:16px;                    /* its corner radius */
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
@@ -121,6 +121,13 @@ img{max-width:100%}
 /* The box's ground, dithered. Absolute rather than fixed, so the radius clips
    it; the device's canvas reads the same field in the same box coordinates,
    so the two share one unbroken dot pattern. */
+/* The box's shadow, dithered like everything else -- a soft grey box-shadow
+   would be the one piece of the page that is not made of dots. It is its own
+   canvas because the ground above lives inside the box and cannot paint
+   outside it. Fixed and behind everything; it only ever marks the gutter. */
+.shade{position:fixed; left:0; top:0; display:block; pointer-events:none;
+       image-rendering:pixelated; image-rendering:crisp-edges}
+
 .vig{position:absolute; left:0; top:0; display:block;
      image-rendering:pixelated; image-rendering:crisp-edges}
 
@@ -400,6 +407,15 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 </head>
 <body>
 
+<canvas class="shade" id="shade" aria-hidden="true"></canvas>
+
+<!-- Outside the box, not in it. It is fixed, so it sits in the same place
+     either way; what keeps it above the box is its z-index, not its place in
+     the markup. -->
+<header class="bar">
+  <button class="pre" type="button" disabled aria-disabled="true">pre-order</button>
+</header>
+
 <section class="bento" id="bento">
 <canvas class="vig" id="vig" aria-hidden="true"></canvas>
 <div class="wash" aria-hidden="true">
@@ -408,11 +424,6 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
     <source src="media/ground.webm" type="video/webm">
   </video>
 </div>
-<!-- After the two full-bleed layers: all three are positioned and none carries
-     a z-index, so document order is what puts the button on top of them. -->
-<header class="bar">
-  <button class="pre" type="button" disabled aria-disabled="true">pre-order</button>
-</header>
 
 <main class="sheet">
   <div class="say">
@@ -919,6 +930,57 @@ function paintVignette(){
   ctx.putImageData(img, 0, 0);
 }
 
+// The box's drop shadow, on the same Bayer grid as everything else. A 2D
+// rounded-box distance field gives the falloff; the threshold turns it into
+// dots. Indexed in box coordinates, not page ones, so its dots line up with the
+// ground's inside the box however wide the gutter is.
+// Below the box only -- nothing up the sides or over the top, so it reads as
+// the box sitting on the page rather than floating off it.
+const SHADE_REACH = 10;    // how far it carries below the edge, px
+// Low, because this is a dot count, not a grey. At 0.72 the first row below
+// the box came out ~72% covered, which on a 1px-pitch dither is a solid black
+// rule, not a shadow: the page's own darkest ground is nearer a third.
+const SHADE_MAX = 0.34;    // darkness right at the edge
+
+function sdRoundBox(px, py, cx, cy, hw, hh, r){
+  const qx = Math.abs(px - cx) - (hw - r), qy = Math.abs(py - cy) - (hh - r);
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+}
+
+function paintShade(){
+  const cv = document.getElementById('shade');
+  const b = document.getElementById('bento').getBoundingClientRect();
+  const w = Math.max(1, Math.ceil(innerWidth)), h = Math.max(1, Math.ceil(innerHeight));
+  if (cv.width !== w || cv.height !== h){
+    cv.width = w; cv.height = h;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  }
+  const ctx = cv.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, w, h);
+  const ink = cssColour('--ink').map((v) => Math.round(v * 255));
+  const img = ctx.createImageData(w, h), d = img.data;
+  const r = parseFloat(getComputedStyle(document.getElementById('bento')).borderRadius) || 0;
+  const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+  const hw = b.width / 2, hh = b.height / 2;
+  // Start at the box's bottom edge: everything above it is left clear, so the
+  // shadow is only ever under the box. The distance field is the box's own, so
+  // the band still curves round the two bottom corners.
+  const from = Math.max(0, Math.floor(b.bottom));
+  for (let y = from; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const dist = sdRoundBox(x + 0.5, y + 0.5, cx, cy, hw, hh, r);
+      if (dist <= 0 || dist >= SHADE_REACH) continue;
+      const t = 1 - dist / SHADE_REACH;
+      const lum = SHADE_MAX * t * t;
+      if (lum <= bayer(x - Math.round(b.left), y - Math.round(b.top))) continue;
+      const i = (y * w + x) * 4;
+      d[i] = ink[0]; d[i + 1] = ink[1]; d[i + 2] = ink[2]; d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 function uploadScreen(key){
   const img = IMG[key];
   if (!gl || !img || !img.complete) return;
@@ -1001,8 +1063,8 @@ function start(){
   try {
     if (!still.matches || true) glReady = initGL();
   } catch (e){ glReady = false; }
-  paintVignette();
-  addEventListener('resize', paintVignette);
+  paintVignette(); paintShade();
+  addEventListener('resize', () => { paintVignette(); paintShade(); });
   // Autoplay is refused in low power mode even when muted and inline, so the
   // first touch anywhere starts it instead. Nothing depends on it playing.
   if (!still.matches){

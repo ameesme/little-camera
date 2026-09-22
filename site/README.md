@@ -229,10 +229,12 @@ window.draw = function(){
   placeGL(); gl.drawArrays(gl.TRIANGLES, 0, 3);
   requestAnimationFrame(window.draw);
 };
-// paintVignette too, not just sizeGL: the ground canvas is sized from the box
-// and only repaints on a window resize, so after the --gutter override it keeps
-// the smaller size and leaves bare paper down the right and the bottom.
-fitAndMask(); sizeGL(); paintVignette();
+// paintVignette and paintShade too, not just sizeGL: both canvases are sized
+// and placed from the box and only repaint on a window resize, so after the
+// --gutter override the ground keeps the smaller size and leaves bare paper
+// down the right and the bottom, and the shadow stays where the old bottom
+// edge was, baked across the card.
+fitAndMask(); sizeGL(); paintVignette(); paintShade();
 
 const now = parseFloat(getComputedStyle(by).fontSize);
 if (by.scrollWidth > col) by.style.fontSize = Math.floor(now * col / by.scrollWidth) + 'px';
@@ -255,9 +257,8 @@ site would put its call to action, so the page reads as a product page rather
 than a poster. Solid ink, paper label, no border. It does nothing yet, and both
 the `disabled` attribute and the cursor say so.
 
-Its radius is `--bento / 2`, not a number of its own: at half the box's corner
-the two never read as the same curve at two sizes, and tuning the box carries
-the button with it.
+Its 4px radius is a literal, not a fraction of the box's: it is the tighter
+corner of the two here rather than a proportion of it.
 
 The header floats on the box rather than sitting above it, and it is `fixed`,
 so it stays put once there is enough page to scroll. Twice the gutter on every
@@ -265,16 +266,14 @@ side: the box is already inset by one, and this leaves the button the same
 distance inside it as an absolute bar did. Fixed also takes it out of the box's
 `overflow: hidden`, which is what lets it sit over content passing underneath.
 
-It comes *after* the ground canvas and the wash in the markup — all three are
-positioned, so document order is what puts the button on top of them. Before
-them, the ground painted straight over it.
-
-Document order is not enough against the sheet, though, which is positioned and
-comes later still: the camera and the badge painted over the button the moment
-anything scrolled under it, which is the whole point of the bar being fixed. So
-the bar carries the page's one `z-index`. It is safe there because the bar is a
-*sibling* of the sheet, not an ancestor — the stacking context it makes is
-nowhere near the title's blend.
+It sits outside the section, not in it, which makes no difference to where it
+renders: `fixed` puts it against the viewport either way. What keeps it above
+the box is its `z-index`, the page's only one. Document order alone is not
+enough — the sheet is positioned too, so the camera and the badge painted over
+the button the moment anything scrolled under it, which is the whole point of
+the bar being fixed. The `z-index` is safe there because the bar is a *sibling*
+of the sheet, not an ancestor: the stacking context it makes is nowhere near
+the title's blend.
 
 ## The bento
 
@@ -291,6 +290,28 @@ what keeps the title's blend reaching the ground inside it.
 The card overrides both variables to 0 and goes full bleed. A share image is
 cropped and letterboxed by whoever displays it, so a gutter and rounded corners
 there read as a mistake rather than as a frame.
+
+### Its shadow
+
+Dithered, like the rest of the page — a soft `box-shadow` would be the one
+thing here not made of dots. It is a third canvas (`.shade`), fixed behind
+everything, because the ground canvas lives *inside* the box and cannot paint
+outside it. A 2D rounded-box distance field gives the falloff and the same
+Bayer matrix turns it into dots, indexed in box coordinates so they line up
+with the ground's however wide the gutter gets.
+
+It only paints below the box: the loop starts at the bottom edge, so nothing
+runs up the sides or over the top, while the distance field stays the box's own
+so the band still curves round the two bottom corners.
+
+`SHADE_MAX` is a **dot count, not a grey**, and that is the whole trick to
+setting it. At 0.72 the first row below the box came out about 72% covered,
+which on a 1px-pitch dither is a solid black rule rather than a shadow, and a
+solid rule drowns out the corner curve underneath it — it read as a square bar.
+0.34 is in scale with the page's own darkest ground. The 10px reach overruns
+the 8px gutter by design and costs nothing: the falloff is quadratic, so at 8px
+out the level is `0.34 × 0.2² ≈ 0.014`, under the dither threshold almost
+everywhere.
 
 ## The badge
 
