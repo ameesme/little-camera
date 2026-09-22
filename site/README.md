@@ -308,7 +308,9 @@ That band is on an inline span inside the paragraph, not on the paragraph
 itself: a flex item is blockified, so a background there would run the full
 measure instead of hugging the words. Inline, it breaks with the text and each
 line gets its own band, which `box-decoration-break: clone` gives its own
-padding too. The leading is opened to 1.55 to keep those bands off each other. White
+padding too. The leading is 1.4, just under the banded line's own height (1em
+plus twice the .16em of padding), so the bands meet rather than sitting apart
+and two lines read as one black block, the way the headline does. White
 letters in `mix-blend-mode: difference` come out as the exact opposite of the
 ground under them, so the line carries the page's own dots reversed rather than
 a colour of its own. Nothing between it and the ground may be a stacking

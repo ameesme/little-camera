@@ -220,9 +220,11 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
    itself: a flex item is blockified, so a background there would run the full
    measure instead of hugging the words. Inline, it breaks with the text and
    each line gets its own band, which box-decoration-break gives its own
-   padding too. The leading is opened up to keep those bands off each other. */
+   padding too. At 1.4 the leading is just under the banded line's own height
+   (1em plus twice .16em of padding), so the bands meet instead of sitting
+   apart: two lines read as one black block, the way the headline does. */
 .by{margin:0; font-family:var(--font); font-weight:400;
-    font-size:calc(var(--sheet) * 0.048); line-height:1.55}
+    font-size:calc(var(--sheet) * 0.048); line-height:1.4}
 .by span{background:var(--ink); color:var(--paper);
          padding:.16em .34em;
          -webkit-box-decoration-break:clone; box-decoration-break:clone}
