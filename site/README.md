@@ -294,11 +294,18 @@ there read as a mistake rather than as a frame.
 ### Its shadow
 
 Dithered, like the rest of the page — a soft `box-shadow` would be the one
-thing here not made of dots. It is a third canvas (`.shade`), fixed behind
-everything, because the ground canvas lives *inside* the box and cannot paint
-outside it. A 2D rounded-box distance field gives the falloff and the same
-Bayer matrix turns it into dots, indexed in box coordinates so they line up
-with the ground's however wide the gutter gets.
+thing here not made of dots. It is a third canvas (`.shade`), because the
+ground canvas lives *inside* the box and cannot paint outside it. A 2D
+rounded-box distance field gives the falloff and the same Bayer matrix turns it
+into dots, indexed in box coordinates so they line up with the ground's however
+wide the gutter gets.
+
+It is **absolute, in document coordinates, not fixed**. Fixed pinned it to the
+viewport, so it sat still while the box scrolled away from under it. Placed in
+the document it travels with the box for free and never repaints on a scroll.
+The canvas is only the strip under the box — the box's width plus the reach on
+each side, and the reach plus one tall — which also keeps the per-pixel pass to
+a few thousand pixels rather than a few hundred thousand.
 
 It only paints below the box: the loop starts at the bottom edge, so nothing
 runs up the sides or over the top, while the distance field stays the box's own

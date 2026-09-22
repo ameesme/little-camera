@@ -124,8 +124,11 @@ img{max-width:100%}
 /* The box's shadow, dithered like everything else -- a soft grey box-shadow
    would be the one piece of the page that is not made of dots. It is its own
    canvas because the ground above lives inside the box and cannot paint
-   outside it. Fixed and behind everything; it only ever marks the gutter. */
-.shade{position:fixed; left:0; top:0; display:block; pointer-events:none;
+   outside it. Absolute rather than fixed: fixed pinned it to the viewport and
+   it stayed put while the box scrolled away from under it. Placed in document
+   coordinates, so it travels with the box for free and never repaints on
+   scroll. */
+.shade{position:absolute; display:block; pointer-events:none;
        image-rendering:pixelated; image-rendering:crisp-edges}
 
 .vig{position:absolute; left:0; top:0; display:block;
@@ -949,31 +952,43 @@ function sdRoundBox(px, py, cx, cy, hw, hh, r){
 
 function paintShade(){
   const cv = document.getElementById('shade');
-  const b = document.getElementById('bento').getBoundingClientRect();
-  const w = Math.max(1, Math.ceil(innerWidth)), h = Math.max(1, Math.ceil(innerHeight));
+  const el = document.getElementById('bento');
+  const b = el.getBoundingClientRect();
+  const r = parseFloat(getComputedStyle(el).borderRadius) || 0;
+  // Only the strip under the box, not the whole viewport: the shadow never
+  // reaches further than SHADE_REACH, and this keeps the per-pixel pass to a
+  // few thousand pixels instead of a few hundred thousand.
+  const pad = SHADE_REACH;
+  const w = Math.max(1, Math.ceil(b.width) + pad * 2), h = Math.max(1, pad + 1);
   if (cv.width !== w || cv.height !== h){
     cv.width = w; cv.height = h;
     cv.style.width = w + 'px'; cv.style.height = h + 'px';
   }
+  // Document coordinates, so it scrolls with the box rather than with the view.
+  const ox = Math.round(b.left) - pad, oy = Math.round(b.bottom);
+  cv.style.left = (ox + scrollX) + 'px';
+  cv.style.top = (oy + scrollY) + 'px';
+
   const ctx = cv.getContext('2d');
   if (!ctx) return;
   ctx.clearRect(0, 0, w, h);
   const ink = cssColour('--ink').map((v) => Math.round(v * 255));
   const img = ctx.createImageData(w, h), d = img.data;
-  const r = parseFloat(getComputedStyle(document.getElementById('bento')).borderRadius) || 0;
   const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
   const hw = b.width / 2, hh = b.height / 2;
-  // Start at the box's bottom edge: everything above it is left clear, so the
-  // shadow is only ever under the box. The distance field is the box's own, so
-  // the band still curves round the two bottom corners.
-  const from = Math.max(0, Math.floor(b.bottom));
-  for (let y = from; y < h; y++){
+  // The strip starts at the box's bottom edge, so nothing is drawn up the
+  // sides or over the top. The distance field is the box's own, so the band
+  // still curves round the two bottom corners.
+  for (let y = 0; y < h; y++){
     for (let x = 0; x < w; x++){
-      const dist = sdRoundBox(x + 0.5, y + 0.5, cx, cy, hw, hh, r);
+      const vx = ox + x + 0.5, vy = oy + y + 0.5;   // viewport coordinates
+      const dist = sdRoundBox(vx, vy, cx, cy, hw, hh, r);
       if (dist <= 0 || dist >= SHADE_REACH) continue;
       const t = 1 - dist / SHADE_REACH;
       const lum = SHADE_MAX * t * t;
-      if (lum <= bayer(x - Math.round(b.left), y - Math.round(b.top))) continue;
+      // Indexed off the box's own origin, so these dots land on the same
+      // lattice as the ground's inside it.
+      if (lum <= bayer(ox + x - Math.round(b.left), oy + y - Math.round(b.top))) continue;
       const i = (y * w + x) * 4;
       d[i] = ink[0]; d[i + 1] = ink[1]; d[i + 2] = ink[2]; d[i + 3] = 255;
     }
