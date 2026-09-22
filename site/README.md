@@ -222,7 +222,10 @@ window.draw = function(){
   placeGL(); gl.drawArrays(gl.TRIANGLES, 0, 3);
   requestAnimationFrame(window.draw);
 };
-fitAndMask(); sizeGL();
+// paintVignette too, not just sizeGL: the ground canvas is sized from the box
+// and only repaints on a window resize, so after the --gutter override it keeps
+// the smaller size and leaves bare paper down the right and the bottom.
+fitAndMask(); sizeGL(); paintVignette();
 
 const now = parseFloat(getComputedStyle(by).fontSize);
 if (by.scrollWidth > col) by.style.fontSize = Math.floor(now * col / by.scrollWidth) + 'px';
