@@ -204,10 +204,36 @@ say.style.width = col + 'px';
 
 const by = document.querySelector('.by');
 const bySpan = by.querySelector('span');
-// Two lines, broken after the second bullet rather than wherever the column
-// runs out: the card has the room, and one line means shrinking the type.
+// Two lines, broken at a bullet rather than wherever the column runs out, and
+// at a measured bullet rather than a fixed one.
 const parts = bySpan.textContent.split(' • ');
-bySpan.innerHTML = parts.slice(0, 2).join(' • ') + ' •<br>' + parts.slice(2).join(' • ');
+const rule = document.createElement('span');
+const cs2 = getComputedStyle(by);
+rule.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+rule.style.fontFamily = cs2.fontFamily; rule.style.fontSize = cs2.fontSize;
+rule.style.fontWeight = cs2.fontWeight; rule.style.letterSpacing = cs2.letterSpacing;
+document.body.append(rule);
+const wide = (t) => { rule.textContent = t; return rule.getBoundingClientRect().width; };
+const pair = (i) => [wide(parts.slice(0, i).join(' • ') + ' •'),
+                     wide(parts.slice(i).join(' • '))];
+
+// First the smallest type that lets *some* split fit the column at all: five
+// items do not fit at full size however they are cut.
+let need = Infinity;
+for (let i = 1; i < parts.length; i++) need = Math.min(need, Math.max(...pair(i)) / col);
+if (need > 1){
+  const px = Math.floor(parseFloat(cs2.fontSize) / need);
+  by.style.fontSize = px + 'px'; rule.style.fontSize = px + 'px';
+}
+// Then the LAST split that still fits, so the first line is filled.
+let best = 1;
+for (let i = 1; i < parts.length; i++){
+  const [w1, w2] = pair(i);
+  if (w1 <= col && w2 <= col) best = i;
+}
+rule.remove();
+bySpan.innerHTML = parts.slice(0, best).join(' • ') + ' •<br>' +
+                   parts.slice(best).join(' • ');
 bySpan.style.background = 'none';        // no band on the card
 bySpan.style.color = 'var(--ink)';
 bySpan.style.padding = '0';
@@ -239,6 +265,14 @@ fitAndMask(); sizeGL(); paintVignette(); paintShade();
 const now = parseFloat(getComputedStyle(by).fontSize);
 if (by.scrollWidth > col) by.style.fontSize = Math.floor(now * col / by.scrollWidth) + 'px';
 ```
+
+The spec line is set in two lines by measurement, and both halves of that
+matter. The type comes down first, because at five bullets nothing fits the
+column at full size however it is cut — 24px rather than 25.92 here. Then the
+split is the **last** bullet that still fits, not the one that balances the two
+lines: the items are too uneven in length for a balanced pair to come out near
+each other, and balancing left a hole after "1-bit monochrome". A short first
+line reads as a mistake; a short last line is just ragged setting.
 
 Three things there are not decoration. `window.setScreen` has to be nailed shut
 or the state loop puts the viewfinder back before the shutter; the columns have
@@ -455,7 +489,7 @@ than the screen:
 | gap between them | `--sheet` x 0.12 |
 
 The spec line under the headline — "0.07 megapixel • 1-bit monochrome • 28-day
-battery • private photo blog included" — sits in the flow, aligned to the
+battery • beeps • private photo blog included" — sits in the flow, aligned to the
 same left edge. It is set in Book rather than Bold, at a little over a quarter
 of the headline's size, and set solid on hard black where the headline is film
 and inversion.
