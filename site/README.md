@@ -426,8 +426,8 @@ than the screen:
 | camera | `--sheet` x 0.88 |
 | gap between them | `--sheet` x 0.12 |
 
-The spec line under the headline — "0.07 megapixel • 1-bit monochrome • 4-week
-battery life • private picture blog included" — sits in the flow, aligned to the
+The spec line under the headline — "0.07 megapixel • 1-bit monochrome • 28-day
+battery • private photo blog included" — sits in the flow, aligned to the
 same left edge. It is set in Book rather than Bold, at a little over a quarter
 of the headline's size, and set solid on hard black where the headline is film
 and inversion.
