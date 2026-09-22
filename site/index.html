@@ -83,7 +83,7 @@
   --r:calc(var(--w) * 0.055);
   --burst:calc(var(--w) * 0.30);   /* the price sticker over the top right corner */
   --gutter:8px;                    /* the page's margin around the bento */
-  --bento:4px;                     /* its corner radius */
+  --bento:8px;                     /* its corner radius */
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box}
@@ -219,9 +219,9 @@ img{max-width:100%}
    the gutter on every side: the box is already inset by one, and this keeps
    the button the same distance inside it as an absolute bar gave. Fixed also
    takes it out of the box's clip, which is what lets it sit over content
-   passing underneath. Its own 8px radius is set rather than derived from the
-   box's: at a 4px box the derived half would be 2px, near enough to square
-   that the button would stop reading as rounded at all. */
+   passing underneath. Its 4px radius is set rather than derived from the
+   box's: the button is the tighter corner of the two here, not a proportion
+   of it. */
 .bar{position:fixed; top:calc(var(--gutter) * 2);
      left:calc(var(--gutter) * 2); right:calc(var(--gutter) * 2);
      display:flex; justify-content:flex-end; align-items:center;
@@ -232,7 +232,7 @@ img{max-width:100%}
         the sheet, not an ancestor: the stacking context it makes is nowhere
         near the title's blend. */
      z-index:2}
-.pre{border:0; border-radius:8px; margin:0;
+.pre{border:0; border-radius:4px; margin:0;
      padding:calc(var(--sheet) * 0.030) calc(var(--sheet) * 0.052);
      font-family:var(--font-bold); font-weight:700;
      font-size:calc(var(--sheet) * 0.050); line-height:1;
