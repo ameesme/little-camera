@@ -148,10 +148,8 @@ page at that size and run:
 ```js
 const WIDE = 1080, GAP = 64;
 document.documentElement.style.setProperty('--sheet', '540px');   // sizes the device
-// Full bleed: a share image is cropped and letterboxed by whoever shows it,
-// so the page's gutter and rounded corners would read as a mistake.
-document.documentElement.style.setProperty('--gutter', '0px');
-document.documentElement.style.setProperty('--bento', '0px');
+// The card keeps the page's 8px gutter, with a gentler 8px corner on it.
+document.documentElement.style.setProperty('--bento', '8px');
 
 const sheet = document.querySelector('.sheet');
 const stage = document.querySelector('.stage');
@@ -221,11 +219,16 @@ Its radius is `--bento / 2`, not a number of its own: at half the box's corner
 the two never read as the same curve at two sizes, and tuning the box carries
 the button with it.
 
-The header floats on the box rather than sitting above it, inset by the same
-gutter the page keeps around the box. It comes *after* the ground canvas and
-the wash in the markup — all three are positioned and none carries a
-`z-index`, so document order is the only thing putting the button on top of
-them. Before them, the ground painted straight over it.
+The header floats on the box rather than sitting above it, and it is `fixed`,
+so it stays put once there is enough page to scroll. Twice the gutter on every
+side: the box is already inset by one, and this leaves the button the same
+distance inside it as an absolute bar did. Fixed also takes it out of the box's
+`overflow: hidden`, which is what lets it sit over content passing underneath.
+
+It comes *after* the ground canvas and the wash in the markup — all three are
+positioned and none carries a `z-index`, so document order is the only thing
+putting the button on top of them. Before them, the ground painted straight
+over it.
 
 ## The bento
 
@@ -239,9 +242,8 @@ added after it is pushed down the page and scrolls rather than squeezing the
 box. The box carries no `z-index` and so is not a stacking context, which is
 what keeps the title's blend reaching the ground inside it.
 
-The card overrides both variables to 0 and goes full bleed. A share image is
-cropped and letterboxed by whoever displays it, so a gutter and rounded corners
-there read as a mistake rather than as a frame.
+The card keeps the gutter and takes a gentler 8px corner, overriding `--bento`
+alone.
 
 ## The badge
 

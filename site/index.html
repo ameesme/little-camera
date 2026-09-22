@@ -205,10 +205,14 @@ img{max-width:100%}
    so the page reads as a product page rather than a poster. It does nothing
    yet, and both the disabled attribute and the cursor say so.
 
-   Floating on the box rather than sitting above it, inset by the same gutter
-   the page keeps around the box. Its radius is half the box's, which is what
-   keeps the two from reading as the same corner at different sizes. */
-.bar{position:absolute; top:var(--gutter); left:var(--gutter); right:var(--gutter);
+   Fixed, so it stays where it is once there is enough page to scroll. Twice
+   the gutter on every side: the box is already inset by one, and this keeps
+   the button the same distance inside it as an absolute bar gave. Fixed also
+   takes it out of the box's clip, which is what lets it sit over content
+   passing underneath. Its radius is half the box's, which is what keeps the
+   two from reading as the same corner at different sizes. */
+.bar{position:fixed; top:calc(var(--gutter) * 2);
+     left:calc(var(--gutter) * 2); right:calc(var(--gutter) * 2);
      display:flex; justify-content:flex-end; align-items:center}
 .pre{border:0; border-radius:calc(var(--bento) / 2); margin:0;
      padding:calc(var(--sheet) * 0.030) calc(var(--sheet) * 0.052);
