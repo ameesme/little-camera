@@ -164,8 +164,10 @@ page at that size and run:
 ```js
 const WIDE = 1080, GAP = 64;
 document.documentElement.style.setProperty('--sheet', '540px');   // sizes the device
-// The card keeps the page's 8px gutter, with a gentler 8px corner on it.
-document.documentElement.style.setProperty('--bento', '8px');
+// Full bleed: a share image is cropped and letterboxed by whoever shows it,
+// so the page's gutter and rounded corners read as a mistake, not a frame.
+document.documentElement.style.setProperty('--gutter', '0px');
+document.documentElement.style.setProperty('--bento', '0px');
 
 const sheet = document.querySelector('.sheet');
 const stage = document.querySelector('.stage');
@@ -264,8 +266,9 @@ added after it is pushed down the page and scrolls rather than squeezing the
 box. The box carries no `z-index` and so is not a stacking context, which is
 what keeps the title's blend reaching the ground inside it.
 
-The card keeps the gutter and takes a gentler 8px corner, overriding `--bento`
-alone.
+The card overrides both variables to 0 and goes full bleed. A share image is
+cropped and letterboxed by whoever displays it, so a gutter and rounded corners
+there read as a mistake rather than as a frame.
 
 ## The badge
 
