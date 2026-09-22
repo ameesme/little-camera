@@ -178,8 +178,8 @@ document.querySelector('.pre').style.display = 'none';
 // turned and pitched, so its corner has moved. Nudge it onto the device.
 const burst = document.querySelector('.burst');
 const cs = getComputedStyle(burst);
-burst.style.right = (parseFloat(cs.right) + 34) + 'px';
-burst.style.top   = (parseFloat(cs.top)   + 14) + 'px';
+burst.style.right = (parseFloat(cs.right) +  0) + 'px';
+burst.style.top   = (parseFloat(cs.top)   + 36) + 'px';
 
 setScreen('gallery');
 window.setScreen = () => {};
@@ -217,9 +217,9 @@ attribute and the cursor say so.
 `.bar` is `position: relative` for a reason: the ground canvas is fixed, so it
 paints above ordinary block content and would hide the header entirely.
 
-## The price badge
+## The badge
 
-A scalloped sticker over the device's top right corner, ink with the price in
+A scalloped sticker over the device's top right corner, ink with the word in
 paper, turning once every 24 seconds. Three things about it:
 
 The points are rounded by stroking the star path in its own fill colour with
@@ -229,17 +229,21 @@ with the indents only going from r42 to r36.5, which is shallow enough to read
 as a badge with a scalloped edge rather than as a star. The stroke grows the
 shape by half its width, so the path stops short of the viewBox to leave room.
 
-The price is a **sibling** of the `<svg>`, not a child, so the star turns under
-it while it stays put. Its own +9° tilt is fixed, the way a price is stuck on
-by hand. There is no `font-style` on it: `PP Neue Montreal` ships here as one
-upright face, and asking for italic got the browser's synthetic oblique — the
-real letterforms sheared about 14°, which stops looking like the typeface. If
-a real italic cut turns up it wants a second `@font-face`, not that.
+The word is a **sibling** of the `<svg>`, not a child, so the star turns under
+it while it stays put. Its own +9° tilt is fixed, the way a sticker is put on
+by hand, and the slant next to it is a `skewX(-10deg)` rather than a
+`font-style`. `PP Neue Montreal` ships here as one upright face, so asking for
+italic gets the browser's synthetic oblique at about 14° — enough to stop
+looking like the typeface. Nine degrees of our own reads as a slant instead. If
+a real italic cut turns up it wants a second `@font-face`, not either of these.
 
 It is placed against the stage, not tracked to the device, because the device
 turns and bobs and a tracked corner would make the sticker swim. Its centre is
 0.07w in from the stage's right edge rather than on the geometric corner at
-0.03w — at 0.03w it came within 4px of the viewport edge on a 393px phone. It
+0.03w — at 0.03w it came within 4px of the viewport edge on a 393px phone.
+Vertically it follows the device's top edge, which the stage's own height
+decides: `(0.6377 + k - 0.5995) / 2` down, where k is the extra height the
+stage carries (0.14, so 0.089w). Change the stage and this has to move. It
 is last in `.stage` so it paints over the render without a `z-index`, which
 would otherwise make a stacking context inside the stage.
 

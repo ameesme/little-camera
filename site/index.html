@@ -235,7 +235,7 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 .stage{position:relative; width:var(--w); align-self:center;
        display:flex; align-items:center; justify-content:center;
        perspective:1500px; perspective-origin:50% 45%;
-       min-height:calc(var(--h) + var(--w) * 0.26)}
+       min-height:calc(var(--h) + var(--w) * 0.14)}
 .rig{transform-style:preserve-3d; animation:bob 6.5s ease-in-out infinite; will-change:transform}
 /* It is always turning a little, so the full turn below reads as more of the
    same motion rather than something switching on. */
@@ -292,14 +292,16 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 
 /* ---- the price ---- */
 /* A sticker over the device's top right corner. The device is centred in the
-   stage and spans 94% of its width, so its corner sits 0.03w in from the right
-   and 0.15w down at this stage height. The sticker's centre is pulled a little
-   inside that, which reads as stuck on the corner and keeps it off the
+   stage and spans 94% of its width, so its corner sits 0.03w in from the right,
+   and its top edge (0.6377 + k - 0.5995) / 2 down, where k is the extra height
+   the stage carries above the device -- 0.089w as that stands. Change the one
+   and this follows. The sticker's centre is pulled a little inside the corner,
+   which reads as stuck on rather than balanced on it, and keeps it off the
    viewport edge on a narrow phone. The device turns and bobs under it; the
    sticker stays put rather than tracking the corner. */
 .burst{position:absolute; width:var(--burst); height:var(--burst);
        right:calc(var(--w) * 0.07 - var(--burst) / 2);
-       top:calc(var(--w) * 0.11 - var(--burst) / 2);
+       top:calc(var(--w) * 0.05 - var(--burst) / 2);
        display:grid; place-items:center; pointer-events:none}
 /* The points are rounded by stroking the star in its own fill with a round
    join, rather than by a path of arcs: one number to tune, and the tips keep
@@ -311,16 +313,16 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
            fill:var(--ink); stroke:var(--ink);
            stroke-width:9; stroke-linejoin:round;
            animation:turn 24s linear infinite; will-change:transform}
-/* On the sibling, not on a child of the svg: the price does not turn with the
-   star. Its own tilt is a fixed one, the way a price is stuck on by hand.
-   No font-style here: PP Neue Montreal ships as one upright face, so asking
-   for italic got the browser's synthetic oblique -- the real letterforms,
-   sheared about 14 degrees, which stops looking like the typeface. The tilt
-   below does the work instead. */
+/* On the sibling, not on a child of the svg: the word does not turn with the
+   star. Its own tilt is a fixed one, the way a sticker is put on by hand.
+   The slant is a skewX, not font-style: PP Neue Montreal ships as one upright
+   face, so an italic request gets the browser's synthetic oblique at about 14
+   degrees, which is enough to stop looking like the typeface. Ten degrees of
+   our own reads as a slant instead of as a different font. */
 .burst b{position:relative; font-family:var(--font-bold); font-weight:700;
-         font-size:calc(var(--burst) * 0.19); line-height:1;
+         font-size:calc(var(--burst) * 0.25); line-height:1;
          letter-spacing:-.02em; color:var(--paper);
-         transform:rotate(9deg)}
+         transform:rotate(9deg) skewX(-9deg)}
 @keyframes turn{to{transform:rotate(360deg)}}
 
 @media (prefers-reduced-motion:reduce){
@@ -407,7 +409,7 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
       <svg viewBox="0 0 100 100" aria-hidden="true">
         <path d="M50.00,8.00 L57.12,14.20 L66.07,11.20 L70.28,19.65 L79.70,20.30 L80.35,29.72 L88.80,33.93 L85.80,42.88 L92.00,50.00 L85.80,57.12 L88.80,66.07 L80.35,70.28 L79.70,79.70 L70.28,80.35 L66.07,88.80 L57.12,85.80 L50.00,92.00 L42.88,85.80 L33.93,88.80 L29.72,80.35 L20.30,79.70 L19.65,70.28 L11.20,66.07 L14.20,57.12 L8.00,50.00 L14.20,42.88 L11.20,33.93 L19.65,29.72 L20.30,20.30 L29.72,19.65 L33.93,11.20 L42.88,14.20 Z"/>
       </svg>
-      <b>€49,95</b>
+      <b>new</b>
     </div>
   </div>
 </main>
