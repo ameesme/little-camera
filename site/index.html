@@ -313,12 +313,14 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
            animation:turn 24s linear infinite; will-change:transform}
 /* On the sibling, not on a child of the svg: the price does not turn with the
    star. Its own tilt is a fixed one, the way a price is stuck on by hand.
-   The family ships one upright weight, so the italic here is the browser's
-   synthetic oblique -- which is all this needs at sticker size. */
+   No font-style here: PP Neue Montreal ships as one upright face, so asking
+   for italic got the browser's synthetic oblique -- the real letterforms,
+   sheared about 14 degrees, which stops looking like the typeface. The tilt
+   below does the work instead. */
 .burst b{position:relative; font-family:var(--font-bold); font-weight:700;
-         font-style:italic; font-size:calc(var(--burst) * 0.19); line-height:1;
+         font-size:calc(var(--burst) * 0.19); line-height:1;
          letter-spacing:-.02em; color:var(--paper);
-         transform:rotate(-9deg)}
+         transform:rotate(9deg)}
 @keyframes turn{to{transform:rotate(360deg)}}
 
 @media (prefers-reduced-motion:reduce){

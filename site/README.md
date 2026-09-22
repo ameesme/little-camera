@@ -230,9 +230,11 @@ as a badge with a scalloped edge rather than as a star. The stroke grows the
 shape by half its width, so the path stops short of the viewBox to leave room.
 
 The price is a **sibling** of the `<svg>`, not a child, so the star turns under
-it while it stays put. Its own −9° tilt is fixed. `PP Neue Montreal` ships here
-as one upright face, so the italic is the browser's synthetic oblique; if a
-real italic cut turns up it wants a second `@font-face` rather than this.
+it while it stays put. Its own +9° tilt is fixed, the way a price is stuck on
+by hand. There is no `font-style` on it: `PP Neue Montreal` ships here as one
+upright face, and asking for italic got the browser's synthetic oblique — the
+real letterforms sheared about 14°, which stops looking like the typeface. If
+a real italic cut turns up it wants a second `@font-face`, not that.
 
 It is placed against the stage, not tracked to the device, because the device
 turns and bobs and a tracked corner would make the sticker swim. Its centre is
