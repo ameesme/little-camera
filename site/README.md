@@ -165,7 +165,10 @@ say.style.width = col + 'px';
 
 const by = document.querySelector('.by');
 const bySpan = by.querySelector('span');
-bySpan.style.whiteSpace = 'nowrap';
+// Two lines, broken after the second bullet rather than wherever the column
+// runs out: the card has the room, and one line means shrinking the type.
+const parts = bySpan.textContent.split(' • ');
+bySpan.innerHTML = parts.slice(0, 2).join(' • ') + ' •<br>' + parts.slice(2).join(' • ');
 bySpan.style.background = 'none';        // no band on the card
 bySpan.style.color = 'var(--ink)';
 bySpan.style.padding = '0';
@@ -188,8 +191,10 @@ if (by.scrollWidth > col) by.style.fontSize = Math.floor(now * col / by.scrollWi
 
 Three things there are not decoration. `window.setScreen` has to be nailed shut
 or the state loop puts the viewfinder back before the shutter; the columns have
-to be fixed widths or the nowrap spec line widens its own column and shoves the
-device off the frame; and the draw loop is *replaced* rather than stopped,
+to be fixed widths, because the headline fitter sizes the type to its container
+and a flexible column would then size itself to the type (the spec line used to
+be set nowrap here and pushed the device clean off the frame that way); and the
+draw loop is *replaced* rather than stopped,
 because without `preserveDrawingBuffer` a single draw is gone by the time the
 screenshot is taken.
 Everything in the head is lower case, the way the page is set. The favicon is
