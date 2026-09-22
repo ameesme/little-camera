@@ -112,21 +112,10 @@ context, which is why `.sheet` carries no `z-index`. It only needs to paint
 after the ground, and document order already does that; a `z-index` there would
 trap the blend inside the sheet, against nothing.
 
-The same film runs a second time over the whole box, multiplied at 28%, enough
-that the paper reads as a shade rather than a flat fill. That is a second
-element and so a second decoder, which is the price of having the film at two
-strengths at once: one element cannot be in two places.
-
-It multiplies rather than sitting at plain opacity, and that is not a taste
-call. The clip is two values, so at plain opacity a white pixel computed
-`0.86 × ground + 0.14 × 255` — 226 against the page's 221, *brighter* than the
-background it is meant to be shading, and it washed the ground's dots out on
-the way. Multiplied, white is the identity: the ground passes through
-untouched, dither and all, and only the clip's black darkens. The wash cannot
-exceed the ground by construction rather than by a tuned number — measured
-across a background strip, the brightest pixel is exactly the paper. The cost
-is that half the signal, the half that used to lighten, is gone; hence 28%
-where 14% used to do.
+The same film runs a second time over the whole page at 14%, enough that the
+paper reads as a shade rather than a flat fill. That is a second element and so
+a second decoder, which is the price of having the film at two strengths at
+once: one element cannot be in two places.
 
 A radial mask keeps that wash off the middle entirely. Nothing at all out to
 60%, where the camera and the words live, and from there it climbs to full at

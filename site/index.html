@@ -191,30 +191,14 @@ img{max-width:100%}
    by 40px top and bottom against lvh so an iOS bar sliding away could not
    uncover its edge. The box has a settled height of its own, so it can simply
    fill it. */
-/* Multiply, not plain opacity. The clip is two values, so at .14 opacity a
-   white pixel computed 0.86 x ground + 0.14 x 255 -- 226 over the page's 221,
-   brighter than the background it is supposed to be shading, and it washed out
-   the ground's dots on the way. Multiplied, white is the identity: the ground
-   passes through untouched, dither and all, and only the clip's black darkens.
-   It cannot exceed the ground by construction rather than by a tuned number.
-   That throws away the half of the signal that used to lighten, hence .28
-   where .14 used to do. */
-/* The blend, the opacity and the mask are on a wrapping div; the <video> only
-   carries what a video can. iOS Safari promotes a blended video to its own
-   compositing layer and then ignores the mask, the opacity and the element's
-   own size, painting the clip at full strength and intrinsic 540x926 over the
-   whole page. Every other blend here is already on a div -- the title's
-   multiply, the headline's difference -- which is why this was the one that
-   broke. Keep it that way. */
-.wash{position:absolute; inset:0; overflow:hidden;
-      opacity:.28; mix-blend-mode:multiply; pointer-events:none;
+.wash{position:absolute; inset:0; width:100%; height:100%;
+      object-fit:cover; opacity:.14; pointer-events:none;
+      filter:grayscale(1) contrast(2000%);   /* two values only; see .film */
+      image-rendering:pixelated; image-rendering:crisp-edges;
       -webkit-mask-image:radial-gradient(78% 58% at 50% 46%,
             rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%);
       mask-image:radial-gradient(78% 58% at 50% 46%,
             rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%)}
-.wash video{display:block; width:100%; height:100%; object-fit:cover;
-      filter:grayscale(1) contrast(2000%);   /* two values only; see .film */
-      image-rendering:pixelated; image-rendering:crisp-edges}
 @media (prefers-reduced-motion:reduce){ .wash{display:none} }
 
 /* A header that is only a button: where a site would put its call to action,
@@ -386,12 +370,10 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 
 <section class="bento" id="bento">
 <canvas class="vig" id="vig" aria-hidden="true"></canvas>
-<div class="wash" aria-hidden="true">
-  <video preload="auto" autoplay muted loop playsinline>
-    <source src="media/ground.mp4" type="video/mp4">
-    <source src="media/ground.webm" type="video/webm">
-  </video>
-</div>
+<video class="wash" preload="auto" autoplay muted loop playsinline aria-hidden="true">
+  <source src="media/ground.mp4" type="video/mp4">
+  <source src="media/ground.webm" type="video/webm">
+</video>
 <!-- After the two full-bleed layers: all three are positioned and none carries
      a z-index, so document order is what puts the button on top of them. -->
 <header class="bar">
