@@ -174,6 +174,13 @@ bySpan.style.color = 'var(--ink)';
 bySpan.style.padding = '0';
 document.querySelector('.pre').style.display = 'none';
 
+// The badge is placed against the page's face-on device; here the device is
+// turned and pitched, so its corner has moved. Nudge it onto the device.
+const burst = document.querySelector('.burst');
+const cs = getComputedStyle(burst);
+burst.style.right = (parseFloat(cs.right) + 34) + 'px';
+burst.style.top   = (parseFloat(cs.top)   + 14) + 'px';
+
 setScreen('gallery');
 window.setScreen = () => {};
 window.draw = function(){
@@ -209,6 +216,34 @@ attribute and the cursor say so.
 
 `.bar` is `position: relative` for a reason: the ground canvas is fixed, so it
 paints above ordinary block content and would hide the header entirely.
+
+## The price badge
+
+A scalloped sticker over the device's top right corner, ink with the price in
+paper, turning once every 24 seconds. Three things about it:
+
+The points are rounded by stroking the star path in its own fill colour with
+`stroke-linejoin: round`, not by drawing arcs. One number sets the radius of
+every tip, and it stays right however many points there are — sixteen here,
+with the indents only going from r42 to r36.5, which is shallow enough to read
+as a badge with a scalloped edge rather than as a star. The stroke grows the
+shape by half its width, so the path stops short of the viewBox to leave room.
+
+The price is a **sibling** of the `<svg>`, not a child, so the star turns under
+it while it stays put. Its own −9° tilt is fixed. `PP Neue Montreal` ships here
+as one upright face, so the italic is the browser's synthetic oblique; if a
+real italic cut turns up it wants a second `@font-face` rather than this.
+
+It is placed against the stage, not tracked to the device, because the device
+turns and bobs and a tracked corner would make the sticker swim. Its centre is
+0.07w in from the stage's right edge rather than on the geometric corner at
+0.03w — at 0.03w it came within 4px of the viewport edge on a 393px phone. It
+is last in `.stage` so it paints over the render without a `z-index`, which
+would otherwise make a stacking context inside the stage.
+
+The card is a frame of the same page, but there the device is turned 32° and
+pitched 22°, so its corner has moved and the sticker would float in the gutter
+between the columns. The recipe above nudges it back onto the device by hand.
 
 The block below is centred in what the header leaves, which puts it a little
 lower than true centre — the header takes its space off the top.
