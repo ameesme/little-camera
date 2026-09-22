@@ -112,10 +112,26 @@ context, which is why `.sheet` carries no `z-index`. It only needs to paint
 after the ground, and document order already does that; a `z-index` there would
 trap the blend inside the sheet, against nothing.
 
-The same film runs a second time over the whole page at 14%, enough that the
+The same film runs a second time over the whole box at 28%, enough that the
 paper reads as a shade rather than a flat fill. That is a second element and so
 a second decoder, which is the price of having the film at two strengths at
 once: one element cannot be in two places.
+
+Its threshold has a `brightness(.867)` on the end, which pulls the clip's white
+down to the paper's own 221. Without it a white pixel composited to
+`0.86 × ground + 0.14 × 255` — 226 against the page's 221, *brighter* than the
+background it is supposed to be shading. A paper-valued pixel composites to
+paper at any opacity, so the ceiling holds by construction and the opacity is
+free to carry the texture; measured across a background strip the brightest
+pixel is exactly the paper.
+
+`mix-blend-mode: multiply` does this more exactly — white becomes a true no-op,
+so the ground's black dots survive under it where `brightness` lifts them. It
+is not used: **a blended layer over this full-screen video breaks the page on
+iOS Safari**, painting the clip at full strength and its intrinsic 540x926 over
+everything. Putting the blend on a wrapping div instead of the video itself
+does not help, so it is the blended layer and not which element carries it.
+Don't reach for `mix-blend-mode` here again without an iOS device to hand.
 
 A radial mask keeps that wash off the middle entirely. Nothing at all out to
 60%, where the camera and the words live, and from there it climbs to full at

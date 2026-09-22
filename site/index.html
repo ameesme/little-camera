@@ -191,9 +191,19 @@ img{max-width:100%}
    by 40px top and bottom against lvh so an iOS bar sliding away could not
    uncover its edge. The box has a settled height of its own, so it can simply
    fill it. */
+/* The threshold lands on black and white, and then brightness pulls the white
+   down to the paper: 221/255. That is what keeps the wash from ever being
+   brighter than the ground it is shading -- at plain opacity a white pixel used
+   to compute 0.86 x ground + 0.14 x 255, which came out above the page's own
+   221. A paper-valued pixel composites to paper at any opacity, so the ceiling
+   holds by construction and the opacity is free to carry the texture.
+   mix-blend-mode:multiply would do this more exactly, and on the ground's black
+   dots it would leave them alone where this lifts them; it is not used because
+   a blended layer over a full-screen video breaks the page on iOS Safari --
+   both on the video itself and on a wrapping div. */
 .wash{position:absolute; inset:0; width:100%; height:100%;
-      object-fit:cover; opacity:.14; pointer-events:none;
-      filter:grayscale(1) contrast(2000%);   /* two values only; see .film */
+      object-fit:cover; opacity:.28; pointer-events:none;
+      filter:grayscale(1) contrast(2000%) brightness(.867);
       image-rendering:pixelated; image-rendering:crisp-edges;
       -webkit-mask-image:radial-gradient(78% 58% at 50% 46%,
             rgba(0,0,0,.10) 0%, rgba(0,0,0,.10) 60%, #000 100%);
