@@ -11,3 +11,6 @@ ios/DerivedData/
 ios/LittleCamera/Info.plist
 .vercel
 .env.local
+.pio/
+.vscode/
+__pycache__/
