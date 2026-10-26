@@ -56,8 +56,7 @@ void init(uint8_t sclk, uint8_t mosi, uint8_t cs, uint8_t disp) {
     pinMode(_cs, OUTPUT);
     digitalWrite(_cs, LOW);  // CS active-high, so LOW = deselected
 
-    // DISP is GPIO-driven on the Xiao_Shutter carrier (was tied high on the
-    // old board) — must be HIGH for the panel to show pixels
+    // DISP is GPIO-driven, and must be HIGH for the panel to show pixels
     pinMode(disp, OUTPUT);
     digitalWrite(disp, HIGH);
 

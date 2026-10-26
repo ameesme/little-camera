@@ -1,29 +1,35 @@
 # Camera standby & sleep current — findings
 
-Research notes on whether the OV2640 can be powered down or put to sleep on this hardware.
+Research notes on whether the OV2640 can be powered down or put to sleep.
 
-**Verdict: it cannot, in firmware. Don't try.** This document exists so nobody re-litigates it.
+**Settled: it cannot be done in firmware, and on v3q it no longer has to be.** The conclusion this document reached — that the camera's ~20 mA was a copper problem — is the reason v3q gates the camera rails. This file is kept so nobody re-litigates the firmware routes, which are still dead ends on any board.
 
 ---
 
-## TL;DR
+## Status on v3q
 
-Two obvious-looking approaches get suggested constantly. Both are wrong on this board:
+v3q did exactly what the [What would actually work](#what-would-actually-work) table below ranked second: a GPIO-controlled load switch upstream of the camera rails. `CAM_EN` (GPIO45) enables U4/U5/U6, and `CAM_PWDN` and `CAM_RESET` are routed to real pins instead of strapped.
+
+`Camera::deinit()` therefore drops the rails, and the sensor loses power rather than just its clock. The ~20 mA floor that made light sleep worth only ~2× is gone by construction. **Unmeasured** — v3q hasn't run the app yet, and there is still no current sense on the board, so the figures in this document remain the last word on measurement.
+
+What did *not* change: everything below about `esp_camera_deinit()` and COM2 standby. Both are properties of the driver and the sensor, not of the carrier. Still don't try them.
+
+---
+
+## TL;DR — the two firmware routes, both dead
 
 | Approach | What it costs | What it buys |
 |---|---|---|
 | `esp_camera_deinit()` before sleep | a few hundred ms re-init on every wake | **0 mA** |
 | OV2640 software standby (COM2 bit 4) | **wedges the I²C bus until physical power removal** | **0 mA** |
 
-The camera's ~20 mA is ungateable because the Seeed Sense expansion board hard-wires it on. That's a copper problem, not a code problem. The fix, if we ever need one, is a board mod — see [What would actually work](#what-would-actually-work).
-
-Current stance: **change nothing.** This matches `AGENTS.md` → *"Sleep: don't chase deep-sleep micro-optimizations at the cost of prototype complexity."*
+Neither works on any board. On the retired Xiao_Shutter carrier that left the camera's ~20 mA permanently on, because the Seeed Sense expansion board hard-wires it.
 
 ---
 
-## Why anyone cares
+## Why anyone cared
 
-We use light sleep with a 10 s idle timeout. The camera draws roughly 20 mA whether or not we're using it, so sleep only removes the ESP32's share:
+Figures below are the Xiao_Shutter carrier, where the rails could not be gated. We use light sleep with a 10 s idle timeout, and the camera drew roughly 20 mA whether or not we were using it, so sleep only removed the ESP32's share:
 
 | State | Rough draw |
 |---|---|
@@ -82,7 +88,7 @@ Multiple independent reporters measured the real-world result: deinit before sle
 
 ### Background: SCCB and register banks
 
-The OV2640 is configured over **SCCB**, OmniVision's I²C-compatible bus (`SIOD`/`SIOC` = GPIO40/39 here). It has two register banks that share an address space; register `0xFF` bit 0 selects which one. Bank 0 is the DSP block, bank 1 is the sensor block.
+The OV2640 is configured over **SCCB**, OmniVision's I²C-compatible bus (`CAM_SIOD`/`CAM_SIOC` = GPIO18/8 on v3q). It has two register banks that share an address space; register `0xFF` bit 0 selects which one. Bank 0 is the DSP block, bank 1 is the sensor block.
 
 In the esp32-camera driver, `sensor->set_reg()` encodes the bank in bit 8 of the address. So sensor-bank register `0x09` is addressed as `0x109`.
 
@@ -151,13 +157,13 @@ OV3660/OV5640 use register `0x3008` bit 6, which doesn't exist on the OV2640.
 
 They say the workaround is "cut power and restart." On a typical ESP32-CAM that means a reboot or a power-cycled module — annoying but recoverable.
 
-**On this board there is no way to cut camera power.** `esp_restart()` won't clear it. A watchdog reset won't clear it. Re-flashing won't clear it. The only recovery is **physically unplugging USB and the battery.**
-
-So the trade is: risk a state the firmware cannot recover from, for 0 mA.
+**On the carrier there was no way to cut camera power.** `esp_restart()` wouldn't clear it, nor a watchdog reset, nor re-flashing; the only recovery was physically unplugging USB and the battery. On v3q `CAM_EN` can recover it — but the trade is still risking a wedged SCCB bus for 0 mA over simply dropping the rail, which already gives 0 mA.
 
 ---
 
-## The hardware blocks
+## The hardware blocks — Xiao_Shutter carrier (retired)
+
+Kept because it is the argument that produced v3q's `CAM_EN`.
 
 Decoded from the [XIAO ESP32S3 Expansion Board v1.0 schematic](https://files.seeedstudio.com/wiki/SeeedStudio-XIAO-ESP32S3/res/XIAO_ESP32S3_ExpBoard_v1.0_SCH.pdf). Seeed doesn't link this from the wiki; it surfaced in a forum thread.
 
@@ -175,7 +181,7 @@ For completeness: the two LDOs' own quiescent draw is only ~20 µA each. **The L
 
 ## What would actually work
 
-All hardware. Ranked by effort.
+All hardware. Ranked by effort. **v3q took rows two and three**: the camera rails sit behind a GPIO-controlled switch, drawn into the board instead of reworked onto a carrier.
 
 | Lever | Result | Reversible | Cost |
 |---|---|---|---|
@@ -190,23 +196,17 @@ This doesn't appear in any forum thread — people were proposing interposer PCB
 
 ---
 
-## Open question: the one measurement we still need
+## Open question: the measurement v3q still owes
 
-Everything above is about **deep** sleep. We use **light** sleep, and no published measurement exists for this board post-`esp_camera_init()`. Whether LCD_CAM's XCLK survives `esp_light_sleep_start()` is undocumented and shouldn't be guessed at.
+Everything above is about **deep** sleep on the carrier. The question that replaces it is simply whether dropping `CAM_EN` in `Camera::deinit()` delivers what the copper promises.
 
-Three readings, USB power meter or meter in the battery line:
+Three readings with a meter in the battery line:
 
 1. Boot, never call `Camera::init()`, straight to light sleep
-2. Normal boot with camera init, then light sleep
+2. Normal boot with camera init, then light sleep with the rails dropped
 3. Awake, viewfinder running
 
-The gap between 1 and 2 is the camera's light-sleep cost.
-
-**Decision rule on the result:**
-
-- **< 5 mA** → done. Close the topic, nothing left worth doing.
-- **~20 mA** → try parking XCLK manually before `esp_light_sleep_start()` (detach the GPIO matrix from GPIO10, drive it low; restore on wake). Fully reversible; worst case we re-init the camera.
-- **Still ~20 mA after that** → it's the hardware. Defer until the battery path is decided (`AGENTS.md` lists it as open), then do the R14 mod on the next carrier spin rather than scraping a resistor off a Seeed board.
+1 and 2 should now be within a few hundred µA of each other. A gap of ~20 mA means `CAM_EN` isn't actually cutting the rails — check that `deinit()` runs before `esp_light_sleep_start()` and that nothing is driving a camera pin into a dead rail and leaking through its ESD diodes.
 
 ---
 

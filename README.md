@@ -29,7 +29,7 @@ Then flash. New firmware keeps the same partition table and file format, so the 
 
 ```
 cd firmware
-pio run -e xiao_shutter -t upload -t monitor
+pio run -e v3q -t upload -t monitor
 ```
 
 Read `firmware/AGENTS.md` before changing anything hardware-facing. The UI can be previewed without hardware:

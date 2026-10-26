@@ -57,22 +57,21 @@ From the v3q netlist. Do not move a function without an explicit request.
 | CAM_PCLK | 48 | |
 | CAM_D0–D7 | 39, 41, 42, 40, 38, 47, 21, 13 | `CAM_Dn` = sensor `Y(n+2)`, so CAM_D0 is the driver's `d0` |
 
-## Migration status — `src/` is not on v3q yet
+## Migration status — `src/` builds for v3q, has never run on one
 
-`selftest/` runs on v3q. **The app does not.** `src/` still carries the previous carrier's pin numbers and the assumptions that went with them. Until that is done, treat the app's pin constants as stale, not as a second opinion:
+The app is on the v3q pin map and builds clean as `-e v3q`, but **no v3q has run it**. Everything below is reasoned from the netlist and `selftest`, not measured; the first boot on a board is the real test, and `selftest` passing first is the precondition.
 
-- `src/main.cpp:28-41` — LCD, buzzer and shutter constants, plus `shutterPressed()`
-- `src/camera.cpp:9-26` — sixteen `#define`s, with `PWDN` and `RESET` at `-1`
-- `platformio.ini` — the env is still named `xiao_shutter` on board `seeed_xiao_esp32s3`. Rename it to `v3q` and move to `esp32-s3-devkitc-1` with `memory_type = qio_opi`, as `selftest/platformio.ini` already does. **The XIAO board definition cannot stay**: it declares 8 MB flash and ships a `pins_arduino.h` that puts `LED_BUILTIN` on GPIO21, which is `CAM_D6` here.
+Three things changed behaviour, not just numbers — they are the places to look first if the board misbehaves:
 
-Four things change behaviour, not just numbers:
+1. **Shutter polarity flipped.** The previous carrier had the switch's NC terminal routed, so the line idled LOW and pressed HIGH on an internal pull-up. v3q is wired as drawn: R26 pulls up, the switch pulls to GND, **pressed = LOW**. `pinMode` is plain `INPUT` (R26 is the pull-up), `shutterPressed()` tests LOW, and the light-sleep wake is `GPIO_INTR_LOW_LEVEL`. Debounce stays in firmware; C24 softens the edge but does not remove the ~1 ms release bounce.
+2. **VCOM is hardware.** U8 drives EXTCOMIN at ~6 Hz with EXTMODE tied high, so **the panel ignores the serial VCOM bit**. Burn-in is handled in copper; the light-sleep timer wake is no longer load-bearing *for the panel*. It stays because it drives the breath and services the mood — just don't justify it with VCOM.
+3. **The camera is actually powered down now.** `CAM_EN` gates three LDOs, and PWDN and RESET are both wired, where the carrier had them at `-1` and left the sensor biased at milliamps through sleep. `Camera::init()` raises `CAM_EN` and waits 20 ms (three LDOs, plus R14/C14 releasing RESET) before the driver probes over SCCB; `Camera::deinit()` puts every camera pin to high-Z *then* drops the rail. This is the biggest power win in the migration and the one most likely to need timing tuning on a real board.
 
-1. **Shutter polarity flips.** The carrier had the switch's NC terminal routed, so the line idled LOW and pressed HIGH on an internal pull-up. v3q is wired as drawn: R26 pulls up, the switch pulls to GND, **pressed = LOW**. `pinMode` becomes plain `INPUT` (R26 is the pull-up), `shutterPressed()` inverts, and the light-sleep wake becomes `GPIO_INTR_LOW_LEVEL`. Debounce stays in firmware; C24 softens the edge but does not remove the ~1 ms release bounce.
-2. **VCOM is hardware now.** U8 drives EXTCOMIN at ~6 Hz with EXTMODE tied high, so **the panel ignores the serial VCOM bit**. The app's software VCOM toggle is no longer what prevents burn-in — which means the light-sleep timer wake is no longer load-bearing *for the panel*. It still earns its keep driving the breath and servicing the mood, so keep it; just don't justify it with VCOM any more.
-3. **The camera can actually be powered down.** `CAM_EN` gates three LDOs, and PWDN and RESET are both wired. On the carrier they were `-1`, so sleep only gated XCLK and the sensor sat biased at milliamps — the single largest item in the idle budget. Bringing the rails down in `Camera::deinit()` is the biggest power win available in this migration. Bring-up order from `selftest`: pins to high-Z, `CAM_EN` HIGH, wait 20 ms, `PWDN` LOW, `RESET` HIGH, then XCLK. Teardown is the reverse, and nothing may drive into an unpowered sensor.
-4. **Battery and charge state are readable.** VBAT through a 1M/1M divider (×2 in software), VBUS and CHRG as logic levels. `selftest`'s `lipoPercent()` has a resting-voltage curve good enough for a readout. There is still **no current sense**, so power figures remain estimates.
+Still open on v3q, deliberately not done:
 
-Half the flash is also unreachable: the app and the self-test both use `default_8MB.csv` on a 16 MB part, leaving photos in a 1.5 MB `spiffs` entry. See the storage note below before changing that — but v3q is the moment to decide, because the freeze becomes real as soon as a v3q has photos on it.
+- **Battery and charge state are readable but unread.** VBAT through a 1M/1M divider (×2 in software), VBUS and CHRG as logic levels; `selftest`'s `lipoPercent()` has a resting-voltage curve good enough for a readout. That is a new feature, not part of running on v3q. There is **no current sense**, so power figures stay estimates.
+- **Camera orientation is carried over.** The `vflip`/`hmirror` values in `camera.cpp` came from the previous board and were never checked against a module in J2. `selftest` has a rotate toggle for exactly this.
+- **Half the flash is unreachable.** The app and the self-test both use `default_8MB.csv` on a 16 MB part, leaving photos in a 1.5 MB `spiffs` entry. See the storage note below — v3q is the moment to decide, because the freeze becomes real as soon as a v3q has photos on it.
 
 ## Hard constraints
 
@@ -84,7 +83,7 @@ Treat each of these as a hard failure if violated:
   - Mode 0. Datasheet max SCLK is 2 MHz; the firmware deliberately runs **8 MHz** — proven stable on this panel since the first prototype, and 2 MHz makes a frame push (~50 ms) laggy. If the panel glitches, drop the clock before suspecting anything else. `selftest` toggles 8 MHz / 2 MHz with `s` so a suspect board can be checked both ways.
   - **Write-only** — there is no MISO. Never attempt a read transaction.
   - DISP must be driven HIGH or the panel shows nothing.
-- **The buzzer pin must idle LOW.** HIGH turns Q2 on, which puts near-DC through the coil. Sounds are bit-banged and always leave the pin LOW; `selftest` additionally calls `gpio_hold_en()` on it before sleeping. Do the same in the app when the pin map lands.
+- **The buzzer pin must idle LOW.** HIGH turns Q2 on, which puts near-DC through the coil. Every path in `audio.cpp` that stops a sound re-asserts OUTPUT+LOW (`park()`), because `noTone()` doesn't say what state it hands the pin back in. `selftest` also calls `gpio_hold_en()` on it before sleeping; **the app must not** — it chirps *from inside* the sleep loop, and a held gate makes those silent.
 - **Nothing drives an unpowered sensor.** With `CAM_EN` low, every camera pin is an input. A driven pin into a dead rail leaks through the ESD diodes.
 - **Shutter debounce lives in firmware.** Measured on v3q's predecessor: real presses hold ~200 ms, release bounce ~1 ms. A single 10 ms resample (`confirmPressed()` in main.cpp) covers that. Don't stack extra edge-timing windows on top of it.
 - **Leave GPIO43 alone.** It idles high and is the flash-fob trigger on the dock pad.
@@ -131,8 +130,8 @@ Treat each of these as a hard failure if violated:
   - Info is re-packed from `loop()` every 500 ms, never from the read callback, so its uptime is at most that stale.
   - `platformio.ini` disables the central/observer roles and caps connections at 1. NimBLE + camera fit the 3.3 MB app slot with room.
 - **Sleep:** light sleep, entered once the radio window behind the sleep face closes, woken by the shutter or a `Display::VCOM_INTERVAL_MS` timer. The sleep loop leaves **only on a GPIO wake held for `WAKE_HOLD_MS`** (a tap chirps and goes straight back to sleep). A timer wake breathes the face and services the mood — a due chirp plays right there, radio and camera being down. Any other cause (BT, undefined, a rejected `esp_light_sleep_start()`) is logged and slept through: treating "anything but the timer" as a press made the camera wake by itself once the radio existed. `Sync::end()` forces the BT controller off and clears its wake source before sleeping, for the same reason.
-  - The panel keeps showing the sleep face across light sleep (DISP stays HIGH). On v3q the panel's own VCOM comes from U8, so the timer wake is no longer what saves the pixels — see the migration notes.
-  - `Camera::deinit()` before sleeping, `Camera::init()` after waking, at a cost of a few hundred ms on wake. On v3q this should drop the rails via `CAM_EN`, not just gate XCLK.
+  - The panel keeps showing the sleep face across light sleep (DISP stays HIGH). The panel's own VCOM comes from U8, so the timer wake is no longer what saves the pixels — see the migration notes.
+  - `Camera::deinit()` before sleeping, `Camera::init()` after waking, at a cost of a few hundred ms on wake. `deinit()` drops the `CAM_EN` rail, so the sensor loses power rather than just its clock.
   - Beyond that, don't chase deep-sleep micro-optimizations at the cost of prototype complexity. There is no current sense, so every power figure here is an estimate.
 
 ## Build & flash
@@ -140,14 +139,15 @@ Treat each of these as a hard failure if violated:
 PlatformIO + Arduino framework, two projects: the app in `firmware/`, the board bring-up in `firmware/selftest/`.
 
 ```
-pio run -e xiao_shutter                      # build the app (env rename pending)
-pio run -e xiao_shutter -t upload -t monitor # flash and watch
+pio run -e v3q                               # build the app
+pio run -e v3q -t upload -t monitor          # flash and watch
 pio device monitor                           # just watch
 cd selftest && pio run -t upload -t monitor  # the board self-test
 ```
 
 - `ARDUINO_USB_MODE=1` + `ARDUINO_USB_CDC_ON_BOOT=1`: **`Serial` is the native USB-CDC console**, not a UART bridge. The port re-enumerates after flashing, so the monitor may need a moment.
-- `selftest` pins `espressif32 @ 8.0.0` (Arduino core 3.3.12) — the version it was checked against. The app floats; pin it too if a core bump breaks something.
+- Both projects pin `espressif32 @ 8.0.0` (Arduino core 3.3.12). Core 3.x renamed `ledcDetachPin` to `ledcDetach`, and the app had been sitting on 2.0.17 — a core bump is not a free upgrade here.
+- The env sets `board = esp32-s3-devkitc-1`, **not** `seeed_xiao_esp32s3`: that definition declares 8 MB flash and ships a `pins_arduino.h` putting `LED_BUILTIN` on GPIO21, which is `CAM_D6` on v3q.
 - `-DLC_NO_BLE` builds without the radio, for bisecting.
 
 ## Host checks — no hardware needed
@@ -176,7 +176,7 @@ How far to trust it: it intercepts at the **SPI byte stream**, not the framebuff
 
 Flag these if relevant to a change; don't silently assume they're resolved.
 
-- **`src/` has never run on v3q.** The pin map, the shutter polarity, the camera rails and the env name are all still the old board's. See the migration section — this is the next job.
+- **`src/` has never run on v3q.** It builds for it and the pin map matches the netlist, but the first boot on a board is still ahead. Run `selftest` first. See the migration section.
 - **Mood is untested on hardware.** Host-tested over a simulated month and previewed, but the first real week — NVS resume, chirps out of light sleep, the breath's power cost (a few hundred µA average, unmeasured) — is still ahead. `-DLC_MOOD_FAST` compresses it to a bench session.
 - **BLE sync is untested on hardware.** Written against NimBLE 2.x, checked on the host only. First things to verify with a board: the `pio run` size line, pairing with the passkey screen, an end-to-end pull from the app, and that the stack comes back cleanly after a light-sleep cycle.
 - **Firmware-over-BLE** lives on the open `claude/firmware-update-ble-gvwlz5` branch, unmerged. It matters more on v3q than it did on the carrier: no castellated pads, no exposed USB once there's an enclosure.

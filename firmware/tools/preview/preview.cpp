@@ -19,12 +19,13 @@
 #include "../../src/pbm_header.h"
 #include "sim_panel.h"
 
-// Pins are arbitrary here; they only have to be distinct so the panel model can
-// tell CS and DISP apart.
-constexpr uint8_t PIN_SCLK = 7;
-constexpr uint8_t PIN_MOSI = 9;
-constexpr uint8_t PIN_CS   = 44;
-constexpr uint8_t PIN_DISP = 3;
+// Pins are arbitrary here; they only have to be distinct so the panel model
+// can tell CS and DISP apart. Kept equal to v3q's so the log line matches the
+// board.
+constexpr uint8_t PIN_SCLK = 4;
+constexpr uint8_t PIN_MOSI = 5;
+constexpr uint8_t PIN_CS   = 6;
+constexpr uint8_t PIN_DISP = 7;
 
 static uint8_t g_source[Camera::WIDTH * Camera::HEIGHT];
 // A stored photo in panel polarity, for the gallery scenes.

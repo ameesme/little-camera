@@ -23,7 +23,7 @@ void setClockHz(uint32_t hz);
 const uint8_t* pixels();
 
 // DISP low means the panel blanks regardless of memory contents — the single
-// most common "why is the screen dead" cause on this carrier.
+// most common "why is the screen dead" cause on this board.
 bool displayEnabled();
 
 // Number of VCOM polarity flips seen so far. A run of frames with this stuck

@@ -1,9 +1,8 @@
 /**
- * little-camera on the Xiao_Shutter carrier (XIAO ESP32-S3 Sense).
+ * little-camera on the v3q board (ESP32-S3-WROOM-1-N16R8).
  *
- * Viewfinder + capture + sleep app. Cellular is not on this carrier
- * revision, so no modem code. Camera comes from the Sense expansion
- * over the B2B connector.
+ * Viewfinder + capture + sleep app. There is no modem: the phone is the
+ * uplink. Pin map is the v3q netlist; see AGENTS.md.
  */
 
 #include <Arduino.h>
@@ -24,24 +23,23 @@
 #include "storage.h"
 #include "sync.h"
 
-// Sharp Memory LCD (LS027B7DH01 / Adafruit 4694)
-constexpr uint8_t PIN_LCD_SCLK = 7;   // D8
-constexpr uint8_t PIN_LCD_MOSI = 9;   // D10
-constexpr uint8_t PIN_LCD_CS   = 44;  // D7 — ACTIVE HIGH
-constexpr uint8_t PIN_LCD_DISP = 3;   // D2 — display enable
+// Sharp Memory LCD (LS027B7DH01) on J3, each line through a 330R guard
+constexpr uint8_t PIN_LCD_SCLK = 4;
+constexpr uint8_t PIN_LCD_MOSI = 5;   // SI — write-only bus, no MISO
+constexpr uint8_t PIN_LCD_CS   = 6;   // SCS — ACTIVE HIGH
+constexpr uint8_t PIN_LCD_DISP = 7;   // HIGH = panel shows
 
-// Controls
-constexpr uint8_t PIN_BUZZ    = 2;    // D1
+// Q2 (DMG1012UW) gate, low-side, buzzer to +3V3. Must idle LOW: HIGH turns
+// the FET on, which puts near-DC through the coil.
+constexpr uint8_t PIN_BUZZ    = 46;
 
-// D0. The netlist intended active-LOW (COM->SHUTTER, NO->GND), but on this
-// carrier the line idles at a solid LOW and goes HIGH on press — consistent
-// with the D2F's NC terminal being routed instead of NO. So: released = LOW
-// (hard GND through the closed contact), pressed = HIGH (line floats, internal
-// pull-up defines it). Polarity handled in shutterPressed(); fix on next spin.
-constexpr uint8_t PIN_SHUTTER = 1;
+// D2MQ, NO to GND, with R26 10k pull-up and C24 100n on the line, so the
+// board does the pulling and pressed reads LOW. (The previous carrier had the
+// switch's NC terminal routed, which inverted this.)
+constexpr uint8_t PIN_SHUTTER = 44;
 
 static inline bool shutterPressed() {
-    return digitalRead(PIN_SHUTTER) == HIGH;
+    return digitalRead(PIN_SHUTTER) == LOW;
 }
 
 // Timing constants
@@ -270,9 +268,9 @@ static void breatheSleepFace() {
     showSleepFace(false);
 }
 
-// Boot/wake gate, not a debounce: light sleep wakes on a HIGH level, i.e. with
-// the button still held, so the loop would otherwise see it as a fresh press.
-// Block until the line has been continuously released for stableMs.
+// Boot/wake gate, not a debounce: light sleep wakes on the pressed level, i.e.
+// with the button still held, so the loop would otherwise see it as a fresh
+// press. Block until the line has been continuously released for stableMs.
 static void waitForStableRelease(uint32_t stableMs) {
     uint32_t stableStart = millis();
     while (millis() - stableStart < stableMs) {
@@ -283,10 +281,10 @@ static void waitForStableRelease(uint32_t stableMs) {
     }
 }
 
-// The only debounce. Pressed is held by the weak internal pull-up (~45k), so a
-// single sample can be noise; resampling over ~10ms rejects it. Measured on
-// this switch: real presses hold ~200ms, release bounce lasts ~1ms — 10ms sits
-// comfortably between the two, so no additional edge-timing window is needed.
+// The only debounce. Resampling over ~10ms rejects a noisy single sample.
+// Measured on this switch: real presses hold ~200ms, release bounce lasts
+// ~1ms — 10ms sits comfortably between the two, so no additional edge-timing
+// window is needed. R26/C24 soften the edge but don't remove that bounce.
 static bool confirmPressed() {
     for (int i = 0; i < 5; i++) {
         delay(2);
@@ -296,15 +294,17 @@ static bool confirmPressed() {
 }
 
 void setup() {
-    // Shutter pull-up first — no external pull-up on the carrier, so give the
-    // line the whole boot sequence to settle before anyone reads it
-    pinMode(PIN_SHUTTER, INPUT_PULLUP);
+    // Plain INPUT: R26 is the pull-up, so the internal one would only fight
+    // the RC. Buzzer gate low before anything else can float it.
+    pinMode(PIN_SHUTTER, INPUT);
+    pinMode(PIN_BUZZ, OUTPUT);
+    digitalWrite(PIN_BUZZ, LOW);
 
     Serial.begin(115200);
 
     // Wait for USB-CDC to enumerate after flash
     delay(1000);
-    Serial.println("little-camera init — Xiao_Shutter carrier");
+    Serial.println("little-camera init — v3q");
     // Why are we booting? A splash where a sleep face was expected means a
     // reset; this line says which kind (1 power-on, 3 software, 4 panic,
     // 5 interrupt watchdog, 6 task watchdog, 9 brownout, per esp_reset_reason_t).
@@ -337,7 +337,7 @@ void setup() {
     moodBoot();
     Console::begin();
 
-    // Initialize camera (OV2640 on the Sense B2B connector)
+    // Initialize camera (OV2640 on J2)
     if (!Camera::init()) {
         Serial.println("Camera init failed — halting");
         while (true) delay(1000);
@@ -514,29 +514,27 @@ void enterSleepMode() {
     Sync::end();
 #endif
 
-    // The OV2640 has no PWDN or RESET pin wired on the Sense B2B connector, so
-    // light sleep only stops its XCLK — the sensor stays powered and biased at
-    // milliamps, dwarfing everything else on the board (~250uA for the sleeping
-    // S3, ~50uA for the static panel). Tearing the driver down is the only lever
-    // we have; it costs a few hundred ms of re-init on wake. (Usually already
-    // done by enterAsleep(), which precedes this.)
+    // Drops the camera rails via CAM_EN, so the sensor costs nothing while we
+    // are out — unlike the previous board, where it stayed biased at ~20mA
+    // through sleep (docs/camera_standby.md). Costs a re-init on wake.
+    // (Usually already done by enterAsleep(), which precedes this.)
     if (cameraReady) {
         Camera::deinit();
         cameraReady = false;
     }
 
-    // Configure GPIO wakeup for light sleep (wake on HIGH = button press,
-    // inverted polarity — see PIN_SHUTTER note)
-    gpio_wakeup_enable((gpio_num_t)PIN_SHUTTER, GPIO_INTR_HIGH_LEVEL);
+    // Pressed is LOW on this board, so that is the level that wakes us.
+    gpio_wakeup_enable((gpio_num_t)PIN_SHUTTER, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
 
     // Small delay to let display finish and avoid immediate wake
     delay(100);
 
     // The panel keeps showing the sleep face while we're out, and DISP stays
-    // HIGH across light sleep, so VCOM has to keep flipping or the pixels take
-    // a permanent DC bias. Nothing runs while esp_light_sleep_start() blocks,
-    // so wake ourselves on a timer to do it and go straight back down.
+    // HIGH across light sleep. On v3q the panel's VCOM comes from U8's
+    // EXTCOMIN with EXTMODE tied high, so burn-in is handled in copper and no
+    // longer depends on us waking up; the timer stays because the breath and
+    // the mood's clock do need it.
     //
     // Only the shutter (GPIO) ends the sleep. Anything else — the BT
     // controller's own wake source if the radio was not fully down, a
@@ -565,9 +563,11 @@ void enterSleepMode() {
             continue;
         }
         if (cause == ESP_SLEEP_WAKEUP_TIMER) {
-            // Keep-alive tick, and the mood's clock while asleep: flip VCOM,
-            // breathe (face rows only), pay a due chirp. Radio and camera
-            // are down here, so a 300ms chirp costs nothing but the sound.
+            // Keep-alive tick, and the mood's clock while asleep: breathe
+            // (face rows only) and pay a due chirp. Radio and camera are down
+            // here, so a 300ms chirp costs nothing but the sound. The VCOM
+            // flip is now a no-op on the panel (EXTMODE is high) but stays so
+            // tools/preview keeps exercising the same byte stream.
             Display::toggleVcom();
             breatheSleepFace();
             serviceMood(true, "Sleep");
@@ -873,8 +873,8 @@ void loop() {
                 Audio::playMelody(Audio::Melody::DaDaTa);
                 startDismiss("deleted");
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
-                // Released before the threshold: a tap. No modem on this carrier
-                // revision, so "send" writes the photo to flash and stops there
+                // Released before the threshold: a tap. No modem on this board,
+                // so "send" writes the photo to flash and stops there
                 // — the file is staged for whatever eventually uploads it.
                 //
                 // Done here rather than after the slide so the toast can report

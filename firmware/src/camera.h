@@ -8,8 +8,8 @@ namespace Camera {
 constexpr int WIDTH = 320;
 constexpr int HEIGHT = 240;
 
-bool init();
-void deinit();       // Tear down before sleep — the OV2640 has no PWDN pin wired
+bool init();         // Rails up, then the driver
+void deinit();       // Driver down, then the rails — the sensor loses power
 uint8_t* capture();  // Returns pointer to grayscale framebuffer, or nullptr on failure
 
 }

@@ -46,17 +46,26 @@ static int melodyStep = -1;
 static uint32_t melodyStepStart = 0;
 static bool noteStarted = false;
 
+// noTone() hands the pin back from LEDC without saying what state it leaves
+// it in. On v3q that pin is Q2's gate, and a floating gate is DC through the
+// buzzer coil, so every path that stops a tone parks it LOW itself.
+static void park() {
+    pinMode(_buzzerPin, OUTPUT);
+    digitalWrite(_buzzerPin, LOW);
+}
+
 static void legacySweep(uint16_t startFreq) {
     for (int f = startFreq; f < startFreq + 1500; f += 200) {
         tone(_buzzerPin, f);
         delayMicroseconds(600);
     }
     noTone(_buzzerPin);
+    park();
 }
 
 void init(uint8_t buzzerPin) {
     _buzzerPin = buzzerPin;
-    ledcDetachPin(_buzzerPin);
+    ledcDetach(_buzzerPin);
     pinMode(_buzzerPin, OUTPUT);
     digitalWrite(_buzzerPin, LOW);
     melodyStep = -1;
@@ -84,7 +93,7 @@ void playClick(bool light) {
     // a random 85-115%, which shifts the whole click brighter or duller
     // while keeping its shape. A mechanical shutter never sounds the same
     // twice either.
-    ledcDetachPin(_buzzerPin);
+    ledcDetach(_buzzerPin);
     pinMode(_buzzerPin, OUTPUT);
     if (light) {
         // The light tick is 6ms of 5-9kHz, where the piezo's own resonance
@@ -125,7 +134,7 @@ void playChirp(const Chirp::Score& score) {
         melodyStep = -1;
         noteStarted = false;
     }
-    ledcDetachPin(_buzzerPin);
+    ledcDetach(_buzzerPin);
     pinMode(_buzzerPin, OUTPUT);
     PinOut out;
     Chirp::play(score, out);
@@ -176,6 +185,7 @@ void update() {
 
 void stop() {
     noTone(_buzzerPin);
+    park();
     melodyStep = -1;
     noteStarted = false;
 }
