@@ -80,9 +80,24 @@ From the v3q netlist. Do not move a function without an explicit request.
 | CAM_PCLK | 48 | |
 | CAM_D0–D7 | 39, 41, 42, 40, 38, 47, 21, 13 | `CAM_Dn` = sensor `Y(n+2)`, so CAM_D0 is the driver's `d0` |
 
-## Migration status — `src/` builds for v3q, has never run on one
+## Migration status — the app runs on v3q
 
-The app is on the v3q pin map and builds clean as `-e v3q`, but **no v3q has run the app**. `selftest` passes on board 1, so the pin map and the peripherals behind it are confirmed — what is unverified is the app's own behaviour on top of them.
+**Board 1 boots and runs the app.** First flash, no rework. Confirmed from the serial log: display on the new pins, LittleFS mounted, identity and mood resumed, **camera init through `CAM_EN`**, BLE advertising, sleep, a shutter wake, camera re-init after the rail came back, and a capture.
+
+```
+little-camera init — v3q
+Display SPI on SCLK=4, MOSI=5, CS=6, DISP=7
+Storage: 0 photos (0 unsynced), 8192/1572864 bytes used, next #0001, boot 2
+Identity: 44b176c5105d (lc-105D), code 4NXMAH
+Mood: resumed elapsed=0s happiness=255 band=3 clock=unset tz=unknown 0
+Camera initialized
+Sync: advertising as lc-105D
+Asleep (radio on) → Woke (radio was on) → Camera initialized → Shutter — capturing
+```
+
+Light sleep holds: 45 s observed with **no self-wake**, which is the bug that shipped before the wake-cause discrimination went in. Prints after a sleep arrive instead of stalling, so `setTxTimeoutMs(0)` does its job.
+
+Still unverified because it needs eyes on the panel or a phone: **image orientation** (`vflip`/`hmirror` are carried over from the previous board), dithering quality, a save → gallery round-trip, and a BLE pull.
 
 Three things changed behaviour, not just numbers — they are the places to look first if the board misbehaves:
 
@@ -173,6 +188,7 @@ cd selftest && pio run -t upload -t monitor  # the board self-test
 ```
 
 - `ARDUINO_USB_MODE=1` + `ARDUINO_USB_CDC_ON_BOOT=1`: **`Serial` is the native USB-CDC console**, not a UART bridge. The port re-enumerates after flashing, so the monitor may need a moment.
+- **A sleeping camera cannot be reached over USB at all.** Once it light-sleeps, the port stays enumerated on the host but nothing answers: no console, no DTR/RTS reset, and `esptool` fails with *"No serial data received"*. There is no USB route back in, because the peripheral needs clocks the sleep gates. **Hold the shutter to wake it, then flash** — this is the whole reason `tools/preview` exists, and it is why an auto-upload loop will appear to brick a working board.
 - Both projects pin `espressif32 @ 8.0.0` (Arduino core 3.3.12). Core 3.x renamed `ledcDetachPin` to `ledcDetach`, and the app had been sitting on 2.0.17 — a core bump is not a free upgrade here.
 - The env sets `board = esp32-s3-devkitc-1`, **not** `seeed_xiao_esp32s3`: that definition declares 8 MB flash and ships a `pins_arduino.h` putting `LED_BUILTIN` on GPIO21, which is `CAM_D6` on v3q.
 - `-DLC_NO_BLE` builds without the radio, for bisecting.
@@ -203,7 +219,7 @@ How far to trust it: it intercepts at the **SPI byte stream**, not the framebuff
 
 Flag these if relevant to a change; don't silently assume they're resolved.
 
-- **`src/` has never run on v3q.** It builds for it and `selftest` passes on board 1, but the app's own first boot is still ahead. See the migration section.
+- **The app's screen output has never been looked at on v3q.** It boots and captures, but orientation, dithering and the gallery round-trip need a human in front of the panel. See the migration section.
 - **Battery percentage is unwritten**, and the charger's behaviour makes it more than a divider read — see the migration section for the offset and the time-based last stretch.
 - **Next board revision** (not firmware): a micropower oscillator in place of U8, which is half the idle current, and the J5 `+` marking back on the board. A rework for the existing boards is written down but not done.
 - **Mood is untested on hardware.** Host-tested over a simulated month and previewed, but the first real week — NVS resume, chirps out of light sleep, the breath's power cost (unmeasured, and now within the noise of U8's 2 mA) — is still ahead. `-DLC_MOOD_FAST` compresses it to a bench session.
