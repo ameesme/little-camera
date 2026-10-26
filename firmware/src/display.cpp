@@ -962,7 +962,7 @@ static void mouth(int x, int y, uint8_t band) {
 }
 }  // namespace Face
 
-void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly) {
+void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* status) {
     memset(_framebuffer, 0, sizeof(_framebuffer));  // Black
     const uint8_t band = Chirp::band(happiness);
     const int eyeY = Face::EYE_Y + (breathIn ? Face::BREATH_EYES_DY : 0);
@@ -984,6 +984,11 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly) {
     fillRoundedRect(boxX, boxY, boxW, boxH, TOAST_RADIUS, false);  // Black bg
     drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);  // White border
     drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);  // White text
+
+    if (status) {
+        drawText(status, TOAST_MARGIN, HEIGHT - UI::fontHeight(TOAST_FONT) - TOAST_MARGIN,
+                 TOAST_FONT, true);
+    }
 
     // A breath frame only touches the face rows; the rest of the panel keeps
     // what it has. The band spans both breath positions of eyes and mouth.

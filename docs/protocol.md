@@ -288,5 +288,9 @@ The firmware answers on the USB-CDC console (115200). Lines end with `\n`.
 | `ls` | one line per photo: `<index> <size> <synced 0/1>`, then `ok` |
 | `get <index>` | `begin <index> <size>`, then the file as hex, 64 bytes per line, then `end <crc32 hex>` |
 | `stat` | `photos=<n> used=<bytes> total=<bytes> boot=<n> id=<camera_id>` |
+| `log` | `begin <size>`, then `/debug.log` verbatim, then `end` |
+| `log clear` | `ok` / `err` |
 
 Anything else → `err unknown`. `firmware/tools/export/pull_serial.py` speaks this.
+
+`/debug.log` is a debugging aid, not part of the product: lines are `uptime_s,mv,chg`, one standby battery sample every 5 minutes behind the sleep face and one whenever the charge state changes. It exists because a sleeping camera cannot be reached over USB, so a standby run has to be read back afterwards.

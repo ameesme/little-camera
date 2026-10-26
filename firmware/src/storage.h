@@ -65,6 +65,15 @@ int readPhotoChunk(int index, uint32_t offset, uint8_t* out, size_t len);
 bool markSynced(int index);   // Rename to the `s` form
 bool deletePhoto(int index);
 
+// A debug log, not a photo: text lines appended to /debug.log, for readings
+// taken while nothing is watching the serial port. Eviction never touches it
+// (it only ever considers .pbm files), so it is capped instead — past the cap
+// appends are refused rather than wrapped, because the start of a discharge
+// curve is worth more than its tail.
+bool appendLog(const char* line);
+void printLog();   // Streams it to Serial, bracketed by begin/end
+bool clearLog();
+
 uint16_t bootCount();
 size_t usedBytes();
 size_t totalBytes();

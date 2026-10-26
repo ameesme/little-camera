@@ -66,6 +66,10 @@ void run(const char* line) {
         cmdGet(atoi(line + 4));
     } else if (!strcmp(line, "stat")) {
         cmdStat();
+    } else if (!strcmp(line, "log")) {
+        Storage::printLog();
+    } else if (!strcmp(line, "log clear")) {
+        Serial.println(Storage::clearLog() ? "ok" : "err");
     } else if (line[0]) {
         Serial.println("err unknown");
     }

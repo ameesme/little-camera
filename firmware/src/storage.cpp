@@ -23,6 +23,12 @@ constexpr char SYNCED_MARK = 's';
 // even when the arithmetic says it fits. Keep a block in reserve.
 constexpr size_t FREE_SPACE_SLACK = 4096;
 
+// parseName() ignores this, so it never enters the photo index. The cap is
+// about three photos' worth of the partition, and holds a week of 5-minute
+// samples.
+constexpr const char* LOG_PATH = "/debug.log";
+constexpr size_t LOG_MAX_BYTES = 32768;
+
 // Rows are inverted through a stack buffer on the way in and out; this caps
 // how wide an image this code will take. 320px needs 40.
 constexpr int MAX_STRIDE = 64;
@@ -340,6 +346,43 @@ bool deletePhoto(int index) {
     }
     removeSlot(slot);
     return true;
+}
+
+bool appendLog(const char* line) {
+    if (!_mounted) return false;
+    File f = LittleFS.open(LOG_PATH, FILE_APPEND);
+    if (!f) return false;
+    if (f.size() >= LOG_MAX_BYTES) {
+        f.close();
+        return false;
+    }
+    bool ok = f.println(line) > 0;
+    f.close();
+    return ok;
+}
+
+void printLog() {
+    if (!_mounted) {
+        Serial.println("err not mounted");
+        return;
+    }
+    File f = LittleFS.open(LOG_PATH, FILE_READ);
+    if (!f) {
+        Serial.println("begin 0");
+        Serial.println("end");
+        return;
+    }
+    Serial.printf("begin %u\n", (unsigned)f.size());
+    uint8_t buf[64];
+    size_t n;
+    while ((n = f.read(buf, sizeof(buf))) > 0) Serial.write(buf, n);
+    f.close();
+    Serial.println("end");
+}
+
+bool clearLog() {
+    if (!_mounted) return false;
+    return LittleFS.remove(LOG_PATH);
 }
 
 uint16_t bootCount() { return _boot; }

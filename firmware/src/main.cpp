@@ -38,6 +38,12 @@ constexpr uint8_t PIN_BUZZ    = 46;
 // switch's NC terminal routed, which inverted this.)
 constexpr uint8_t PIN_SHUTTER = 44;
 
+// Power sense. VBAT is halved by R34/R35 (1M/1M); VBUS and CHG are dividers
+// read as logic, and CHG only means anything with VBUS present.
+constexpr uint8_t PIN_VBAT = 3;
+constexpr uint8_t PIN_VBUS = 16;
+constexpr uint8_t PIN_CHG  = 17;
+
 static inline bool shutterPressed() {
     return digitalRead(PIN_SHUTTER) == LOW;
 }
@@ -161,6 +167,9 @@ static bool moodTzKnown = false;
 static uint8_t sleepFaceBand = 0xFF;   // Band the face was last drawn for
 static bool sleepBreathIn = false;
 static uint32_t sleepFaceDrawnAt = 0;
+static char sleepStatus[16] = "";      // Battery debug line, as last drawn
+static uint32_t sleepStatusMv = 0;
+static bool sleepStatusChg = false;
 
 static Mood::Clock moodClock() {
     Mood::Clock c;
@@ -252,6 +261,48 @@ static void serviceMood(bool quiet, const char* why) {
     }
 }
 
+// Millivolts, never a percentage: the TP4054 cannot be paused, so a reading
+// taken on USB is pulled up by the charge current and a percentage would be
+// confidently wrong just when someone is watching it.
+static uint32_t batteryMv() {
+    analogSetPinAttenuation(PIN_VBAT, ADC_11db);
+    uint32_t sum = 0;
+    for (int i = 0; i < 16; i++) sum += analogReadMilliVolts(PIN_VBAT);
+    // Hand the pin back so the ADC unit is deleted instead of sitting attached
+    // through light sleep: a power readout that costs power is worth nothing.
+    pinMode(PIN_VBAT, INPUT);
+    return (sum / 16) * 2;
+}
+
+static bool onCharge() {
+    return digitalRead(PIN_VBUS) == HIGH && digitalRead(PIN_CHG) == LOW;
+}
+
+// ADC noise is tens of mV once doubled, so the last digit would flap on a
+// still battery — and each flap costs a full frame. Widen if it looks jumpy.
+constexpr uint32_t BATTERY_DEADBAND_MV = 20;
+
+// Standby readings go to flash, because the one thing that cannot be done to a
+// sleeping camera is read its serial port — the port stays enumerated and
+// nothing answers. Pull them afterwards with the console's `log`. Five minutes
+// is coarse enough that the writes are nothing against a 4mA idle and fine
+// enough to show the knee of a discharge curve; unplugging is logged the moment
+// it happens, since that is where a standby run starts.
+constexpr uint32_t BATTERY_LOG_INTERVAL_MS = 5 * 60 * 1000;
+static uint32_t batteryLoggedAt = 0;
+static bool batteryLogged = false;
+
+static void logBattery(uint32_t mv, bool chg, bool chgChanged) {
+    const uint32_t now = millis();
+    if (batteryLogged && !chgChanged && now - batteryLoggedAt < BATTERY_LOG_INTERVAL_MS) return;
+    batteryLoggedAt = now;
+    batteryLogged = true;
+    char line[32];
+    snprintf(line, sizeof line, "%lu,%lu,%d", (unsigned long)(now / 1000),
+             (unsigned long)mv, chg ? 1 : 0);
+    Storage::appendLog(line);
+}
+
 // The sleep face for the current mood. A full frame when it first goes up or
 // the band moved; a breath (the other frame, face rows only) otherwise.
 static void showSleepFace(bool full) {
@@ -259,7 +310,23 @@ static void showSleepFace(bool full) {
     const uint8_t band = Chirp::band(h);
     if (band != sleepFaceBand) full = true;
     sleepFaceBand = band;
-    Display::drawSleep(h, sleepBreathIn, !full);
+
+    // The debug readout sits outside the face rows, so a breath frame cannot
+    // repaint it and a moved reading has to pay for a full frame.
+    const uint32_t mv = batteryMv();
+    const bool chg = onCharge();
+    const bool chgChanged = sleepStatus[0] && chg != sleepStatusChg;
+    const uint32_t drift = mv > sleepStatusMv ? mv - sleepStatusMv : sleepStatusMv - mv;
+    if (!sleepStatus[0] || chgChanged || drift >= BATTERY_DEADBAND_MV) {
+        sleepStatusMv = mv;
+        sleepStatusChg = chg;
+        snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV%s", (unsigned)(mv / 1000),
+                 (unsigned)(mv % 1000 / 10), chg ? " chg" : "");
+        full = true;
+    }
+    logBattery(mv, chg, chgChanged);
+
+    Display::drawSleep(h, sleepBreathIn, !full, sleepStatus);
     sleepFaceDrawnAt = millis();
 }
 
@@ -293,12 +360,34 @@ static bool confirmPressed() {
     return true;
 }
 
+// The camera rail is the biggest load on the board — 105mA with the sensor up
+// against 62mA without — so every screen that isn't live preview drops it and
+// pays a re-init when frames are wanted again. Camera::deinit() frees the
+// framebuffer, so dropping the reviewed frame is part of switching off rather
+// than something each caller has to remember.
+static bool cameraOn() {
+    if (!cameraReady) {
+        cameraReady = Camera::init();
+        if (!cameraReady) Serial.println("Camera init failed");
+    }
+    return cameraReady;
+}
+
+static void cameraOff() {
+    if (!cameraReady) return;
+    Camera::deinit();
+    cameraReady = false;
+    savedFrame = nullptr;
+}
+
 void setup() {
     // Plain INPUT: R26 is the pull-up, so the internal one would only fight
     // the RC. Buzzer gate low before anything else can float it.
     pinMode(PIN_SHUTTER, INPUT);
     pinMode(PIN_BUZZ, OUTPUT);
     digitalWrite(PIN_BUZZ, LOW);
+    pinMode(PIN_VBUS, INPUT);
+    pinMode(PIN_CHG, INPUT);
 
     Serial.begin(115200);
     // Never let a print wait. After a light sleep the USB-Serial-JTAG has
@@ -342,11 +431,10 @@ void setup() {
     Console::begin();
 
     // Initialize camera (OV2640 on J2)
-    if (!Camera::init()) {
+    if (!cameraOn()) {
         Serial.println("Camera init failed — halting");
         while (true) delay(1000);
     }
-    cameraReady = true;
 
     // Radio last: everything it advertises (photo counts, the secret) exists
     // by now, and the camera init above is the slow part of boot anyway.
@@ -390,10 +478,7 @@ static void enterAsleep() {
     showSleepFace(true);
     // The sensor's work is done: tear the driver down as sleep does
     // (docs/camera_standby.md covers what that does and doesn't save).
-    if (cameraReady) {
-        Camera::deinit();
-        cameraReady = false;
-    }
+    cameraOff();
     asleepSince = millis();
     gestureActive = false;
     holdFired = false;
@@ -408,10 +493,7 @@ static void wakeFromAsleep() {
     Serial.println("Woke (radio was on)");
     Audio::init(PIN_BUZZ);
     Audio::playClick();  // Bit-banged, so it is heard even straight out of sleep
-    if (!cameraReady) {
-        cameraReady = Camera::init();
-        if (!cameraReady) Serial.println("Camera re-init failed after wake");
-    }
+    cameraOn();
     mode = Mode::Viewfinder;
     hintToastShowing = false;
     gestureActive = false;
@@ -522,10 +604,7 @@ void enterSleepMode() {
     // are out — unlike the previous board, where it stayed biased at ~20mA
     // through sleep (docs/camera_standby.md). Costs a re-init on wake.
     // (Usually already done by enterAsleep(), which precedes this.)
-    if (cameraReady) {
-        Camera::deinit();
-        cameraReady = false;
-    }
+    cameraOff();
 
     // Pressed is LOW on this board, so that is the level that wakes us.
     gpio_wakeup_enable((gpio_num_t)PIN_SHUTTER, GPIO_INTR_LOW_LEVEL);
@@ -599,10 +678,7 @@ void enterSleepMode() {
     // Bring the sensor back up (torn down before sleep). On failure the loop
     // just gets nullptr frames from capture() and keeps a stale viewfinder,
     // which beats halting a device the user just woke up.
-    cameraReady = Camera::init();
-    if (!cameraReady) {
-        Serial.println("Camera re-init failed after wake");
-    }
+    cameraOn();
 
 #ifndef LC_NO_BLE
     Sync::begin();
@@ -630,11 +706,12 @@ static float easeOutCubic(float p) {
 static void startDismiss(const char* toast) {
     Display::clearToast();
     pendingToast = toast;
+    // The second half of the slide wants live frames, and the sensor has been
+    // off since the Save screen went up. The stall lands on the button press,
+    // next to the flash write, rather than mid-animation.
+    cameraOn();
     dismissStartedAt = millis();
     mode = Mode::Dismissing;
-    // The slide renders from _photoBits, not from this pointer, and the live
-    // half calls Camera::capture() — which recycles the buffer it points at.
-    savedFrame = nullptr;
 }
 
 // Draw the current gallery photo. Files that fail to decode are skipped — a
@@ -664,8 +741,9 @@ static void showGalleryPhoto() {
 // already true and the gallery's press-edge test can't fire until the button
 // is released — the hold that opened it doesn't also advance it.
 static void enterGallery() {
-    // The grabbed frame is the driver's framebuffer; dropping it costs nothing.
-    savedFrame = nullptr;
+    // Nothing here is live, and browsing gets 30s of idle before the sleep
+    // face: the rail would otherwise burn 105mA showing a stored photo.
+    cameraOff();
     captureHeld = false;
     galleryOrdinal = 0;
     gestureActive = false;
@@ -700,6 +778,7 @@ static void enterGallery() {
 // press-edge test likewise waits for a release, so leaving never shoots.
 static void leaveGallery() {
     Display::clearToast();
+    cameraOn();          // The slide out hands over to live frames halfway
     Audio::playClick();  // Regular: back to the camera
     Serial.println("Gallery: close");
     // Slide back out like the save dismiss: the gallery photo rides the card
@@ -848,6 +927,11 @@ void loop() {
             saveToastWasVisible = false;
             Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
             mode = Mode::Save;
+            // The shot is dithered and cached in Display now, so the sensor has
+            // nothing left to do until the slide back out. A photo can wait a
+            // long time for a decision — 30s of idle — and it must not wait at
+            // 105mA. The rail comes back in startDismiss().
+            cameraOff();
             // Start the gesture from a clean slate. If the shutter is still
             // held from the capture, lastPressed is already true and the edge
             // test in Save won't fire until it's released — which is what we
@@ -910,7 +994,9 @@ void loop() {
                 bool toastNow = Display::toastVisible();
                 if (toastNow != saveToastWasVisible) {
                     saveToastWasVisible = toastNow;
-                    Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+                    // Not drawSave(): the camera is off and its framebuffer is
+                    // gone. t=1 is the same layout off the cached dither.
+                    Display::drawSaveTransition(1.0f);
                 }
             }
             break;

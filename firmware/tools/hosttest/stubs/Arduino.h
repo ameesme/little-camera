@@ -14,3 +14,8 @@ inline void noTone(uint8_t) {}
 inline void ledcDetach(uint8_t) {}
 inline long random(long) { return 0; }
 inline long random(long, long hi) { return hi - 1; }
+
+// Enough of the ADC HAL for the battery readout in main.cpp.
+constexpr int ADC_11db = 3;
+inline uint32_t analogReadMilliVolts(uint8_t) { return 1950; }
+inline void analogSetPinAttenuation(uint8_t, int) {}
