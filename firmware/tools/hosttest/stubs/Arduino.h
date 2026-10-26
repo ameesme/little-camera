@@ -19,3 +19,9 @@ inline long random(long, long hi) { return hi - 1; }
 constexpr int ADC_11db = 3;
 inline uint32_t analogReadMilliVolts(uint8_t) { return 1950; }
 inline void analogSetPinAttenuation(uint8_t, int) {}
+
+// Reports no PSRAM, which is what the v3q build expects at runtime too.
+struct SimEsp {
+    uint32_t getPsramSize() { return 0; }
+};
+static SimEsp ESP;

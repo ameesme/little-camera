@@ -160,6 +160,15 @@ void enterSleepMode();
 // seconds, the whole week in about seventeen minutes — for bench testing.
 constexpr uint32_t BREATH_MS = 5000;  // Sleep face breath period, awake; asleep it is the VCOM tick
 
+// The breath is a liveness cue for whoever just put the camera down, and an
+// hour later nobody is watching it. It runs for BREATH_WINDOW_MS after the face
+// goes up, restarted by a tap because a tap says someone is there; after that
+// the sleep tick stretches and only the mood and a battery sample ride it. The
+// panel holds the face either way — on v3q its VCOM is U8's job, not ours — and
+// a chirp scheduled 12-20h out does not care about a minute.
+constexpr uint32_t BREATH_WINDOW_MS = 120000;
+constexpr uint32_t SLEEP_TICK_MS = 60000;
+
 static Mood::State moodState;
 static Chirp::Rng moodRng(1);
 static int16_t moodTzMin = 0;
@@ -303,6 +312,26 @@ static void logBattery(uint32_t mv, bool chg, bool chgChanged) {
     Storage::appendLog(line);
 }
 
+// Reads the battery, keeps `sleepStatus` in step with it, logs a standby
+// sample. True when the text moved. Separate from the face because once the
+// breath stops the sleep tick still has to sample, with nothing to draw.
+static bool sampleBattery() {
+    const uint32_t mv = batteryMv();
+    const bool chg = onCharge();
+    const bool chgChanged = sleepStatus[0] && chg != sleepStatusChg;
+    const uint32_t drift = mv > sleepStatusMv ? mv - sleepStatusMv : sleepStatusMv - mv;
+    bool moved = false;
+    if (!sleepStatus[0] || chgChanged || drift >= BATTERY_DEADBAND_MV) {
+        sleepStatusMv = mv;
+        sleepStatusChg = chg;
+        snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV%s", (unsigned)(mv / 1000),
+                 (unsigned)(mv % 1000 / 10), chg ? " chg" : "");
+        moved = true;
+    }
+    logBattery(mv, chg, chgChanged);
+    return moved;
+}
+
 // The sleep face for the current mood. A full frame when it first goes up or
 // the band moved; a breath (the other frame, face rows only) otherwise.
 static void showSleepFace(bool full) {
@@ -313,18 +342,7 @@ static void showSleepFace(bool full) {
 
     // The debug readout sits outside the face rows, so a breath frame cannot
     // repaint it and a moved reading has to pay for a full frame.
-    const uint32_t mv = batteryMv();
-    const bool chg = onCharge();
-    const bool chgChanged = sleepStatus[0] && chg != sleepStatusChg;
-    const uint32_t drift = mv > sleepStatusMv ? mv - sleepStatusMv : sleepStatusMv - mv;
-    if (!sleepStatus[0] || chgChanged || drift >= BATTERY_DEADBAND_MV) {
-        sleepStatusMv = mv;
-        sleepStatusChg = chg;
-        snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV%s", (unsigned)(mv / 1000),
-                 (unsigned)(mv % 1000 / 10), chg ? " chg" : "");
-        full = true;
-    }
-    logBattery(mv, chg, chgChanged);
+    if (sampleBattery()) full = true;
 
     Display::drawSleep(h, sleepBreathIn, !full, sleepStatus);
     sleepFaceDrawnAt = millis();
@@ -402,6 +420,10 @@ void setup() {
     // reset; this line says which kind (1 power-on, 3 software, 4 panic,
     // 5 interrupt watchdog, 6 task watchdog, 9 brownout, per esp_reset_reason_t).
     Serial.printf("Reset reason: %d\n", (int)esp_reset_reason());
+    // Expected to be 0: the part is populated but platformio.ini probes it in
+    // quad mode on purpose so it is never enabled. Anything else means PSRAM
+    // came up and is costing self-refresh through every light sleep.
+    Serial.printf("PSRAM: %u KB\n", (unsigned)(ESP.getPsramSize() >> 10));
 
     // Initialize buzzer early for splash melody
     Audio::init(PIN_BUZZ);
@@ -616,15 +638,18 @@ void enterSleepMode() {
     // The panel keeps showing the sleep face while we're out, and DISP stays
     // HIGH across light sleep. On v3q the panel's VCOM comes from U8's
     // EXTCOMIN with EXTMODE tied high, so burn-in is handled in copper and no
-    // longer depends on us waking up; the timer stays because the breath and
-    // the mood's clock do need it.
+    // longer depends on us waking up; the timer stays for the breath and the
+    // mood's clock, and stretches to SLEEP_TICK_MS once the breath is over.
     //
     // Only the shutter (GPIO) ends the sleep. Anything else — the BT
     // controller's own wake source if the radio was not fully down, a
     // rejected sleep call, an undefined cause — is not a person, and treating
     // it as one is exactly how the camera "wakes by itself".
+    uint32_t breathUntil = millis() + BREATH_WINDOW_MS;
     for (;;) {
-        esp_sleep_enable_timer_wakeup((uint64_t)Display::VCOM_INTERVAL_MS * 1000);
+        const bool breathing = (int32_t)(breathUntil - millis()) > 0;
+        esp_sleep_enable_timer_wakeup(
+            (uint64_t)(breathing ? Display::VCOM_INTERVAL_MS : SLEEP_TICK_MS) * 1000);
         esp_err_t err = esp_light_sleep_start();
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
 
@@ -643,16 +668,23 @@ void enterSleepMode() {
             // happiness, so a press in a bag is heard for what it was.
             Serial.println("Sleep: tap, hold to wake");
             playMoodChirp(moodHappiness(), "Sleep tap");
+            breathUntil = millis() + BREATH_WINDOW_MS;
             continue;
         }
         if (cause == ESP_SLEEP_WAKEUP_TIMER) {
-            // Keep-alive tick, and the mood's clock while asleep: breathe
-            // (face rows only) and pay a due chirp. Radio and camera are down
-            // here, so a 300ms chirp costs nothing but the sound. The VCOM
-            // flip is now a no-op on the panel (EXTMODE is high) but stays so
-            // tools/preview keeps exercising the same byte stream.
-            Display::toggleVcom();
-            breatheSleepFace();
+            // Keep-alive tick, and the mood's clock while asleep: pay a due
+            // chirp. Radio and camera are down here, so a 300ms chirp costs
+            // nothing but the sound. The VCOM flip is now a no-op on the panel
+            // (EXTMODE is high) but stays so tools/preview keeps exercising the
+            // same byte stream.
+            if (breathing) {
+                Display::toggleVcom();
+                breatheSleepFace();
+            } else {
+                // Past the breath there is nothing to redraw, but the standby
+                // log still wants its sample — that is the whole point of it.
+                sampleBattery();
+            }
             serviceMood(true, "Sleep");
             continue;
         }
