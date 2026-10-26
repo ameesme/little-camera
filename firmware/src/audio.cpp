@@ -38,7 +38,6 @@ static const MelodyData MELODIES[] = {
     {MELODY2_FREQS, MELODY2_DURS, MELODY2_GAPS, 2, true},   // ChirpChirp
     {MELODY3_FREQS, MELODY3_DURS, MELODY3_GAPS, 3, false},  // Saved
 };
-static constexpr int NUM_MELODIES = 2;  // Random picks from TaDaDa and ChirpChirp only
 
 // Async melody state
 static int currentMelody = 0;
@@ -54,6 +53,17 @@ static void park() {
     digitalWrite(_buzzerPin, LOW);
 }
 
+// Take the pin back from tone() before bit-banging it. It must be noTone() and
+// not ledcDetach(): the core's Tone.cpp remembers which pin it attached in a
+// static of its own and only clears it on noTone(), so a bare detach leaves
+// tone() convinced the pin is still attached — it then skips ledcAttach() and
+// writes a frequency to nothing. That is what made every melody after the
+// first click silent.
+static void release() {
+    noTone(_buzzerPin);
+    pinMode(_buzzerPin, OUTPUT);
+}
+
 static void legacySweep(uint16_t startFreq) {
     for (int f = startFreq; f < startFreq + 1500; f += 200) {
         tone(_buzzerPin, f);
@@ -65,8 +75,7 @@ static void legacySweep(uint16_t startFreq) {
 
 void init(uint8_t buzzerPin) {
     _buzzerPin = buzzerPin;
-    ledcDetach(_buzzerPin);
-    pinMode(_buzzerPin, OUTPUT);
+    release();
     digitalWrite(_buzzerPin, LOW);
     melodyStep = -1;
     noteStarted = false;
@@ -93,8 +102,7 @@ void playClick(bool light) {
     // a random 85-115%, which shifts the whole click brighter or duller
     // while keeping its shape. A mechanical shutter never sounds the same
     // twice either.
-    ledcDetach(_buzzerPin);
-    pinMode(_buzzerPin, OUTPUT);
+    release();
     if (light) {
         // The light tick is 6ms of 5-9kHz, where the piezo's own resonance
         // flattens pitch differences, so it needs a wider spread than the
@@ -129,13 +137,9 @@ struct PinOut {
 };
 
 void playChirp(const Chirp::Score& score) {
-    if (melodyStep >= 0) {
-        noTone(_buzzerPin);
-        melodyStep = -1;
-        noteStarted = false;
-    }
-    ledcDetach(_buzzerPin);
-    pinMode(_buzzerPin, OUTPUT);
+    melodyStep = -1;
+    noteStarted = false;
+    release();
     PinOut out;
     Chirp::play(score, out);
     digitalWrite(_buzzerPin, LOW);
