@@ -30,6 +30,29 @@ cd firmware/selftest && pio run -t upload -t monitor
 
 Five stages, driven by the shutter (press = next, hold 1 s = the action named at the bottom), mirrored on USB serial — `?` lists the serial commands. Display, buzzer, camera, button, then a PASS/FAIL/?? summary of everything firmware can judge by itself.
 
+### Board 1 — passes, and stays as it is
+
+Display, buzzer, camera, shutter, light-sleep wake and charging all pass on board 1. **The board is not being respun yet**, so firmware targets it as built, quirks included.
+
+Two assembly traps, both silent failures rather than loud ones:
+
+- **The camera flex goes in contacts up**, away from the board. The connector conducts either way up, so a reversed flex doesn't fault — it flips the pin order and the camera simply stays silent. Suspect this before suspecting `CAM_EN` or SCCB.
+- **J5 battery polarity: `−` is the pad next to the logo, `+` is the other one.** The `+` silkscreen fell off the board edge, and there is **no reverse-polarity protection**. Backwards kills the board.
+
+### Measured power — board 1
+
+| State | Draw |
+|---|---|
+| Awake, camera off | 62 mA |
+| Awake, camera on | 105 mA |
+| Light sleep | **~4 mA** |
+
+On a 300 mAh cell that's roughly **3 days asleep**. Gating the camera rails worked: the sensor is no longer a floor under sleep (`docs/camera_standby.md`).
+
+The remaining 4 mA splits about evenly: **~2 mA is U8**, the display's VCOM oscillator — confirmed by bridging C18 — and **~2 mA is the S3 itself**. U8 runs whether or not the camera sleeps, so it is now the largest single idle consumer on the board and **firmware cannot touch it**. Don't go hunting for 2 mA in the sleep path; it isn't there.
+
+Both are board-revision items, not firmware ones: swap U8 for a micropower oscillator, and move the J5 `+` marking back onto the board. A rework for the existing boards is written down but not done.
+
 ## Pin allocation — DO NOT REASSIGN
 
 From the v3q netlist. Do not move a function without an explicit request.
@@ -59,17 +82,20 @@ From the v3q netlist. Do not move a function without an explicit request.
 
 ## Migration status — `src/` builds for v3q, has never run on one
 
-The app is on the v3q pin map and builds clean as `-e v3q`, but **no v3q has run it**. Everything below is reasoned from the netlist and `selftest`, not measured; the first boot on a board is the real test, and `selftest` passing first is the precondition.
+The app is on the v3q pin map and builds clean as `-e v3q`, but **no v3q has run the app**. `selftest` passes on board 1, so the pin map and the peripherals behind it are confirmed — what is unverified is the app's own behaviour on top of them.
 
 Three things changed behaviour, not just numbers — they are the places to look first if the board misbehaves:
 
 1. **Shutter polarity flipped.** The previous carrier had the switch's NC terminal routed, so the line idled LOW and pressed HIGH on an internal pull-up. v3q is wired as drawn: R26 pulls up, the switch pulls to GND, **pressed = LOW**. `pinMode` is plain `INPUT` (R26 is the pull-up), `shutterPressed()` tests LOW, and the light-sleep wake is `GPIO_INTR_LOW_LEVEL`. Debounce stays in firmware; C24 softens the edge but does not remove the ~1 ms release bounce.
 2. **VCOM is hardware.** U8 drives EXTCOMIN at ~6 Hz with EXTMODE tied high, so **the panel ignores the serial VCOM bit**. Burn-in is handled in copper; the light-sleep timer wake is no longer load-bearing *for the panel*. It stays because it drives the breath and services the mood — just don't justify it with VCOM.
-3. **The camera is actually powered down now.** `CAM_EN` gates three LDOs, and PWDN and RESET are both wired, where the carrier had them at `-1` and left the sensor biased at milliamps through sleep. `Camera::init()` raises `CAM_EN` and waits 20 ms (three LDOs, plus R14/C14 releasing RESET) before the driver probes over SCCB; `Camera::deinit()` puts every camera pin to high-Z *then* drops the rail. This is the biggest power win in the migration and the one most likely to need timing tuning on a real board.
+3. **The camera is actually powered down now.** `CAM_EN` gates three LDOs, and PWDN and RESET are both wired, where the carrier had them at `-1` and left the sensor biased at milliamps through sleep. `Camera::init()` raises `CAM_EN` and waits 20 ms (three LDOs, plus R14/C14 releasing RESET) before the driver probes over SCCB; `Camera::deinit()` puts every camera pin to high-Z *then* drops the rail. **Confirmed on board 1**: light sleep is ~4 mA with none of it the sensor, against ~23 mA on the carrier.
 
 Still open on v3q, deliberately not done:
 
-- **Battery and charge state are readable but unread.** VBAT through a 1M/1M divider (×2 in software), VBUS and CHRG as logic levels; `selftest`'s `lipoPercent()` has a resting-voltage curve good enough for a readout. That is a new feature, not part of running on v3q. There is **no current sense**, so power figures stay estimates.
+- **Battery and charge state are readable but unread.** VBAT through a 1M/1M divider (×2 in software), VBUS and CHRG as logic levels; `selftest`'s `lipoPercent()` has a resting-voltage curve good enough for a readout. That is a new feature, not part of running on v3q. Two things it has to get right, learned on board 1:
+  - **The charger can't be paused.** There is no way to stop the TP4054 to read a resting voltage, so a reading taken while charging is pulled up by the charge current and reads high. The percentage needs an offset correction while `CHG` is low.
+  - **The last stretch has to be time-based.** Near full, the voltage curve flattens into noise, so the final percent has to come from how long the charger has been in constant-voltage, not from the ADC.
+- **No current sense.** Every power figure comes from a meter in the battery line, not from the board. Firmware cannot report draw.
 - **Camera orientation is carried over.** The `vflip`/`hmirror` values in `camera.cpp` came from the previous board and were never checked against a module in J2. `selftest` has a rotate toggle for exactly this.
 - **Half the flash is unreachable.** The app and the self-test both use `default_8MB.csv` on a 16 MB part, leaving photos in a 1.5 MB `spiffs` entry. See the storage note below — v3q is the moment to decide, because the freeze becomes real as soon as a v3q has photos on it.
 
@@ -87,6 +113,7 @@ Treat each of these as a hard failure if violated:
 - **Nothing drives an unpowered sensor.** With `CAM_EN` low, every camera pin is an input. A driven pin into a dead rail leaks through the ESD diodes.
 - **Shutter debounce lives in firmware.** Measured on v3q's predecessor: real presses hold ~200 ms, release bounce ~1 ms. A single 10 ms resample (`confirmPressed()` in main.cpp) covers that. Don't stack extra edge-timing windows on top of it.
 - **Leave GPIO43 alone.** It idles high and is the flash-fob trigger on the dock pad.
+- **`Serial` must never wait.** `Serial.setTxTimeoutMs(0)` right after `Serial.begin()`, and any wait for enumeration is bounded. The USB-Serial-JTAG drops off the bus during light sleep; afterwards the host usually keeps polling the port, so the core believes it is connected while nothing reads it. Every print then blocks for ring space — up to 2 s a line — and the firmware stalls on its own logging. With a timeout of 0 a full buffer drops the text, which is the right trade: **logging must never be load-bearing.**
 
 ## Firmware architecture
 
@@ -132,7 +159,7 @@ Treat each of these as a hard failure if violated:
 - **Sleep:** light sleep, entered once the radio window behind the sleep face closes, woken by the shutter or a `Display::VCOM_INTERVAL_MS` timer. The sleep loop leaves **only on a GPIO wake held for `WAKE_HOLD_MS`** (a tap chirps and goes straight back to sleep). A timer wake breathes the face and services the mood — a due chirp plays right there, radio and camera being down. Any other cause (BT, undefined, a rejected `esp_light_sleep_start()`) is logged and slept through: treating "anything but the timer" as a press made the camera wake by itself once the radio existed. `Sync::end()` forces the BT controller off and clears its wake source before sleeping, for the same reason.
   - The panel keeps showing the sleep face across light sleep (DISP stays HIGH). The panel's own VCOM comes from U8, so the timer wake is no longer what saves the pixels — see the migration notes.
   - `Camera::deinit()` before sleeping, `Camera::init()` after waking, at a cost of a few hundred ms on wake. `deinit()` drops the `CAM_EN` rail, so the sensor loses power rather than just its clock.
-  - Beyond that, don't chase deep-sleep micro-optimizations at the cost of prototype complexity. There is no current sense, so every power figure here is an estimate.
+  - **The sleep path is done.** 4 mA on board 1, of which ~2 mA is U8 and ~2 mA the S3 — neither reachable from here. Don't chase micro-optimizations at the cost of prototype complexity; the next real win is a micropower oscillator on the next board revision, not code.
 
 ## Build & flash
 
@@ -176,8 +203,10 @@ How far to trust it: it intercepts at the **SPI byte stream**, not the framebuff
 
 Flag these if relevant to a change; don't silently assume they're resolved.
 
-- **`src/` has never run on v3q.** It builds for it and the pin map matches the netlist, but the first boot on a board is still ahead. Run `selftest` first. See the migration section.
-- **Mood is untested on hardware.** Host-tested over a simulated month and previewed, but the first real week — NVS resume, chirps out of light sleep, the breath's power cost (a few hundred µA average, unmeasured) — is still ahead. `-DLC_MOOD_FAST` compresses it to a bench session.
+- **`src/` has never run on v3q.** It builds for it and `selftest` passes on board 1, but the app's own first boot is still ahead. See the migration section.
+- **Battery percentage is unwritten**, and the charger's behaviour makes it more than a divider read — see the migration section for the offset and the time-based last stretch.
+- **Next board revision** (not firmware): a micropower oscillator in place of U8, which is half the idle current, and the J5 `+` marking back on the board. A rework for the existing boards is written down but not done.
+- **Mood is untested on hardware.** Host-tested over a simulated month and previewed, but the first real week — NVS resume, chirps out of light sleep, the breath's power cost (unmeasured, and now within the noise of U8's 2 mA) — is still ahead. `-DLC_MOOD_FAST` compresses it to a bench session.
 - **BLE sync is untested on hardware.** Written against NimBLE 2.x, checked on the host only. First things to verify with a board: the `pio run` size line, pairing with the passkey screen, an end-to-end pull from the app, and that the stack comes back cleanly after a light-sleep cycle.
 - **Firmware-over-BLE** lives on the open `claude/firmware-update-ble-gvwlz5` branch, unmerged. It matters more on v3q than it did on the carrier: no castellated pads, no exposed USB once there's an enclosure.
 - **No modem.** The retired SIM7080G integration (AT+CBC, AT+CPOWD) went with the LilyGO board and has no home. The phone is the uplink until it does.

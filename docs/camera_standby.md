@@ -10,7 +10,15 @@ Research notes on whether the OV2640 can be powered down or put to sleep.
 
 v3q did exactly what the [What would actually work](#what-would-actually-work) table below ranked second: a GPIO-controlled load switch upstream of the camera rails. `CAM_EN` (GPIO45) enables U4/U5/U6, and `CAM_PWDN` and `CAM_RESET` are routed to real pins instead of strapped.
 
-`Camera::deinit()` therefore drops the rails, and the sensor loses power rather than just its clock. The ~20 mA floor that made light sleep worth only ~2× is gone by construction. **Unmeasured** — v3q hasn't run the app yet, and there is still no current sense on the board, so the figures in this document remain the last word on measurement.
+`Camera::deinit()` therefore drops the rails, and the sensor loses power rather than just its clock. **Measured on board 1, the ~20 mA floor is gone:**
+
+| State | Carrier | v3q board 1 |
+|---|---|---|
+| Awake, camera on | ~50 mA | 105 mA |
+| Awake, camera off | — | 62 mA |
+| Light sleep | **~23 mA** | **~4 mA** |
+
+Sleep is now worth ~15×, not the ~2× this document was written to explain. None of the remaining 4 mA is the sensor: about 2 mA is U8, the display's VCOM oscillator (confirmed by bridging C18), and about 2 mA is the S3 itself. On a 300 mAh cell that is roughly 3 days asleep, and the next lever is a micropower oscillator on the next board revision — not firmware.
 
 What did *not* change: everything below about `esp_camera_deinit()` and COM2 standby. Both are properties of the driver and the sensor, not of the carrier. Still don't try them.
 
@@ -196,17 +204,11 @@ This doesn't appear in any forum thread — people were proposing interposer PCB
 
 ---
 
-## Open question: the measurement v3q still owes
+## Closed: the measurement, taken
 
-Everything above is about **deep** sleep on the carrier. The question that replaces it is simply whether dropping `CAM_EN` in `Camera::deinit()` delivers what the copper promises.
+Everything above is **deep** sleep on the carrier, and it was never the number we needed. The one that mattered — light sleep with the rails dropped — is **~4 mA on board 1**, with none of it the sensor. `CAM_EN` does what the copper promised.
 
-Three readings with a meter in the battery line:
-
-1. Boot, never call `Camera::init()`, straight to light sleep
-2. Normal boot with camera init, then light sleep with the rails dropped
-3. Awake, viewfinder running
-
-1 and 2 should now be within a few hundred µA of each other. A gap of ~20 mA means `CAM_EN` isn't actually cutting the rails — check that `deinit()` runs before `esp_light_sleep_start()` and that nothing is driving a camera pin into a dead rail and leaking through its ESD diodes.
+Kept as the debugging rule it became: if light sleep ever reads ~20 mA again, `CAM_EN` is not actually cutting the rails. Check that `Camera::deinit()` runs before `esp_light_sleep_start()`, and that nothing is still driving a camera pin into a dead rail and leaking through its ESD diodes.
 
 ---
 
@@ -225,7 +227,8 @@ Three readings with a meter in the battery line:
 | *Mechanism*: sensor halts mid-ACK, leaving SDA asserted | **Inference** — ours; explains every symptom but is not documented |
 | OmniVision: "power down mode is not supported by OV2640 for power saving" | **Verified** — HW App Note §3.1 |
 | DS p.6 "<15 µA" hardware power-down figure | **Present but unreliable** — contradicts Table 6 (600 µA typ / 1200 µA max) |
-| XCLK parking helps on ESP32-S3 | **Unverified** — only measured on ESP32-CAM |
+| XCLK parking helps on ESP32-S3 | **Moot** — v3q cuts the rail instead |
+| Gating the camera rails removes it from the sleep budget | **Measured** — v3q board 1, ~23 → ~4 mA |
 
 ---
 

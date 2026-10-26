@@ -58,6 +58,8 @@ struct SimSerial {
     // Nothing ever arrives on the host console.
     int available() { return 0; }
     int read() { return -1; }
+    void setTxTimeoutMs(uint32_t) {}
+    operator bool() { return true; }
 };
 
 extern SimSerial Serial;

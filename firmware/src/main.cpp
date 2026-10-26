@@ -301,9 +301,13 @@ void setup() {
     digitalWrite(PIN_BUZZ, LOW);
 
     Serial.begin(115200);
-
-    // Wait for USB-CDC to enumerate after flash
-    delay(1000);
+    // Never let a print wait. After a light sleep the USB-Serial-JTAG has
+    // dropped off the bus while the host still polls the port, so the core
+    // believes it is connected with nobody reading: every print then blocks up
+    // to 2 s for ring space. With 0 a full buffer drops the text instead.
+    Serial.setTxTimeoutMs(0);
+    uint32_t serialWait = millis();
+    while (!Serial && millis() - serialWait < 2000) delay(10);
     Serial.println("little-camera init — v3q");
     // Why are we booting? A splash where a sleep face was expected means a
     // reset; this line says which kind (1 power-on, 3 software, 4 panic,
