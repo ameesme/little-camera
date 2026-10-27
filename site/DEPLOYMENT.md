@@ -28,7 +28,7 @@ vercel domains add www.lttl.cam lttl-cam --scope mees-projects-2bb0cea8
 
 **Deployment Protection is on**, which is Vercel's default. It redirects the `*.vercel.app` URL to Vercel SSO and does not cover the production domain, which is why `lttl.cam` is public while the preview URL asks for a login. To share the preview URL, turn it off in Settings → Deployment Protection; the CLI cannot do it. `vercel curl <url>` reaches protected deployments in the meantime.
 
-**Who gets `lttl.cam` itself is still open.** `server/deploy/Caddyfile` binds the blog to `{$DOMAIN}, *.{$DOMAIN}`, which means the bare domain serves `/register` and `/me` while every owner gets `<handle>.lttl.cam`. Only the bare domain is attached to Vercel and `*.lttl.cam` is deliberately left free, so when the blog ships you can either point `lttl.cam` at the VPS and retire this project, or move the teaser to a subdomain. One more thing: Vercel Hobby is for non-commercial use, so if lttl.cam grows a shop the scope needs Pro.
+**`lttl.cam` can hold both.** The micro-blog only answers under `/api` and `/app` on that domain and every owner gets `<handle>.lttl.cam`, so `/` stays the landing page's either way. Only the bare domain is attached to Vercel and `*.lttl.cam` is deliberately left free. When the blog ships, point `lttl.cam` at the VPS and set `LANDING_DIR` to `site/`, which is what `server/deploy/` already defaults to, and this page becomes the deploy of record for nothing but the preview. One more thing: Vercel Hobby is for non-commercial use, so if lttl.cam grows a shop the scope needs Pro.
 
 ## Rollback
 

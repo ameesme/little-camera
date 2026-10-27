@@ -13,9 +13,7 @@ packages/    Shared TypeScript: PBM parsing, PNG encoding, short codes.
 docs/        protocol.md (the contract), flows.md (who does what), mood.md (the camera as a small creature).
 ```
 
-The service is `lttl.cam`. A blog is one label under it (`mees.lttl.cam`); the
-landing page owns the apex root, and everything the server answers there sits
-under `/api` (machines) or `/app` (people) so a proxy can tell the two apart.
+The service is `lttl.cam`, and a blog is one label under it (`mees.lttl.cam`). The landing page owns `lttl.cam/`, and everything the server answers on that domain sits under `/api` for machines or `/app` for people, so a proxy can tell the two apart.
 
 Everything is black and white. Where a grey is unavoidable it is a 2 px checker.
 

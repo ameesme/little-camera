@@ -11,7 +11,7 @@ The single source of truth for how the three parties talk. The firmware (`firmwa
 
 The phone is a dumb pipe. It never authenticates as a person; it authenticates **as the camera**, using an id and a secret it read from the camera over an encrypted BLE link. Everything that needs a human (email verification, the QR verification picture, approving subscribers) happens on the server, on the web, or is exposed to the phone as camera-scoped API calls. Firmware travels the same pipe backwards — server to phone over HTTPS (§4.7), phone to camera over BLE (§3.7) — and is verified at the far end, so the pipe stays dumb.
 
-Hosts: the service is `lttl.cam`. A blog is one label under it (`mees.lttl.cam`), the landing page owns the apex root, and everything this server answers on the apex sits under `/api` (machines) or `/app` (people) so a proxy can tell the two apart.
+Hosts: the service is `lttl.cam`. A blog is one label under it (`mees.lttl.cam`), the landing page owns `lttl.cam/`, and everything this server answers on that domain sits under `/api` (machines) or `/app` (people) so a proxy can tell the two apart.
 
 All multi-byte integers on BLE are **little-endian**. All timestamps are **unix seconds, UTC**.
 
@@ -269,13 +269,9 @@ bricking it:
 
 ## 4. HTTP camera API
 
-Base: `https://<apex>/api/camera` — on the real deployment `https://lttl.cam/api/camera`. JSON unless noted. Errors are `{ "error": "<code>", "message": "<human text>" }`.
+Base: `https://lttl.cam/api/camera`. JSON unless noted. Errors are `{ "error": "<code>", "message": "<human text>" }`.
 
-Everything the server answers on the apex lives under two prefixes: `/api/…`
-for machines and `/app/…` for the pages a person opens. The rest of the apex —
-`/` above all — belongs to the landing page, which is a separate thing behind
-the same proxy. Blogs are unaffected: a blog owns the root of its own
-subdomain (`https://mees.lttl.cam/`).
+Only two prefixes on that domain are the server's: `/api/…` for machines and `/app/…` for the pages a person opens. Everything else, `/` above all, belongs to the landing page behind the same proxy. Blogs are unaffected, each owning the root of its own subdomain.
 
 ### 4.1 Authentication
 
@@ -391,7 +387,7 @@ is trusted with the image.
 
 ## 5. Verification picture
 
-The web page `https://<apex>/app/me` for a verified-but-unbound profile shows a QR code. Payload:
+The web page `https://lttl.cam/app/me` for a verified-but-unbound profile shows a QR code. Payload:
 
 ```
 LC:<6 chars from the alphabet in §1>
