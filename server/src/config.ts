@@ -23,7 +23,7 @@ export interface Config {
   firmwareDir: string;
   /** Signs the owner and subscriber cookies. */
   sessionSecret: string;
-  /** `smtp://user:pass@host:587`. Unset = every mail is only visible in /dev/mailbox. */
+  /** `smtp://user:pass@host:587`. Unset = every mail is only visible in /app/dev/mailbox. */
   smtpUrl: string | null;
   mailFrom: string;
   nodeEnv: string;
