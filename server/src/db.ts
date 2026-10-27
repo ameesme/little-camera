@@ -1,10 +1,4 @@
-// SQLite through Node's built-in `node:sqlite`. No ORM: the SQL lives in
-// src/repo/*.ts where a reader can see exactly what runs.
-//
-// node:sqlite is still flagged experimental in Node 22 (it prints one
-// warning at startup) but it is synchronous, has no native build step and
-// ships with the runtime, which beats compiling better-sqlite3 on a VPS.
-
+// node:sqlite prints an experimental warning on Node 22, and in exchange needs no native build step on a VPS.
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -18,8 +12,7 @@ const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'migra
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  // WAL lets the newsletter job read while a photo upload writes. Not
-  // applicable to in-memory databases, where the pragma is a no-op.
+  // WAL lets the newsletter job read while an upload writes; a no-op on :memory:.
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');

@@ -62,13 +62,7 @@ export function setPhotoKind(db: Db, id: number, kind: PhotoKind): void {
   db.prepare('UPDATE photos SET kind = ? WHERE id = ?').run(kind, id);
 }
 
-/**
- * Batch-ordering tweak from protocol §2: when several upload-dated photos
- * from one camera arrive together they would all get the same second, so
- * before dating a new one at `now` we push the earlier ones of the batch
- * back by a second. Lowest camera_index ends up oldest, nothing is dated
- * in the future. "Together" = uploaded in the last two minutes.
- */
+/** Protocol §2: a batch would otherwise share one second, so each earlier index is pushed a second back instead. */
 export function shiftUploadBatchBack(db: Db, cameraId: string, cameraIndex: number, now: number): void {
   db.prepare(
     `UPDATE photos SET captured_at = captured_at - 1
@@ -96,12 +90,7 @@ export function newestFeedPhoto(db: Db, profileId: number): PhotoRow | null {
   );
 }
 
-/**
- * One page of the feed, newest first. `before` is a (uploaded_at, id) pair
- * from the last item of the previous page. Ordering by upload time (not
- * capture time) means a photo synced late still shows up at the top, which
- * is what a subscriber expects from a "new pictures" email.
- */
+/** Newest first by upload time, not capture time, so a photo synced late still arrives at the top. */
 export function feedPage(
   db: Db,
   profileId: number,

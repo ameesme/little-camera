@@ -1,11 +1,4 @@
-// `pnpm seed`: a local demo blog that matches the mockup. Creates the
-// profile `mees`, a bound camera, the eight fixture photos with the
-// mockup's dates and comments, four approved subscribers, and prints a
-// 48-hour link for sanne@example.com so the blog can be opened right away.
-//
-// Photos go through the real ingest path (encoded with a `t=` comment so
-// they are dated from the "camera clock"), which also exercises the code
-// a real upload would run.
+// `pnpm seed`: the mockup's demo blog, pushed through the real upload path so it exercises what a camera would.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -14,7 +7,7 @@ import { encodePbm, parsePbm, shortCode } from '@little-camera/pbm';
 import { blogUrl, loadConfig } from './config.js';
 import { now, openDb } from './db.js';
 import type { Env } from './env.js';
-import { ingestPhoto } from './lib/ingest.js';
+import { uploadPhoto } from './core/photos.js';
 import { createToken } from './lib/tokens.js';
 import { hashSecret } from './middleware/cameraAuth.js';
 import { bindCamera, createCamera, findCamera } from './repo/cameras.js';
@@ -28,8 +21,7 @@ const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'pack
 /** Local time in Europe/Amsterdam during summer (CEST = UTC+2), as unix seconds. */
 const cest = (y: number, m: number, d: number, h: number, min: number) => Math.floor(Date.UTC(y, m - 1, d, h - 2, min) / 1000);
 
-// Newest first, as on the mockup page. The "four/six/seven" fixtures are
-// the mockup's un-captioned posts at those positions.
+// Newest first, as on the mockup page.
 const POSTS: { file: string; at: number; comments: [string, string][] }[] = [
   { file: 'cup', at: cest(2026, 8, 8, 8, 12), comments: [['Sanne', 'third one today?'], ['Joris', 'the light in this one']] },
   { file: 'cat', at: cest(2026, 8, 7, 19, 34), comments: [['Fenna', 'she knows'], ['Tess', 'best subscriber'], ['Joris', '♥']] },
@@ -72,7 +64,7 @@ export function seed(env: Env): { link: string } {
   [...POSTS].reverse().forEach((post, i) => {
     const src = parsePbm(new Uint8Array(readFileSync(join(FIXTURES, `${post.file}.pbm`))));
     const bytes = encodePbm(src.width, src.height, src.rows, { boot: 1, up: 1000 * (i + 1), t: post.at });
-    const { photo } = ingestPhoto(env, camera, bytes, { cameraIndex: i + 1, uploadedAt: post.at + 60 });
+    const { photo } = uploadPhoto(env, camera, bytes, { cameraIndex: i + 1, uploadedAt: post.at + 60 });
     for (const [name, body] of post.comments) {
       insertComment(env.db, { photoId: photo.id, subscriberId: subs.get(name)!.id, body, now: post.at + 600 });
     }
@@ -80,15 +72,13 @@ export function seed(env: Env): { link: string } {
     newestPublicId = photo.public_id;
   });
 
-  // The mockup's profile picture is an 88 px PNG; on a real blog the avatar
-  // is a camera photo, so use the "camera taking a picture of a camera" one.
+  // On a real blog the avatar is a camera photo, so use the one of a camera.
   if (avatarPhotoId !== null) {
     setPhotoKind(env.db, avatarPhotoId, 'avatar');
     setAvatarPhoto(env.db, profile.id, avatarPhotoId);
   }
 
-  // Everyone has "been notified" up to now, so the newsletter job does not
-  // mail the whole archive on first run.
+  // Everyone is caught up to now, so the first newsletter run does not mail the whole archive.
   env.db.prepare('UPDATE subscribers SET last_notified_at = ? WHERE profile_id = ?').run(env.now(), profile.id);
 
   const sanne = subs.get('Sanne')!;

@@ -1,0 +1,262 @@
+import { Hono, type Context } from 'hono';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { z } from 'zod';
+import { parsePbm, pbmToPng, randomCode } from '@little-camera/pbm';
+import { apexUrl, appUrl, blogUrl } from '../config.js';
+import { bindByShortCode } from '../core/linking.js';
+import * as subscribers from '../core/subscribers.js';
+import type { Env } from '../env.js';
+import { loginLinkMail, verifyEmailMail } from '../emails/index.js';
+import { formatFull } from '../lib/dates.js';
+import { queueEmail } from '../lib/email.js';
+import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
+import { verificationQrSvg } from '../lib/qr.js';
+import { clearOwnerCookie, currentOwner, setOwnerCookie } from '../lib/session.js';
+import { createToken, verifyToken } from '../lib/tokens.js';
+import { findCameraByProfile } from '../repo/cameras.js';
+import { insertCode } from '../repo/codes.js';
+import { findOutbox, listOutbox } from '../repo/outbox.js';
+import { findPhotoById } from '../repo/photos.js';
+import {
+  createProfile,
+  findProfileByEmail,
+  findProfileByHandle,
+  markEmailVerified,
+  setAvatarRequested,
+  type ProfileRow,
+} from '../repo/profiles.js';
+import { listSubscribers } from '../repo/subscribers.js';
+import {
+  CheckEmail,
+  ExpiredLink,
+  Landing,
+  LoginForm,
+  Mailbox,
+  MailView,
+  NotLinked,
+  ProfilePage,
+  RegisterForm,
+  VerificationPage,
+  u,
+} from '../views/owner.js';
+
+const registerSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(60, 'Name is too long'),
+  email: z.string().trim().toLowerCase().email('That email does not look right').max(200),
+  handle: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(HANDLE, 'Handle: 2–31 characters, a–z, 0–9 and dashes, starting with a letter or digit')
+    .refine((h) => !RESERVED_HANDLES.has(h), 'That handle is reserved'),
+});
+
+const emailSchema = z.string().trim().toLowerCase().email().max(200);
+
+const LINK_TRIES = 10;
+const LINK_WINDOW = 3600;
+
+export function ownerRoutes(env: Env): Hono {
+  const app = new Hono();
+  const dev = env.config.nodeEnv !== 'production';
+
+  // Brute-force guard on a 30-bit code, in memory because one process is one instance and a restart may forget.
+  const tries = new Map<number, number[]>();
+  function mayTryCode(profileId: number, now: number): boolean {
+    const recent = (tries.get(profileId) ?? []).filter((t) => t > now - LINK_WINDOW);
+    if (recent.length >= LINK_TRIES) return false;
+    tries.set(profileId, [...recent, now]);
+    return true;
+  }
+
+  const owner = (c: Context): Promise<ProfileRow | null> => currentOwner(c, env);
+
+  app.get('/', (c) => c.html(<Landing />));
+
+  app.get('/register', (c) => c.html(<RegisterForm baseDomain={env.config.baseDomain} />));
+
+  app.post('/register', async (c) => {
+    const form = await c.req.parseBody();
+    const values = { name: String(form.name ?? ''), email: String(form.email ?? ''), handle: String(form.handle ?? '') };
+    const reject = (message: string, status: 400 | 409) =>
+      c.html(<RegisterForm baseDomain={env.config.baseDomain} values={values} error={message} />, status);
+
+    const parsed = registerSchema.safeParse(values);
+    if (!parsed.success) return reject(parsed.error.issues[0].message, 400);
+    const { name, email, handle } = parsed.data;
+    if (findProfileByHandle(env.db, handle)) return reject('That handle is taken', 409);
+    if (findProfileByEmail(env.db, email)) return reject('That email already has a little camera. Sign in instead.', 409);
+
+    const profile = createProfile(env.db, { handle, name, email, now: env.now() });
+    const { token } = createToken(env, { kind: 'email_verify', profileId: profile.id });
+    queueEmail(env, email, verifyEmailMail({ name, url: appUrl(env.config, `/verify-email?t=${token}`) }));
+    return c.html(<CheckEmail dev={dev} />);
+  });
+
+  app.get('/verify-email', async (c) => {
+    const verified = verifyToken(env, c.req.query('t'), 'email_verify');
+    if (!verified.ok) return c.html(<ExpiredLink />, 410);
+    markEmailVerified(env.db, verified.row.profile_id, env.now());
+    await setOwnerCookie(c, env, verified.row.profile_id);
+    return c.redirect(u('/me'), 303);
+  });
+
+  // The emailed link is registered before the form so a `?t=` request never falls through to an empty page.
+  app.get('/login', async (c, next) => {
+    const token = c.req.query('t');
+    if (!token) return next();
+    const verified = verifyToken(env, token, 'owner_login');
+    if (!verified.ok) return c.html(<ExpiredLink />, 410);
+    await setOwnerCookie(c, env, verified.row.profile_id);
+    return c.redirect(u('/me'), 303);
+  });
+
+  app.get('/login', (c) => c.html(<LoginForm />));
+
+  app.post('/login', async (c) => {
+    const form = await c.req.parseBody();
+    const email = emailSchema.safeParse(form.email);
+    const profile = email.success ? findProfileByEmail(env.db, email.data) : null;
+    if (profile) {
+      // An unverified profile gets a verify link instead: it signs them in too, and marks the email verified.
+      const kind = profile.email_verified_at ? 'owner_login' : 'email_verify';
+      const { token } = createToken(env, { kind, profileId: profile.id });
+      const path = kind === 'owner_login' ? '/login' : '/verify-email';
+      const url = appUrl(env.config, `${path}?t=${token}`);
+      const mail = kind === 'owner_login' ? loginLinkMail : verifyEmailMail;
+      queueEmail(env, profile.email, mail({ name: profile.name, url }));
+    }
+    return c.html(<CheckEmail dev={dev} />);
+  });
+
+  app.post('/logout', (c) => {
+    clearOwnerCookie(c, env);
+    return c.redirect(u(), 303);
+  });
+
+  app.get('/me', async (c) => {
+    const profile = await owner(c);
+    if (!profile) return c.redirect(u('/login'), 303);
+    const camera = findCameraByProfile(env.db, profile.id);
+    if (camera) {
+      return c.html(
+        <ProfilePage
+          profile={profile}
+          blogUrl={blogUrl(env.config, profile.handle)}
+          shortCode={camera.short_code}
+          subscribers={listSubscribers(env.db, profile.id)}
+        />,
+      );
+    }
+    const code = insertCode(env.db, randomCode(6), profile.id, env.now());
+    return c.html(
+      <VerificationPage
+        code={code.code}
+        svg={await verificationQrSvg(code.code)}
+        email={profile.email}
+        apexUrl={apexUrl(env.config)}
+        blogUrl={blogUrl(env.config, profile.handle)}
+      />,
+    );
+  });
+
+  app.get('/me/status', async (c) => {
+    const profile = await owner(c);
+    if (!profile) return c.json({ error: 'unauthorized' }, 401);
+    const camera = findCameraByProfile(env.db, profile.id);
+    return c.json({ bound: !!camera, url: camera ? blogUrl(env.config, profile.handle) : null });
+  });
+
+  app.post('/me/link-camera', async (c) => {
+    const profile = await owner(c);
+    if (!profile) return c.redirect(u('/login'), 303);
+    if (findCameraByProfile(env.db, profile.id)) return c.redirect(u('/me'), 303);
+
+    const form = await c.req.parseBody();
+    const typed = String(form.short_code ?? '').trim().toUpperCase().replace(/[^A-Z2-9]/g, '');
+    if (!mayTryCode(profile.id, env.now())) {
+      return c.html(<NotLinked why="Too many tries. Wait an hour, or photograph the code instead." />, 400);
+    }
+    const result = bindByShortCode(env, profile.id, typed);
+    if (result.ok) return c.redirect(u('/me'), 303);
+    const why =
+      result.reason === 'no_proof'
+        ? 'That camera has not uploaded anything in the last 10 minutes. Take a picture, press send, and try again.'
+        : 'No camera with that code is waiting to be linked.';
+    return c.html(<NotLinked why={why} />, 400);
+  });
+
+  app.post('/me/request-avatar', async (c) => {
+    const profile = await owner(c);
+    if (!profile) return c.redirect(u('/login'), 303);
+    setAvatarRequested(env.db, profile.id, env.now());
+    return c.redirect(u('/me'), 303);
+  });
+
+  app.post('/me/subscribers', async (c) => {
+    const profile = await owner(c);
+    if (!profile) return c.redirect(u('/login'), 303);
+    const form = await c.req.parseBody();
+    const email = emailSchema.safeParse(form.email);
+    if (email.success) {
+      const name = String(form.name ?? '').trim().slice(0, 60) || null;
+      subscribers.add(env, profile, email.data, name);
+    }
+    return c.redirect(u('/me'), 303);
+  });
+
+  app.post('/me/subscribers/:id/:action{approve|block}', async (c) => {
+    const profile = await owner(c);
+    if (!profile) return c.redirect(u('/login'), 303);
+    const subscriber = subscribers.find(env, profile, Number(c.req.param('id')));
+    if (subscriber) {
+      if (c.req.param('action') === 'approve') subscribers.approve(env, subscriber);
+      else subscribers.block(env, subscriber);
+    }
+    return c.redirect(u('/me'), 303);
+  });
+
+  if (dev) {
+    app.get('/dev/mailbox', (c) =>
+      c.html(
+        <Mailbox
+          rows={listOutbox(env.db).map((m) => ({
+            id: m.id,
+            subject: m.subject,
+            to_email: m.to_email,
+            status: m.status,
+            when: formatFull(m.created_at, env.config.displayTz),
+          }))}
+        />,
+      ),
+    );
+
+    app.get('/dev/mailbox/:id', (c) => {
+      const mail = findOutbox(env.db, Number(c.req.param('id')));
+      if (!mail) return c.notFound();
+      const linked = mail.text_body
+        .split(/(https?:\/\/\S+)/)
+        .map((part, i) => (i % 2 ? <a href={part}>{part}</a> : part));
+      return c.html(
+        <MailView
+          subject={mail.subject}
+          to={mail.to_email}
+          status={mail.status}
+          text={linked}
+          html={mail.html_body.replace('cid:photo', `/dev/mailbox/${mail.id}/photo.png`)}
+        />,
+      );
+    });
+
+    app.get('/dev/mailbox/:id/photo.png', (c) => {
+      const mail = findOutbox(env.db, Number(c.req.param('id')));
+      const photo = mail?.photo_id ? findPhotoById(env.db, mail.photo_id) : null;
+      if (!photo) return c.notFound();
+      const pbm = parsePbm(new Uint8Array(readFileSync(join(env.config.dataDir, photo.path))));
+      return c.body(pbmToPng(pbm), 200, { 'content-type': 'image/png' });
+    });
+  }
+
+  return app;
+}

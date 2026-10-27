@@ -75,7 +75,7 @@ describe('registration', () => {
     expect(html).toContain('Take a picture of this and press send');
     expect(html).toMatch(/LC:[A-Z2-9]{6}/);
     expect(html).toContain('action="/app/me/link-camera"');
-    expect(html).toContain('fetch("/app/me/status"');
+    expect(html).toContain('"/app/me/status"');
     expect(html).toContain('<meta name="color-scheme" content="light"');
 
     // The code is in the database and lives 15 minutes.

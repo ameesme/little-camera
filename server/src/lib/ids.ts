@@ -2,10 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 const URL_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-/**
- * 12 lowercase alphanumerics for photo URLs (`k3m9q2z8x1w4`), ~62 bits.
- * Rejection sampling so every character is equally likely.
- */
+/** 12 lowercase alphanumerics for photo URLs, ~62 bits, rejection-sampled so every character is equally likely. */
 export function publicId(len = 12): string {
   let out = '';
   while (out.length < len) {

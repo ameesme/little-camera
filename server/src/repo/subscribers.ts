@@ -39,8 +39,7 @@ export function createSubscriber(
   s: { profileId: number; email: string; name: string | null; status: SubscriberStatus; addedBy: 'owner' | 'self'; now: number },
 ): SubscriberRow {
   const approvedAt = s.status === 'approved' ? s.now : null;
-  // last_notified_at starts at approval so the newsletter only covers
-  // photos posted after someone joined, not the whole archive.
+  // Starting last_notified_at at approval keeps the first newsletter to photos posted after they joined.
   const r = db
     .prepare(
       `INSERT INTO subscribers (profile_id, email, name, status, added_by, created_at, approved_at, last_notified_at)

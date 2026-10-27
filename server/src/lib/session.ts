@@ -1,12 +1,4 @@
-// Two cookies, both signed with SESSION_SECRET (hono/cookie HMAC):
-//
-//   owner  – set after clicking a verify/login link. Domain=.<apex> in
-//            production so the owner is also recognised on their own
-//            blog subdomain. Skipped on localhost, where browsers ignore
-//            Domain anyway.
-//   sub    – set on a blog host by a valid subscriber link; host-only so
-//            two blogs never share it. Max-Age = what is left of the
-//            token, so the cookie dies when the link would have.
+// Two cookies, both signed with SESSION_SECRET.
 
 import type { Context } from 'hono';
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie';
@@ -21,8 +13,7 @@ const OWNER_TTL = 30 * 24 * 3600;
 
 function ownerDomain(env: Env): string | undefined {
   const host = apexHost(env.config);
-  // "localhost" and bare IPs cannot carry a Domain attribute; anything with
-  // a dot is a real domain and its subdomains should see the cookie.
+  // Set on the parent domain so the owner is recognised on their own blog too; localhost and bare IPs cannot carry it.
   return host.includes('.') && !/^\d+\.\d+\.\d+\.\d+$/.test(host) ? `.${host}` : undefined;
 }
 

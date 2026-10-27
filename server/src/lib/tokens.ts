@@ -1,8 +1,4 @@
-// Links in emails carry a token. We store only its sha256, so a database
-// leak does not hand out working links, and we keep a token valid until it
-// expires rather than burning it on first use: mail clients and link
-// scanners prefetch URLs, and a link that dies before the human clicks it
-// is the number one support question for magic links.
+// Only the sha256 is stored, and a token stays valid until it expires because mail scanners prefetch URLs.
 
 import { createHash, randomBytes } from 'node:crypto';
 import type { Env } from '../env.js';
@@ -36,12 +32,7 @@ export function createToken(
   return { token, row };
 }
 
-/**
- * Look a token up. Returns the row when it exists, is of the expected kind
- * and has not expired; records the first use. `expired` lets the caller
- * show "this link has expired" (with the email prefilled) instead of a
- * generic error.
- */
+/** The row when the token is live and of that kind; `expired` lets a caller offer a fresh link instead of an error. */
 export function verifyToken(
   env: Env,
   token: string | undefined,

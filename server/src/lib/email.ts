@@ -1,7 +1,4 @@
-// Outgoing mail goes through a table, not straight to SMTP. Request
-// handlers only insert a row (fast, transactional with the rest of the
-// change); a drainer sends pending rows every 10 s. Without SMTP_URL the
-// drainer just marks rows sent, and /dev/mailbox shows them.
+// Mail goes through a table so sending is one transactional insert; a drainer does the SMTP talking.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

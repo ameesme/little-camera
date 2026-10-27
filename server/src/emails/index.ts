@@ -1,6 +1,4 @@
-// Email templates. Plain text is the primary version; the HTML version is
-// the same words in the blog's ink-on-paper look. No images except the
-// inline photo in the newsletter (cid:photo), no colour anywhere.
+// Every message the server sends. Plain text is the primary version; the HTML is the same words in ink on paper.
 
 export interface Mail {
   subject: string;

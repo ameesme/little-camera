@@ -1,13 +1,4 @@
-// Everything the server reads from the environment, in one place.
-// Defaults are for `pnpm dev` on a laptop; production sets them all.
-
-/**
- * The two prefixes this server owns on the apex: `/api` for machines,
- * `/app` for pages a person opens. Everything else on the apex host — `/`
- * above all — belongs to the landing page, which is a separate thing behind
- * the same proxy, so those two are all it has to forward here. Blogs are not
- * affected: each one owns the root of its own subdomain.
- */
+// The only two prefixes this server owns on the bare domain; `/` there belongs to the landing page in front.
 export const API_PREFIX = '/api';
 export const APP_PREFIX = '/app';
 

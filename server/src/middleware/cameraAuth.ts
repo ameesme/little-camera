@@ -1,6 +1,4 @@
-// `Authorization: Camera <camera_id>:<secret_hex>` (protocol §4.1).
-// The phone sends the camera's own credentials; there is no user session.
-
+// `Authorization: Camera <camera_id>:<secret_hex>` (protocol §4.1): the phone authenticates as the camera, not as a person.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { MiddlewareHandler } from 'hono';
 import type { Env } from '../env.js';

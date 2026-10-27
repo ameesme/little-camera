@@ -1,10 +1,4 @@
-// Every 10 minutes: for each approved subscriber, one email per batch of
-// new pictures. "New" = uploaded after we last wrote to them. The mail
-// deep-links to the newest picture with a fresh 48-hour token and carries
-// that picture inline, so the email itself is already a little post.
-//
-// The interval doubles as batching: a sync that pushes five photos in
-// a minute becomes one "Mees took 5 new pictures" instead of five mails.
+// The interval is the batching: five photos pushed in one sync become one email, not five.
 
 import { blogUrl } from '../config.js';
 import type { Env } from '../env.js';
@@ -33,8 +27,7 @@ export function runNewsletter(env: Env): number {
     });
     const url = `${blogUrl(env.config, profile.handle)}/p/${newest.public_id}?t=${token}`;
     queueEmail(env, sub.email, newsletterMail({ ownerName: profile.name, count: photos.length, url }), newest.id);
-    // Advance to the newest upload we covered, not to "now": a photo that
-    // lands between the query and this write is picked up next run.
+    // The newest upload covered, not "now", so a photo landing mid-run is caught by the next one.
     setLastNotified(env.db, sub.id, newest.uploaded_at);
     sent++;
   }

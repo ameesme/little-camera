@@ -1,7 +1,4 @@
-// `SAT 8 AUG · 08:12` — the blog's date line. Uppercasing is done by CSS,
-// so this returns "Sat 8 Aug" and "08:12". One display zone for the whole
-// server (DISPLAY_TZ) keeps the profile table simple; a per-profile zone
-// would be a one-column change later.
+// The blog's date line. CSS does the uppercasing, and DISPLAY_TZ is one zone for the whole server.
 
 const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 const timeFormatters = new Map<string, Intl.DateTimeFormat>();

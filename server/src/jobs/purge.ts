@@ -1,6 +1,4 @@
-// Hourly housekeeping: expired tokens and verification codes, and photos
-// from cameras nobody claimed within a week (someone tried the camera
-// without registering; keeping their pictures forever would be creepy).
+// Hourly: expired tokens and codes, and photos from cameras nobody ever claimed, which are not ours to keep.
 
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';

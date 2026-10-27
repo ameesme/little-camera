@@ -1,8 +1,4 @@
-// The one stylesheet and page shell for every HTML page the server sends.
-// The CSS is the blog mockup's, nearly verbatim; the handful of extra
-// classes at the end (.page, .field, .verify, .notice, .teaser) reuse the
-// same tokens so the registration and /me pages look like the blog.
-// Black and white only. The only "grey" is the 2 px checker (.dither50).
+// The blog mockup's CSS and the page shell, inlined so a page is one request.
 
 import type { FC, Child } from 'hono/jsx';
 import { raw } from 'hono/html';

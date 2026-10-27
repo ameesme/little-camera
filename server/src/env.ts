@@ -1,6 +1,4 @@
-// The bag of things every route and job needs. Built once in index.ts,
-// built fresh (with an in-memory database and a fake clock) in tests.
-
+// What every route and job needs, built once in index.ts and fresh per test.
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 

@@ -1,6 +1,4 @@
-// Handles are subdomains, so the rules are DNS label rules minus the
-// awkward cases: lowercase letters, digits and dashes, 2–31 characters,
-// not starting with a dash. A few names are kept for the apex itself.
+// A handle is a subdomain, so these are DNS label rules minus the awkward cases.
 
 export const HANDLE = /^[a-z0-9][a-z0-9-]{1,30}$/;
 export const RESERVED_HANDLES = new Set(['www', 'api', 'dev', 'mail', 'admin', 'app']);

@@ -1,8 +1,4 @@
-// A pretend camera shot of the verification page, for tests and the
-// `pnpm fake-camera` script. Renders the QR as grey pixels the way a lens
-// would see a phone screen (a little soft, a slightly grey surround), then
-// dithers it to 1 bit the way the firmware does. Not a physical model,
-// just enough noise to prove the decoder copes with dither speckle.
+// A pretend camera shot of the verification page: enough dither speckle to prove the decoder copes.
 
 import QRCode from 'qrcode';
 import { blankPbm, setPixel, type Pbm } from '@little-camera/pbm';
