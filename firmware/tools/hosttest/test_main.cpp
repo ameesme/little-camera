@@ -13,6 +13,7 @@
 #include "../../src/sha256.h"
 #include "../../src/shortcode.h"
 #include "../../src/sync_protocol.h"
+#include "../../src/power.h"
 #include "../../src/chirp.h"
 #include "../../src/mood.h"
 
@@ -108,7 +109,7 @@ static void testPbmHeader() {
 static void testSyncProtocol() {
     using namespace SyncProto;
     // Layouts pinned by docs/protocol.md §3
-    CHECK(INFO_SIZE == 32 && LIST_ENTRY_SIZE == 16 && FRAME_HEADER_SIZE == 3 && END_PAYLOAD_SIZE == 10);
+    CHECK(INFO_SIZE == 48 && LIST_ENTRY_SIZE == 16 && FRAME_HEADER_SIZE == 3 && END_PAYLOAD_SIZE == 10);
     CHECK(UPDATE_STATUS_SIZE == 15 && MAX_CONTROL == 37 && UPDATE_HEADER_SIZE == 4);
     CHECK(MAX_CHUNK == 506 && MAX_UPDATE_CHUNK == 505);
 
@@ -119,9 +120,12 @@ static void testSyncProtocol() {
     i.uptimeMs = 0x01020304; i.epoch = 1757789000u; i.flags = INFO_TIME_VALID | INFO_STORAGE_OK;
     i.fwMajor = 0; i.fwMinor = 2; i.fwPatch = 0;
     i.updateState = UPDATE_IDLE; i.updateSpace = 0x330000;
+    i.vbatMv = 3820; i.batteryPercent = Power::fromCurve(3820);
+    i.usedBytes = 1234567; i.totalBytes = 6553600;
+    i.happiness = 200; i.moodElapsedS = 90061;
     uint8_t p[INFO_SIZE];
     packInfo(i, p);
-    CHECK(p[0] == 2);
+    CHECK(p[0] == 3);
     CHECK(!memcmp(p + 1, mac, 6));
     CHECK(get16(p + 7) == 12 && get16(p + 9) == 3 && get16(p + 11) == 57 && get16(p + 13) == 17);
     CHECK(p[15] == 0x04 && p[16] == 0x03 && p[17] == 0x02 && p[18] == 0x01);  // little-endian
@@ -129,10 +133,26 @@ static void testSyncProtocol() {
     CHECK(p[23] == 0x03);
     CHECK(p[24] == 0 && p[25] == 2 && p[26] == 0 && p[27] == UPDATE_IDLE);
     CHECK(get32(p + 28) == 0x330000u);
-    // The v1 prefix is untouched, which is what lets a reader parse by length.
-    i.flags |= INFO_TRIAL;
+    CHECK(get16(p + 32) == 3820 && p[34] == 44);
+    CHECK(get32(p + 35) == 1234567u && get32(p + 39) == 6553600u);
+    CHECK(p[43] == 200 && get32(p + 44) == 90061u);
+    i.flags |= INFO_TRIAL | INFO_USB | INFO_CHARGING;
     packInfo(i, p);
-    CHECK(p[23] == (INFO_TIME_VALID | INFO_STORAGE_OK | INFO_TRIAL));
+    CHECK(p[23] == (INFO_TIME_VALID | INFO_STORAGE_OK | INFO_TRIAL | INFO_USB | INFO_CHARGING));
+
+    // Monotonic, saturating at both ends, 44% at 3.82 V.
+    CHECK(Power::fromCurve(4300) == 100 && Power::fromCurve(4200) == 100);
+    CHECK(Power::fromCurve(3300) == 0 && Power::fromCurve(3000) == 0);
+    for (uint16_t mv = 3300; mv < 4200; mv += 10) CHECK(Power::fromCurve(mv) <= Power::fromCurve(mv + 10));
+    CHECK(Power::fromCurve(3820) == 44 && Power::fromCurve(3700) == 15);
+
+    // Charging reads low on this board, so it is corrected down and capped off
+    // 100; only CHG going high with USB still in says full.
+    CHECK(Power::percent(3820, false, false) == 44);
+    CHECK(Power::percent(3820, true, true) == Power::fromCurve(3820 - Power::CHARGING_OFFSET_MV));
+    CHECK(Power::percent(4200, true, true) == 95);
+    CHECK(Power::percent(4400, true, true) == 99);
+    CHECK(Power::percent(4200, false, true) == 100 && Power::percent(3500, false, true) == 100);
 
     ListEntry e;
     e.index = 7; e.flags = ENTRY_SYNCED; e.size = 9646; e.epoch = 0; e.uptimeMs = 48213;

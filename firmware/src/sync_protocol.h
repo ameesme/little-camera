@@ -19,7 +19,7 @@ constexpr const char* DATA_UUID    = "1C000005-4C43-4D52-8000-6C6974746C65";
 constexpr const char* UPDATE_UUID  = "1C000006-4C43-4D52-8000-6C6974746C65";
 
 // 2 since Info carries the firmware version and the update state.
-constexpr uint8_t VERSION = 2;
+constexpr uint8_t VERSION = 3;
 
 // Control opcodes
 constexpr uint8_t OP_PROGRESS     = 0x00;  // Not a command: marks an unsolicited status frame
@@ -63,13 +63,15 @@ constexpr uint8_t INFO_TIME_VALID = 0x01;
 constexpr uint8_t INFO_STORAGE_OK = 0x02;
 constexpr uint8_t INFO_BUSY       = 0x04;
 constexpr uint8_t INFO_TRIAL      = 0x08;  // Running an update that has not confirmed itself yet
+constexpr uint8_t INFO_USB        = 0x10;
+constexpr uint8_t INFO_CHARGING   = 0x20;
 
 // List entry flags
 constexpr uint8_t ENTRY_SYNCED            = 0x01;
 constexpr uint8_t ENTRY_EPOCH_IS_ESTIMATE = 0x02;
 constexpr uint8_t ENTRY_EPOCH_FROM_CLOCK  = 0x04;
 
-constexpr size_t INFO_SIZE = 32;
+constexpr size_t INFO_SIZE = 48;
 constexpr size_t LIST_ENTRY_SIZE = 16;
 constexpr size_t FRAME_HEADER_SIZE = 3;   // u8 kind, u16 seq
 constexpr size_t END_PAYLOAD_SIZE = 10;   // u8 op, u8 status, u32 total_len, u32 crc32
@@ -114,14 +116,17 @@ struct Info {
     uint32_t uptimeMs;
     uint32_t epoch;
     uint8_t flags;
-    // Version 2 tail. Byte 24 used to be a reserved zero, which is why the
-    // version number moved with it: a reader that knows only v1 would have
-    // read fwMajor as that zero.
     uint8_t fwMajor;
     uint8_t fwMinor;
     uint8_t fwPatch;
     uint8_t updateState;   // UPDATE_IDLE..UPDATE_FAILED
     uint32_t updateSpace;  // Bytes the inactive firmware slot takes, 0 if there is none
+    uint16_t vbatMv;
+    uint8_t batteryPercent;  // Power::percent(vbatMv); readers show it, they do not recompute it
+    uint32_t usedBytes;
+    uint32_t totalBytes;     // 0 if the mount failed
+    uint8_t happiness;       // The face is happiness >> 6, as the camera draws it
+    uint32_t moodElapsedS;   // Seconds since the last photo, on a clock that runs without a wall clock
 };
 
 inline void packInfo(const Info& i, uint8_t out[INFO_SIZE]) {
@@ -139,6 +144,12 @@ inline void packInfo(const Info& i, uint8_t out[INFO_SIZE]) {
     out[26] = i.fwPatch;
     out[27] = i.updateState;
     put32(out + 28, i.updateSpace);
+    put16(out + 32, i.vbatMv);
+    out[34] = i.batteryPercent;
+    put32(out + 35, i.usedBytes);
+    put32(out + 39, i.totalBytes);
+    out[43] = i.happiness;
+    put32(out + 44, i.moodElapsedS);
 }
 
 // What the camera answers an UPDATE_BEGIN/END/ABORT with, and sends by itself

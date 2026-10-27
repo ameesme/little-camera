@@ -21,6 +21,7 @@
 #include "mood.h"
 #include "mood_store.h"
 #include "ota.h"
+#include "power.h"
 #include "storage.h"
 #include "sync.h"
 #include "sync_protocol.h"
@@ -306,6 +307,31 @@ static bool onCharge() {
     return digitalRead(PIN_VBUS) == HIGH && digitalRead(PIN_CHG) == LOW;
 }
 
+static bool onUsb() {
+    return digitalRead(PIN_VBUS) == HIGH;
+}
+
+// Info asks twice a second while a phone is connected; the ADC does not need
+// telling that often, and the mood and the clock are free.
+constexpr uint32_t TELEMETRY_SAMPLE_MS = 5000;
+
+static void readTelemetry(Sync::Telemetry* out) {
+    static uint32_t sampledAt = 0;
+    static uint16_t mv = 0;
+    const uint32_t now = millis();
+    if (!mv || now - sampledAt >= TELEMETRY_SAMPLE_MS) {
+        mv = (uint16_t)batteryMv();
+        sampledAt = now;
+    }
+    out->vbatMv = mv;
+    out->usb = onUsb();
+    out->charging = onCharge();
+    out->batteryPercent = Power::percent(mv, out->charging, out->usb);
+    const Mood::Clock c = moodClock();
+    out->happiness = Mood::happiness(moodState, c);
+    out->moodElapsedS = Mood::elapsed(moodState, c);
+}
+
 // ADC noise is tens of mV once doubled, so the last digit would flap on a
 // still battery — and each flap costs a full frame. Widen if it looks jumpy.
 constexpr uint32_t BATTERY_DEADBAND_MV = 20;
@@ -343,6 +369,7 @@ static bool sampleBattery() {
     if (!sleepStatus[0] || chgChanged || drift >= BATTERY_DEADBAND_MV) {
         sleepStatusMv = mv;
         sleepStatusChg = chg;
+        Display::setBatteryPercent(Power::percent(mv, chg, digitalRead(PIN_VBUS) == HIGH));
         snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV%s", (unsigned)(mv / 1000),
                  (unsigned)(mv % 1000 / 10), chg ? " chg" : "");
         moved = true;
@@ -487,6 +514,7 @@ void setup() {
     // -DLC_NO_BLE in platformio.ini builds without the radio, to tell a BLE
     // problem from everything else.
 #ifndef LC_NO_BLE
+    Sync::setTelemetry(readTelemetry);
     Sync::begin();
 #endif
 

@@ -35,6 +35,18 @@ struct Event {
 
 constexpr uint32_t CLOCK_TZ_KNOWN = 0x80000000u;
 
+// What Info reports that only main.cpp can read: it owns the ADC pins and the
+// mood. Asked for while a phone is connected, so an idle camera pays nothing.
+struct Telemetry {
+    uint16_t vbatMv;
+    uint8_t batteryPercent;
+    bool usb;
+    bool charging;
+    uint8_t happiness;
+    uint32_t moodElapsedS;
+};
+void setTelemetry(void (*provider)(Telemetry* out));
+
 void begin();   // Init NimBLE, build the service, start advertising. Idempotent.
 void end();     // Stop advertising, drop the connection, deinit NimBLE.
 void loop();    // Service the pending command, pump the stream, refresh Info.

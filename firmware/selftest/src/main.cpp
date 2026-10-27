@@ -24,6 +24,7 @@
 #include <esp_flash.h>
 #include <driver/gpio.h>
 #include "spleen_fonts.h"
+#include "../../src/power.h"
 
 // ------------------------------------------------------------------ pins --
 // Sharp LS027B7DH01 on J3, each line through a 330R guard.
@@ -207,14 +208,9 @@ static const char* chargeState(const Power& p) {
     return p.chgLow ? "charging" : "full / no cell";
 }
 
+// The app's curve, so a bring-up readout and the phone never disagree.
 static int lipoPercent(int mv) {
-    // Rough resting curve for a 1S LiPo; good enough for a bring-up readout.
-    static const int16_t mvAt[] = {3300, 3600, 3700, 3750, 3800, 3870, 3950, 4050, 4150, 4200};
-    static const int8_t pct[]   = {0,    5,    15,   25,   40,   55,   70,   85,   97,   100};
-    if (mv <= mvAt[0]) return 0;
-    for (int i = 1; i < 10; i++)
-        if (mv <= mvAt[i]) return pct[i - 1] + (pct[i] - pct[i - 1]) * (mv - mvAt[i - 1]) / (mvAt[i] - mvAt[i - 1]);
-    return 100;
+    return Power::fromCurve(mv);
 }
 
 // ---------------------------------------------------------------- buzzer --

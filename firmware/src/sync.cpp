@@ -106,6 +106,8 @@ NimBLECharacteristic* _data = nullptr;
 NimBLECharacteristic* _updateChar = nullptr;
 
 uint32_t _lastInfoRefresh = 0;
+void (*_telemetry)(Telemetry*) = nullptr;
+Telemetry _lastTelemetry{};
 int _sentThisConnection = 0;
 uint32_t _passkey = 0;
 
@@ -256,6 +258,7 @@ UpdateCallbacks _updateCallbacks;
 // ---- loop() side ----
 
 void refreshInfo() {
+    if (_telemetry && connected()) _telemetry(&_lastTelemetry);
     Info i;
     const char* id = Identity::cameraId();
     for (int k = 0; k < 6; k++) {
@@ -277,8 +280,16 @@ void refreshInfo() {
     i.fwMajor = LC_VERSION_MAJOR;
     i.fwMinor = LC_VERSION_MINOR;
     i.fwPatch = LC_VERSION_PATCH;
+    if (_lastTelemetry.usb) i.flags |= INFO_USB;
+    if (_lastTelemetry.charging) i.flags |= INFO_CHARGING;
     i.updateState = (uint8_t)Ota::state();
     i.updateSpace = Ota::freeSpace();
+    i.vbatMv = _lastTelemetry.vbatMv;
+    i.batteryPercent = _lastTelemetry.batteryPercent;
+    i.usedBytes = (uint32_t)Storage::usedBytes();
+    i.totalBytes = (uint32_t)Storage::totalBytes();
+    i.happiness = _lastTelemetry.happiness;
+    i.moodElapsedS = _lastTelemetry.moodElapsedS;
     uint8_t packed[INFO_SIZE];
     packInfo(i, packed);
     _info->setValue(packed, sizeof(packed));
@@ -723,6 +734,10 @@ void end() {
     _connected = false;
     _subscribed = false;
     Serial.println("Sync: stopped");
+}
+
+void setTelemetry(void (*provider)(Telemetry* out)) {
+    _telemetry = provider;
 }
 
 void loop() {

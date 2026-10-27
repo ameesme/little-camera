@@ -105,7 +105,7 @@ MTU: the camera requests 512. The usable notification payload is `MTU − 3` ATT
 
 | Offset | Type | Field |
 |---|---|---|
-| 0 | u8 | `version` = 2 |
+| 0 | u8 | `version` = 3 |
 | 1 | u8[6] | `mac` (same bytes as `camera_id`, in order) |
 | 7 | u16 | `photo_count` |
 | 9 | u16 | `unsynced_count` |
@@ -113,16 +113,22 @@ MTU: the camera requests 512. The usable notification payload is `MTU − 3` ATT
 | 13 | u16 | `boot` |
 | 15 | u32 | `uptime_ms` |
 | 19 | u32 | `epoch` (0 if the clock is unset) |
-| 23 | u8 | `flags`: bit0 `time_valid`, bit1 `storage_ok`, bit2 `busy` (a stream is running), bit3 `trial` (running an update that has not been confirmed yet, §7) |
+| 23 | u8 | `flags`: bit0 `time_valid`, bit1 `storage_ok`, bit2 `busy` (a stream is running), bit3 `trial` (running an update that has not been confirmed yet, §7), bit4 `usb` (VBUS present), bit5 `charging` (VBUS present and the charger pulling) |
 | 24 | u8 | `fw_major` |
 | 25 | u8 | `fw_minor` |
 | 26 | u8 | `fw_patch` |
 | 27 | u8 | `update_state` (§3.7: 0 idle, 1 receiving, 2 verifying, 3 ready, 4 failed) |
 | 28 | u32 | `update_space` — bytes the inactive firmware slot can take, 0 if the camera cannot update itself |
+| 32 | u16 | `vbat_mv` — battery millivolts, the mean of 16 ADC reads doubled back through the 1M/1M divider |
+| 34 | u8 | `battery_percent` — 0–100, the camera's own reading of its curve |
+| 35 | u32 | `used_bytes` — LittleFS bytes in use |
+| 39 | u32 | `total_bytes` — LittleFS bytes total, 0 if the mount failed |
+| 43 | u8 | `happiness` — 0–255 (§mood). The face is `happiness >> 6`, the same split the camera draws |
+| 44 | u32 | `mood_elapsed_s` — seconds since the last photo on the mood clock, which runs without a wall clock |
 
-Read it after connecting and after every `ACK`; it is not notified.
+48 bytes. Read it after connecting and after every `ACK`; it is not notified.
 
-Version 1 was the same 25 bytes up to `flags` with a reserved zero at 24; version 2 appends the firmware fields. **Readers take the length from the characteristic, not from the version**: parse what you know, ignore what follows, and treat anything shorter than 25 bytes as an error. A camera that reports `version` 1, or fewer than 32 bytes, cannot be updated over BLE.
+**The percentage comes from the camera, not from the reader.** `vbat_mv` is there to be shown beside it and to calibrate the curve against a real discharge, not for a phone to invent its own number from. On USB the charge current pulls the reading up, which is what `charging` is for: show the percentage and say it is charging, rather than pretending the number means the same thing.
 
 ### 3.2 `Secret` (READ, encrypted)
 
