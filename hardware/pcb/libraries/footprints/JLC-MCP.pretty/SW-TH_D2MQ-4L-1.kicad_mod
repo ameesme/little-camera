@@ -1,0 +1,342 @@
+(footprint "SW-TH_D2MQ-4L-1"
+	(version 20241209)
+	(generator "ai-eda-jlc-mcp")
+	(layer "F.Cu")
+	(descr "30,000 cycles 30V 500mA PC Pin SPDT 插件 Limit Switches ROHS")
+	(tags "component")
+	(property "Reference" "REF**"
+		(at 0 -3.28 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "D2MQ-4L-1"
+		(at 0 3.28 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "30,000 cycles 30V 500mA PC Pin SPDT 插件 Limit Switches ROHS"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "LCSC" "C2734687"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Manufacturer" "OMRON(欧姆龙)"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Operating Temperature" "-15℃~+70℃"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Length" "8.1mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Current Rating (DC)" "500mA"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Termination Style" "PC Pin"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Operating Height" "7.1mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Life" "30,000 cycles"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Actuator Style" "Straight Lever"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Switch Height" "8.7mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Circuit" "SPDT"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Voltage Rating (DC)" "30V"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Width" "2.6mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(pad "1" thru_hole circle
+		(at -2.5 0)
+		(size 2.1 2.1)
+		(layers "*.Cu" "*.Mask")
+		(drill 1.6)
+	)
+	(pad "2" thru_hole circle
+		(at -0.0001 0)
+		(size 2.1 2.1)
+		(layers "*.Cu" "*.Mask")
+		(drill 1.6)
+	)
+	(pad "3" thru_hole circle
+		(at 2.5 0)
+		(size 2.1 2.1)
+		(layers "*.Cu" "*.Mask")
+		(drill 1.6)
+	)
+	(fp_line
+		(start 3.2574 1.0326)
+		(end 3.2574 1.4)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 3.2574 -1.4)
+		(end 3.2574 -1.0326)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 1.2254 0.367)
+		(end 1.2254 1.4)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 1.2254 -1.4)
+		(end 1.2254 -0.367)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -4.1001 -1.4)
+		(end 4.0999 -1.4)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 4.0999 -1.4)
+		(end 4.0999 1.4)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 4.0999 1.4)
+		(end -4.1001 1.4)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -4.1001 1.4)
+		(end -4.1001 -1.4)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_poly
+		(pts (xy -4.0001 -1.527) (xy 3.9999 -1.527) (xy 4.0485 -1.5173) (xy 4.0897 -1.4898) (xy 4.1172 -1.4486) (xy 4.1269 -1.4) (xy 4.1269 1.4) (xy 4.1172 1.4486) (xy 4.0897 1.4898) (xy 4.0485 1.5173) (xy 3.9999 1.527) (xy -4.1001 1.527) (xy -4.1487 1.5173) (xy -4.1899 1.4898) (xy -4.2175 1.4486) (xy -4.2271 1.4) (xy -4.2175 1.3514) (xy -4.1899 1.3102) (xy -4.1487 1.2827) (xy -4.1001 1.273) (xy 3.8729 1.273) (xy 3.8729 -1.273) (xy -4.0001 -1.273) (xy -4.0487 -1.2827) (xy -4.0899 -1.3102) (xy -4.1175 -1.3514) (xy -4.1271 -1.4) (xy -4.1175 -1.4486) (xy -4.0899 -1.4898) (xy -4.0487 -1.5173))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "Cmts.User")
+	)
+	(fp_poly
+		(pts (xy 2.5936 -1.4) (xy 2.5936 1.4) (xy 2.584 1.4486) (xy 2.5564 1.4898) (xy 2.5152 1.5173) (xy 2.4666 1.527) (xy 2.418 1.5173) (xy 2.3768 1.4898) (xy 2.3493 1.4486) (xy 2.3396 1.4) (xy 2.3396 -1.4) (xy 2.3493 -1.4486) (xy 2.3768 -1.4898) (xy 2.418 -1.5173) (xy 2.4666 -1.527) (xy 2.5152 -1.5173) (xy 2.5564 -1.4898) (xy 2.584 -1.4486))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "Cmts.User")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 0.5 0.5)
+				(thickness 0.08)
+			)
+		)
+	)
+	(fp_line
+		(start -4.49 -1.79)
+		(end 4.48 -1.79)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 4.48 -1.79)
+		(end 4.48 1.79)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 4.48 1.79)
+		(end -4.49 1.79)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start -4.49 1.79)
+		(end -4.49 -1.79)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(embedded_fonts no)
+	(model "${KIPRJMOD}/libraries/3dmodels/JLC-MCP.3dshapes/D2MQ-4L-1.step"
+		(offset
+			(xyz 0 0 3.5)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 180)
+		)
+	)
+)

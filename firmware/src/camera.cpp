@@ -69,17 +69,11 @@ bool init() {
         return false;
     }
 
-    // The module is mounted upside down, so rotate 180 in the sensor: vflip +
-    // hmirror together. Done here rather than in the render path because it's
-    // free (sensor register writes, no per-frame CPU) and it applies to
-    // captures as well as the viewfinder — flipping in the display code would
-    // have to be duplicated in both dither paths.
-    // Carried over from the previous board; confirm against a v3q with a
-    // module in J2, since `selftest` has a rotate toggle for exactly this.
+    // Set orientation in sensor registers to avoid per-frame CPU work.
     sensor_t* s = esp_camera_sensor_get();
     if (s) {
-        s->set_vflip(s, 1);
-        s->set_hmirror(s, 1);
+        s->set_vflip(s, 0);
+        s->set_hmirror(s, 0);
     }
 
     Serial.println("Camera initialized");

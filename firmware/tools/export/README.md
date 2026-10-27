@@ -7,32 +7,22 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Then run the tools with `.venv/bin/python`. (A venv rather than a plain
-`pip install`: on a Homebrew Python that is refused, and it keeps the script's
-interpreter and its packages together.) PlatformIO's own Python works too:
-`~/.platformio/penv/bin/pip install littlefs-python pyserial`, then run with
-`~/.platformio/penv/bin/python`.
+Then run the tools with `.venv/bin/python`. A venv rather than a plain `pip install`, because Homebrew Python refuses that and this keeps the script's interpreter and its packages together. PlatformIO's own Python works too: `~/.platformio/penv/bin/pip install littlefs-python pyserial`, then run with `~/.platformio/penv/bin/python`.
 
 ## `dump_flash.py` — works with any firmware, run this first
 
-Reads the LittleFS partition straight out of the flash with esptool and unpacks
-it on the host. The camera does not need any particular firmware, and nothing is
-written to it.
+Reads the LittleFS partition straight out of the flash with esptool and unpacks it on the host. The camera does not need any particular firmware and nothing is written to it.
 
 ```
 .venv/bin/python dump_flash.py --port /dev/cu.usbmodem1101
-# → backup/<timestamp>/NNNN.pbm + NNNN.png + littlefs.bin (raw image, keep it)
+# → backup/<timestamp>/NNNN.pbm + NNNN.png + littlefs.bin (the raw image, keep it)
 ```
 
-If esptool cannot get the board into the bootloader, hold BOOT while plugging in
-the cable and run it again. The board resets afterwards.
+If esptool cannot get the board into the bootloader, hold BOOT while you plug the cable in and run it again. The board resets afterwards.
 
 ## `pull_serial.py` — over the USB console, needs firmware with the console
 
-Talks to the serial console (`ls`, `get NNNN`, see `docs/protocol.md` §6) and
-saves the same .pbm/.png pairs. Convenient once the new firmware is on, no
-bootloader dance. The camera sleeps after 10 s idle; press the shutter to wake
-it just before running this.
+Talks to the serial console (`ls`, `get NNNN`, see `docs/protocol.md` §6) and saves the same .pbm/.png pairs. Handy once the new firmware is on, with no bootloader dance. The camera sleeps after 10 s idle, so press the shutter to wake it just before you run this.
 
 ```
 .venv/bin/python pull_serial.py --port /dev/cu.usbmodem1101

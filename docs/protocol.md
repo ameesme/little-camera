@@ -1,6 +1,6 @@
 # Little Camera protocol
 
-The single source of truth for how the three parties talk. The firmware (`firmware/src/sync.cpp`), the iOS bridge (`ios/LittleCamera/BLE/Protocol.swift`) and the server (`server/src/routes/camera.ts`) are all written from this file. Change it here first.
+The single source of truth for how the three parties talk. The firmware (`firmware/src/sync.cpp`), the iOS bridge (`app/ios/LittleCamera/BLE/Protocol.swift`) and the server (`server/src/routes/camera.ts`) are all written from this file. Change it here first.
 
 ```
 ┌──────────┐   BLE (GATT)   ┌──────────┐   HTTPS (JSON / PBM)   ┌──────────┐

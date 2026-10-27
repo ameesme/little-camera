@@ -1,48 +1,31 @@
 # Flows
 
-Who does what, in order. Byte-level details live in [protocol.md](protocol.md).
+Who does what, in order, across the three codebases. Byte-level details live in [protocol.md](protocol.md).
 
 ## Registering a blog
 
-1. Owner opens `https://<apex>/register` on their phone, enters **name**, **email**, and a **handle** (the subdomain).
-2. Server emails a verification link (`email_verify` token, 24 h).
-3. Clicking it marks the email verified, logs the owner in (signed `owner` cookie) and lands on `/me`.
-4. `/me` shows the **verification picture**: a large QR code (`LC:XXXXXX`, 15 min) and the instruction to photograph it with the camera. Below it, a small form: "Camera not recognised? Type the code from the app."
-5. Meanwhile the owner installs the bridge app, which finds the camera (`lc-XXXX`), pairs (the camera puts the six-digit passkey on its screen; a sleeping camera shows it without waking), reads the secret and calls `POST /api/camera/hello`.
-6. The owner photographs the phone screen with the camera and presses send on the camera. The app pulls the photo and uploads it. The server decodes the QR, **binds the camera to the profile**, tags the photo `verification`, moves any earlier photos from that camera onto the profile, and emails "your camera is linked".
-7. `/me` polls `/me/status` every 3 s and flips to "linked" with the blog URL. The blog is live at `https://<handle>.<apex>`.
+The owner registers on the website with their name, email and a handle, which becomes their subdomain. A link emailed to them verifies the address and logs them in, and `/me` then shows the **verification picture**: a big QR code, good for 15 minutes.
 
-Fallback for step 6: the app shows the camera's short code; typing it on `/me` binds the camera if it uploaded something in the last 10 minutes.
+Meanwhile the app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. The owner photographs the phone screen and presses send; the app uploads that photo, and the server decodes the QR, binds the camera to the profile, moves any earlier photos from that camera onto it, and emails that the camera is linked. `/me` polls and flips to the blog URL.
 
-## Profile picture
+If the QR does not decode, typing the camera's short code on `/me` binds it instead — but only if it uploaded something in the last 10 minutes, so a code cannot bind a camera the typist does not hold.
 
-1. After binding, the app shows "Take your profile picture" → `POST /api/camera/request-avatar`.
-2. The next photo captured after that moment becomes the avatar (`kind = avatar`, centre-cropped to 240×240 for the header) and is also a normal post.
-3. The prompt can be repeated later from the app to replace it.
+After binding, the app offers "take your profile picture", and the next photo captured becomes the avatar as well as a normal post.
 
-## Taking and publishing a picture
+## Publishing a picture
 
-1. Press the shutter → review → press = save to flash (marked unsynced).
-2. When the phone is near and the camera is awake, the app pulls unsynced photos, uploads each, and ACKs. The camera renames the file to `NNNNs.pbm`.
-3. Server stores the photo under the profile. Every 10 minutes the newsletter job emails each approved subscriber **one** email per batch of new photos, with a fresh 48-hour link to the newest one.
+Press, review, press again to save it to flash as unsynced. When the phone is near and the camera is awake the app pulls the unsynced photos, uploads each and ACKs, and the camera marks it synced. Every 10 minutes the newsletter job emails each approved subscriber **one** email per batch of new photos, with a fresh 48-hour link to the newest.
 
-## Subscribing
+## Subscribing and reading
 
-- **Self**: a visitor enters their email in the blog's Join form → `subscribers(status = pending, added_by = self)`; the owner gets an email and sees them in the app.
-- **Owner**: adds an email in the app → approved immediately.
-- **Approve**: from the app (or `/me/subscribers` on the web) → the subscriber receives a welcome email with a 48-hour link.
+A visitor can enter their email in the blog's Join form, which the owner then approves from the app; the owner can also add an email directly, which is approved on the spot. Approval sends a welcome email with a 48-hour link.
 
-## Reading the blog
-
-- **Anonymous**: header (avatar, "MEES'S LITTLE CAMERA", battery), the Join form, and the newest photo as a teaser with "N more pictures for subscribers".
-- **With a link**: `/p/<photo>?t=<token>` verifies the token (48 h from sending), sets a cookie that expires with the token, shows the whole feed scrolled to that photo, and allows commenting.
-- **Expired**: the page says the link has expired and offers "Send me a fresh link" (email field prefilled if known) → a new 48-hour link, only to approved subscribers; the response is the same either way.
-- **Commenting**: the first comment asks for a name inline; it is remembered on the subscriber.
+Without a link the blog shows the header, the Join form and the newest photo as a teaser. With one it shows the whole feed, scrolled to that photo, and allows comments; the cookie expires with the token. An expired link offers a fresh one, which only an approved subscriber actually gets — the response looks the same either way.
 
 ## Battery
 
-There is no battery sensing on the board. The blog shows a deterministic fake: 100 % at bind time, declining to ~5 % over 7 days, then back to 100 %, with ±3 % daily jitter seeded by the camera id.
+The camera reads its own VBAT and shows the raw millivolts on the sleep face, but never sends them: `Info` (§3.1) has no battery field. So the blog's indicator is a deterministic fake, a 7-day curve seeded by the camera id.
 
 ## Sleep vs Bluetooth
 
-Ten seconds after the last activity the sleep face goes up. Behind it the radio keeps advertising for 30 s (longer while a phone is actively pulling); then the chip light-sleeps and the radio dies with it. Waking takes a one-second hold on the shutter and happens as the second completes; a tap does nothing. Practical rule for the owner: take the picture, press send, and the phone in your pocket does the rest within half a minute.
+Ten seconds after the last activity the sleep face goes up, 30 s on the review and gallery screens. Behind it the radio advertises for another 30 s, longer while a phone is pulling, then the chip light-sleeps and the radio dies with it. Waking is a one-second hold, so a tap does nothing. For the owner: take the picture, press send, and the phone in your pocket does the rest within half a minute.

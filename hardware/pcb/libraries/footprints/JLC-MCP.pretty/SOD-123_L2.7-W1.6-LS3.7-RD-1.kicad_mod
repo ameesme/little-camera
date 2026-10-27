@@ -1,0 +1,341 @@
+(footprint "SOD-123_L2.7-W1.6-LS3.7-RD-1"
+	(version 20241209)
+	(generator "ai-eda-jlc-mcp")
+	(layer "F.Cu")
+	(descr "1A 40V 600mV@1A 9A Independent SOD-123 Schottky Diodes ROHS")
+	(tags "component")
+	(property "Reference" "REF**"
+		(at 0 -2.73 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "B5819W_C8598"
+		(at 0 2.73 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "1A 40V 600mV@1A 9A Independent SOD-123 Schottky Diodes ROHS"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "LCSC" "C8598"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Manufacturer" "CJ(江苏长电/长晶)"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Voltage - Forward(Vf@If)" "600mV@1A"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Non-Repetitive Peak Forward Surge Current" "9A"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Voltage - DC Reverse(Vr)" "40V"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Diode Configuration" "Standalone"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Current - Rectified" "1A"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(pad "2" smd rect
+		(at 1.7 0)
+		(size 1.2 0.95)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "1" smd rect
+		(at -1.7 0)
+		(size 1.2 0.95)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(fp_line
+		(start 1.3462 0.7061)
+		(end 1.3462 0.85)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 1.3462 -0.85)
+		(end 1.3462 -0.7061)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -1.3462 0.85)
+		(end -1.638 0.85)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -1.638 0.85)
+		(end -1.639 0.849)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -1.3462 -0.85)
+		(end -1.643 -0.85)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -1.643 -0.85)
+		(end -1.644 -0.849)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -1.3462 -0.85)
+		(end 1.3462 -0.85)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 0.4064 -0.4064)
+		(end 0.4064 0.4064)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 0.4064 -0.0003)
+		(end 0.7201 -0.0003)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -0.28 0)
+		(end -0.61 0)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -0.254 -0.508)
+		(end -0.254 0.508)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -0.1778 0)
+		(end 0.4064 -0.4064)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 0.4064 0.4064)
+		(end -0.1778 0)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 1.3462 0.85)
+		(end -1.3462 0.85)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_poly
+		(pts (xy 0.4064 0.4064) (xy 0.4064 -0.4064) (xy -0.1778 0))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.SilkS")
+	)
+	(fp_poly
+		(pts (xy -1.5016 -0.977) (xy -1.5016 -0.607) (xy -1.8064 -0.607) (xy -1.8064 -0.977))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.SilkS")
+	)
+	(fp_poly
+		(pts (xy -1.5016 0.977) (xy -1.5016 0.607) (xy -1.8064 0.607) (xy -1.8064 0.977))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.SilkS")
+	)
+	(fp_poly
+		(pts (xy 1.1899 -0.212) (xy 2.0319 -0.212) (xy 2.0319 -0.0051) (xy 1.1893 -0.0051))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "Cmts.User")
+	)
+	(fp_poly
+		(pts (xy 1.5246 0.3384) (xy 1.5246 -0.5036) (xy 1.7316 -0.5036) (xy 1.7316 0.339))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "Cmts.User")
+	)
+	(fp_poly
+		(pts (xy -2.0415 -0.1238) (xy -1.1996 -0.1238) (xy -1.1996 0.0832) (xy -2.0421 0.0832))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "Cmts.User")
+	)
+	(fp_poly
+		(pts (xy -0.4 0) (xy -0.4 0) (xy 0.2 0.6) (xy 0.2 -0.6))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "Cmts.User")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 0.5 0.5)
+				(thickness 0.08)
+			)
+		)
+	)
+	(fp_line
+		(start -2.56 -1.24)
+		(end 2.56 -1.24)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 2.56 -1.24)
+		(end 2.56 1.24)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 2.56 1.24)
+		(end -2.56 1.24)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start -2.56 1.24)
+		(end -2.56 -1.24)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(embedded_fonts no)
+)

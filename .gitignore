@@ -5,10 +5,10 @@ dist/
 .env
 server/data/
 backup/
-ios/*.xcodeproj
-ios/DerivedData/
+app/ios/*.xcodeproj
+app/ios/DerivedData/
 .claude/
-ios/LittleCamera/Info.plist
+app/ios/LittleCamera/Info.plist
 .vercel
 .env.local
 .pio/

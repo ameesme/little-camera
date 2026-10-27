@@ -1,0 +1,496 @@
+(footprint "USB-C-SMD_KH-TYPE-C-W.SMT-16P"
+	(version 20241209)
+	(generator "ai-eda-jlc-mcp")
+	(layer "F.Cu")
+	(descr "1 10000 times 16P 3A 5V 7.35mm Surface Mount, Right Angle Type-C SMD USB Connectors ROHS")
+	(tags "component")
+	(property "Reference" "REF**"
+		(at 0 -4.7 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "KH-TYPE-C-W.SMT-16P"
+		(at 0 6.93 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "1 10000 times 16P 3A 5V 7.35mm Surface Mount, Right Angle Type-C SMD USB Connectors ROHS"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "LCSC" "C2688791"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Manufacturer" "kinghelm(金航标)"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Operating Temperature" "-25℃~+85℃"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Number of Ports" "1"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Length" "7.35mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Current Rating-Power" "3A"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Voltage Rating" "5V"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Connector Type" "Type-C"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Number of Contacts" "16P"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Connect-Disconnect Life" "10000 times"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Mounting Type" "Surface Mount, Right Angle"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(pad "A1" smd rect
+		(at -3.35 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B12" smd rect
+		(at -3.05 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "A4" smd rect
+		(at -2.5499 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B9" smd rect
+		(at -2.2499 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B8" smd rect
+		(at -1.7501 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "A5" smd rect
+		(at -1.2499 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B7" smd rect
+		(at -0.7501 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "A6" smd rect
+		(at -0.2499 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "A7" smd rect
+		(at 0.2499 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "A8" smd rect
+		(at 1.2497 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B5" smd rect
+		(at 1.7501 -2.3725)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B4" smd rect
+		(at 2.2499 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "A9" smd rect
+		(at 2.5502 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B1" smd rect
+		(at 3.05 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "A12" smd rect
+		(at 3.35 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "19" smd rect
+		(at -5.3299 2.1998)
+		(size 2.02 1.5)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "18" smd rect
+		(at 5.3299 2.1998)
+		(size 2.02 1.5)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "17" smd rect
+		(at 5.3299 -1.8002)
+		(size 2.02 1.5)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "20" smd rect
+		(at -5.3299 -1.8002)
+		(size 2.02 1.5)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "B6" smd rect
+		(at 0.7501 -2.3748)
+		(size 0.3 1.15)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "" np_thru_hole circle
+		(at -2.875 -1.3001)
+		(size 0.65 0.65)
+		(drill 0.65)
+		(layers "*.Cu" "*.Mask")
+	)
+	(pad "" np_thru_hole circle
+		(at 2.875 -1.3001)
+		(size 0.65 0.65)
+		(drill 0.65)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_line
+		(start -4.0889 -2.3272)
+		(end -3.7311 -2.3272)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 3.7312 -2.3272)
+		(end 4.0889 -2.3272)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 4.47 1.2186)
+		(end 4.47 -0.8191)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 4.47 5.0498)
+		(end 4.47 3.1809)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -4.47 1.2186)
+		(end -4.47 -0.8191)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -4.47 5.0498)
+		(end -4.47 3.1809)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 4.47 5.0498)
+		(end -4.47 5.0498)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_circle
+		(center 2.875 -1.3001)
+		(end 3.025 -1.3001)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "Cmts.User")
+	)
+	(fp_circle
+		(center -2.875 -1.3001)
+		(end -2.725 -1.3001)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "Cmts.User")
+	)
+	(fp_poly
+		(pts (xy 3.5 -2.9447) (xy 3.5 -1.7997) (xy 2.9 -1.7997) (xy 2.9 -2.9447))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy 2.7001 -2.9447) (xy 2.7001 -1.7997) (xy 2.1001 -1.7997) (xy 2.1001 -2.9447))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -2.0999 -2.9447) (xy -2.0999 -1.7997) (xy -2.6999 -1.7997) (xy -2.6999 -2.9447))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -2.9 -2.9447) (xy -2.9 -1.7997) (xy -3.5 -1.7997) (xy -3.5 -2.9447))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy 1.6 -2.9475) (xy 1.9 -2.9475) (xy 1.9 -1.7975) (xy 1.6 -1.7975))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy 1.0996 -2.9497) (xy 1.3996 -2.9497) (xy 1.3996 -1.7997) (xy 1.0996 -1.7997))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy 0.6 -2.9497) (xy 0.9 -2.9497) (xy 0.9 -1.7997) (xy 0.6 -1.7997))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy 0.0999 -2.9497) (xy 0.3999 -2.9497) (xy 0.3999 -1.7997) (xy 0.0999 -1.7997))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -0.4 -2.9497) (xy -0.1 -2.9497) (xy -0.1 -1.7997) (xy -0.4 -1.7997))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -0.9001 -2.9497) (xy -0.6001 -2.9497) (xy -0.6001 -1.7997) (xy -0.9001 -1.7997))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -1.4 -2.9497) (xy -1.1 -2.9497) (xy -1.1 -1.7997) (xy -1.4 -1.7997))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -1.9001 -2.9497) (xy -1.6001 -2.9497) (xy -1.6001 -1.7997) (xy -1.9001 -1.7997))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy 6.34 -2.5502) (xy 6.34 -1.0502) (xy 4.32 -1.0502) (xy 4.32 -2.5502))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -4.3199 -2.5502) (xy -4.3199 -1.0502) (xy -6.3399 -1.0502) (xy -6.3399 -2.5502))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy -4.3199 1.4498) (xy -4.3199 2.9498) (xy -6.3399 2.9498) (xy -6.3399 1.4498))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_poly
+		(pts (xy 6.34 1.4498) (xy 6.34 2.9498) (xy 4.32 2.9498) (xy 4.32 1.4498))
+		(stroke (width 0) (type solid))
+		(fill solid)
+		(layer "F.Paste")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 0.5 0.5)
+				(thickness 0.08)
+			)
+		)
+	)
+	(fp_line
+		(start -6.6 -3.21)
+		(end 6.6 -3.21)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 6.6 -3.21)
+		(end 6.6 5.43)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 6.6 5.43)
+		(end -6.6 5.43)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start -6.6 5.43)
+		(end -6.6 -3.21)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(embedded_fonts no)
+)

@@ -22,7 +22,7 @@ The current board is the **v3q custom PCB** — one board, no carrier and no mod
 - **Power:** USB-C, TP4054 single-cell charger, VBUS / CHRG / VBAT all readable by firmware
 - **Spare:** J4 I²C pads (4k7 pull-ups, nothing on board), one dock pad
 
-**Source of truth for the hardware is `selftest/` plus the v3q netlist (`little_camera_v3/gen/design.py`).** The self-test is standalone on purpose — it shares no code with `src/`, so a board that fails it points at the hardware, not at the app. Run it on every new board before flashing the app:
+**Source of truth for the hardware is `selftest/` plus the v3q netlist (`../hardware/pcb/gen/design.py`).** The self-test is standalone on purpose — it shares no code with `src/`, so a board that fails it points at the hardware, not at the app. Run it on every new board before flashing the app:
 
 ```
 cd firmware/selftest && pio run -t upload -t monitor

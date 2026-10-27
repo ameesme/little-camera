@@ -1,8 +1,4 @@
-// The blog's battery indicator is theatre: the board has no battery sense
-// (see firmware/AGENTS.md). We show a deterministic curve instead, so the
-// number is stable across requests and servers: 100 % at bind time, down
-// to ~5 % after seven days, then it "recharges" back to 100 %, with a
-// little day-to-day jitter so it does not look like a countdown.
+// The blog's battery indicator is theatre: the camera reads VBAT but never sends it, Info has no field for it (docs/protocol.md §3.1), so this is a deterministic curve that is stable across requests and servers.
 
 const CYCLE = 7 * 24 * 3600;
 

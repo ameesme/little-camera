@@ -78,11 +78,7 @@ bool toastVisible();
 // approved. Only valid until the next draw call re-dithers — in practice that
 // means read it while the save screen is up.
 const uint8_t* photoBits();
-// VCOM must keep flipping or the panel accumulates DC bias and burns in. The
-// datasheet wants >=1Hz; 5s is a deliberate tradeoff — the panel tolerates it
-// and it sets how often we have to wake out of light sleep, which is the whole
-// idle power budget. Shared by the awake loop and the sleep keep-alive so both
-// paths can't drift apart.
+// On v3q the panel's VCOM comes from U8's EXTCOMIN with EXTMODE tied high, so these toggles are a no-op kept for tools/preview; the interval now only paces the sleep face's breath.
 constexpr uint32_t VCOM_INTERVAL_MS = 5000;
 
 void refresh();     // Call periodically; toggles VCOM at most once per interval

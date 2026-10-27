@@ -1,0 +1,7 @@
+(version 1)
+(rule "J1 mid-mount cutout"
+	(condition "A.memberOfFootprint('J1') || B.memberOfFootprint('J1')")
+	(constraint edge_clearance (min 0.2)))
+(rule "PTH thermal spokes near edges"
+	(condition "A.Type == 'Pad' && (A.memberOfFootprint('J1') || A.memberOfFootprint('SW1'))")
+	(constraint min_resolved_spokes (min 1)))

@@ -1,11 +1,12 @@
 # The teaser is site/ and nothing else. outputDirectory points there, but the
 # upload still carries whatever is not excluded here, and the firmware, the
-# server and the iOS app have no business on a static host.
+# server, the hardware and the iOS app have no business on a static host.
 /firmware
-/ios
+/hardware
+/app
 /server
 /packages
 /docs
-/deploy
 /node_modules
 *.md
+/site/tools

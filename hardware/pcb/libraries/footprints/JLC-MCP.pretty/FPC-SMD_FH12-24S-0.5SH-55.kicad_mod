@@ -1,0 +1,457 @@
+(footprint "FPC-SMD_FH12-24S-0.5SH-55"
+	(version 20241209)
+	(generator "ai-eda-jlc-mcp")
+	(layer "F.Cu")
+	(descr "0.3mm 0.5mm 24P 2mm Bottom Contact Gold Hinged Lid Phosphor bronze Surface Mount, Right Angle SMD,P=0.5mm,卧贴 FFC, FPC (Flat Flexible) Connector Assemblies ROHS")
+	(tags "component")
+	(property "Reference" "REF**"
+		(at 0 -6.29 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "FH12-24S-0.5SH_55_"
+		(at 0 4.26 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "0.3mm 0.5mm 24P 2mm Bottom Contact Gold Hinged Lid Phosphor bronze Surface Mount, Right Angle SMD,P=0.5mm,卧贴 FFC, FPC (Flat Flexible) Connector Assemblies ROHS"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "LCSC" "C202112"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Manufacturer" "HRS(广濑)"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Operating Temperature" "-40℃~+85℃"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Locking Feature" "Flip-Top"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Contact Plating" "Gold"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Contact Material" "Phosphor bronze"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Pitch" "0.5mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Number of Contacts" "24P"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Contact Type" "Bottom Contact"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Height Above Board" "2mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Mounting Type" "Surface Mount, Right Angle"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "FFC, FCB Thickness" "0.3mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		hide
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(pad "12" smd rect
+		(at 0.2499 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "13" smd rect
+		(at -0.2499 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "14" smd rect
+		(at -0.7501 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "15" smd rect
+		(at -1.2499 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "16" smd rect
+		(at -1.7501 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "17" smd rect
+		(at -2.2499 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "18" smd rect
+		(at -2.7501 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "19" smd rect
+		(at -3.2499 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "20" smd rect
+		(at -3.7501 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "21" smd rect
+		(at -4.2499 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "22" smd rect
+		(at -4.7501 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "23" smd rect
+		(at -5.2499 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "24" smd rect
+		(at -5.7501 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "25" smd rect
+		(at 7.7955 -1.3628)
+		(size 1.6 2.3)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "26" smd rect
+		(at -7.7955 -1.3628)
+		(size 1.6 2.3)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "11" smd rect
+		(at 0.7503 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "10" smd rect
+		(at 1.2504 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "9" smd rect
+		(at 1.7506 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "8" smd rect
+		(at 2.2504 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "7" smd rect
+		(at 2.7503 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "6" smd rect
+		(at 3.2502 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "5" smd rect
+		(at 3.7506 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "4" smd rect
+		(at 4.2502 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "3" smd rect
+		(at 4.7503 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "2" smd rect
+		(at 5.2504 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(pad "1" smd rect
+		(at 5.7506 1.8128)
+		(size 0.28 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+	)
+	(fp_line
+		(start -7.5501 -2.7628)
+		(end -7.5501 -4.3628)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -7.5501 -4.4128)
+		(end 7.5499 -4.4128)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 7.5499 -4.4128)
+		(end 7.5499 -2.7628)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 7.5499 0.0372)
+		(end 7.5499 1.2372)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 7.5499 1.2372)
+		(end 6.1217 1.2372)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -6.1212 1.2372)
+		(end -7.5501 1.2372)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -7.5501 1.2372)
+		(end -7.5501 0.0372)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 5.8501 0.3141)
+		(end 5.4501 -0.0859)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 5.4501 -0.0859)
+		(end 6.2499 -0.0859)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 6.2499 -0.0859)
+		(end 5.8501 0.3141)
+		(stroke
+			(width 0.254)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_circle
+		(center 5.7998 2.0873)
+		(end 5.9499 2.0873)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "Cmts.User")
+	)
+	(fp_arc
+		(start 6.4991 1.6883)
+		(mid 6.5003 1.9372)
+		(end 6.5016 1.6883)
+		(stroke
+			(width 0.2489)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 0.5 0.5)
+				(thickness 0.08)
+			)
+		)
+	)
+	(fp_line
+		(start -8.85 -4.79)
+		(end 8.85 -4.79)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 8.85 -4.79)
+		(end 8.85 2.77)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 8.85 2.77)
+		(end -8.85 2.77)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start -8.85 2.77)
+		(end -8.85 -4.79)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(embedded_fonts no)
+)

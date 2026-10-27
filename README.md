@@ -4,68 +4,68 @@ A small black-and-white camera that posts to its own tiny blog, and everything a
 
 ```
 firmware/    ESP32-S3 firmware (PlatformIO). Viewfinder, gallery, flash storage, BLE sync.
-ios/         Bridge app (SwiftUI + CoreBluetooth). Pulls photos off the camera, uploads them.
-server/      Micro-blog + API (TypeScript, Hono, SQLite). One subdomain per camera owner.
+hardware/    The board it runs on: KiCad schematic + PCB, written by Python.
+app/ios/     Bridge app (SwiftUI + CoreBluetooth). Pulls photos off the camera and uploads them.
+server/      Micro-blog + API (TypeScript, Hono, SQLite). One subdomain per owner.
+  deploy/    Docker Compose + Caddy (wildcard TLS) for a VPS.
+site/        The lttl.cam teaser, static on Vercel.
 packages/    Shared TypeScript: PBM parsing, PNG encoding, short codes.
-deploy/      Docker Compose + Caddy (wildcard TLS) for a VPS.
-docs/        protocol.md (BLE + HTTP contract), flows.md (who does what), mood.md (the camera as a small creature).
+docs/        protocol.md (the contract), flows.md (who does what), mood.md (the camera as a small creature).
 ```
 
 Everything is black and white. Where a grey is unavoidable it is a 2 px checker.
 
-## Step 0: back up the photos already on your camera
+## Step 0: back up the photos on your camera
 
-Before flashing anything from this repo, pull the photos that are on the device today. This reads the flash and writes nothing:
+Do this before you flash anything from here. It reads the flash and writes nothing:
 
 ```
 cd firmware/tools/export
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python dump_flash.py --port /dev/cu.usbmodem*      # writes backup/<timestamp>/NNNN.pbm + .png
+.venv/bin/python dump_flash.py --port /dev/cu.usbmodem*      # backup/<timestamp>/NNNN.pbm + .png
 ```
 
-Then flash. New firmware keeps the same partition table and file format, so the photos stay on the device too; the first sync uploads all of them to your blog.
+The partition table and file format are unchanged, so flashing keeps the photos on the device too, and the first sync uploads them all.
 
 ## Firmware
 
 ```
 cd firmware
 pio run -e v3q -t upload -t monitor
+cd tools/preview && make scenes     # the UI without hardware, BMPs in out/
 ```
 
-Read `firmware/AGENTS.md` before changing anything hardware-facing. The UI can be previewed without hardware:
+Read `firmware/AGENTS.md` before anything hardware-facing.
 
-```
-cd firmware/tools/preview && make scenes   # BMPs in out/
-```
+Press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, hold = back). On the review screen press = save, hold 1.5 s = trash. Asleep: hold 1 s to wake, a tap only chirps.
 
-Gestures: press = shoot. Hold 0.7 s in the viewfinder = gallery (press = next, hold = back). On the review screen press = save, hold 1.5 s = trash. Asleep: hold 1 s to wake; a tap only makes it chirp.
+The camera has a mood (`docs/mood.md`): it sleeps with a smile after a photo, loses it over a week, and chirps for attention. The sounds are composed, not recorded, and `cd firmware/tools/chirp && make bands` renders them to WAV.
 
-The camera has a mood (`docs/mood.md`): it sleeps with a smile after a photo, loses it over a week, and chirps for attention. The sounds are composed, not recorded; listen to them without hardware:
+## Hardware
 
-```
-cd firmware/tools/chirp && make bands       # out/band-{sad,glum,content,happy}.wav + out/ladder.wav
-```
+v3q, 62.8 × 42.82 mm, four layers, 80 parts, KiCad 10. Schematic `hardware/pcb/little_camera.kicad_sch`, board `hardware/pcb/little_camera.kicad_pcb`, and `little_camera_2d_view.svg` next to them if you have no KiCad. Neither is drawn by hand: `hardware/pcb/gen/design.py` holds every part and connection and the rest of `gen/` builds, places and routes from it. See `hardware/README.md`.
+
+Pins are shared with the firmware and written down in `firmware/AGENTS.md`. Change them in both places.
 
 ## Server
 
 ```
 pnpm install
-pnpm dev                      # http://localhost:3000, blogs at http://<handle>.localhost:3000
+pnpm dev      # http://localhost:3000, blogs at http://<handle>.localhost:3000
 pnpm test
-pnpm seed                     # demo blog with the mockup's pictures at http://mees.localhost:3000
-pnpm --filter @little-camera/server fake-camera --code LC:XXXXXX   # play the bridge app (see server/README.md)
+pnpm seed     # demo blog at http://mees.localhost:3000
 ```
 
-Without SMTP settings every email lands in `http://localhost:3000/dev/mailbox`. See `server/README.md` for the environment variables and `deploy/` for production.
+Without SMTP settings every email lands in `/dev/mailbox`. `server/README.md` has the environment variables and the fake camera; `server/deploy/` has production.
 
 ## iOS app
 
 ```
-cd ios && xcodegen generate && open LittleCamera.xcodeproj
+cd app/ios && xcodegen generate && open LittleCamera.xcodeproj
 ```
 
-Needs a real device (Bluetooth). Set the server URL on first launch. The app never signs in: it identifies as the camera it is paired with. Registration and verification happen on the web.
+Needs a real device, because Bluetooth. Set the server URL on first launch. The app never signs in: it identifies as the camera it is paired with.
 
-## Flow in one paragraph
+## The whole flow
 
-Register on the web with your email and a handle. Open `/me` on your phone: it shows a QR code. Photograph it with the camera and press send. The app in your pocket uploads the photo; the server reads the QR and binds the camera to your blog. From then on every photo you send ends up on `https://<handle>.<your-domain>`. Friends join with their email; you approve them in the app; they get one email per batch of new pictures with a 48-hour link that lets them see everything and comment.
+Register on the web, then photograph the QR code on `/me` with the camera and press send: the app uploads it, the server binds the camera to your blog, and every photo you send from then on lands on `https://<handle>.<your-domain>`. Friends join with their email and get one link per batch of new pictures. Step by step in `docs/flows.md`.
