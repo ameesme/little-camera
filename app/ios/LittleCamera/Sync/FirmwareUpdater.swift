@@ -2,8 +2,7 @@ import Foundation
 import UIKit
 import CryptoKit
 
-/// Pushing a firmware image to the camera (§3.7). Nothing this class gets wrong can cost the owner their camera: the image
-/// lands in the slot the camera is not running from and is checked there before the bootloader is pointed at anything.
+/// Pushing a firmware image to the camera (§3.7). It lands in the slot the camera is not running from, so nothing here can brick it.
 @MainActor
 final class FirmwareUpdater {
     enum Phase: Equatable {

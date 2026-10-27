@@ -6,7 +6,7 @@ Who does what, in order, across the three codebases. Byte-level details live in 
 
 The owner registers on the website with their name, email and a handle, which becomes their subdomain. A link emailed to them verifies the address and logs them in, and `/app/me` then shows the **verification picture**: a big QR code, good for 15 minutes.
 
-Meanwhile the app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. The owner photographs the phone screen and presses send; the app uploads that photo, and the server decodes the QR, binds the camera to the profile, moves any earlier photos from that camera onto it, and emails that the camera is linked. `/app/me` polls and flips to the blog URL.
+Meanwhile the app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. The owner photographs the phone screen and presses send; the app uploads that photo, and the server decodes the QR, binds the camera to the blog, moves any earlier photos from that camera onto it, and emails that the camera is linked. `/app/me` polls and flips to the blog URL.
 
 Photographing the code is the only way to bind, which makes holding the camera the proof. It also works on a camera that is already linked, so passing the camera on is just the new owner photographing their own code; the photos already posted stay where they are.
 

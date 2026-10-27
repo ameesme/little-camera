@@ -387,7 +387,7 @@ is trusted with the image.
 
 ## 5. Verification picture
 
-The web page `https://lttl.cam/app/me` for a verified-but-unbound profile shows a QR code. Payload:
+The web page `https://lttl.cam/app/me` for a verified blog with no camera shows a QR code. Payload:
 
 ```
 LC:<6 chars from the alphabet in §1>
@@ -395,7 +395,7 @@ LC:<6 chars from the alphabet in §1>
 
 QR version 1 (21×21 modules), error correction **H**, rendered as large as the phone's screen allows with a 4-module quiet zone on white. Code lifetime 15 minutes; the page regenerates on reload.
 
-The server decodes the uploaded 1-bit photo with these variants until one yields `^LC:[A-Z2-9]{6}$`: `{as-is, 3×3 majority filter}` × nearest-neighbour scale `{2, 3, 1}`, with both polarities. A match binds `camera_id` to the profile, tags the photo `kind = verification`, back-fills the camera's earlier photos onto the profile and emails the owner.
+The server decodes the uploaded 1-bit photo with these variants until one yields `^LC:[A-Z2-9]{6}$`: `{as-is, 3×3 majority filter}` × nearest-neighbour scale `{2, 3, 1}`, with both polarities. A match binds `camera_id` to the blog, tags the photo `kind = verification`, back-fills the camera's unclaimed photos onto the blog and emails the owner.
 
 Photographing a QR code is the only way to bind, and it works on a camera that is already bound: whoever holds the camera can move it to another blog. Photos stay with the blog they were posted to, so a rebind takes the camera and not the history.
 

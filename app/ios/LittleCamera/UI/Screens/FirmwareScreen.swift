@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// What the camera runs against what the server has published. The camera draws its own bar; this one is for the
-/// person holding the phone, who is the one being asked to stand still.
+/// What the camera runs against what the server published. The camera draws its own bar; this one is for whoever has to stand still.
 struct FirmwareScreen: View {
     let model: AppModel
 

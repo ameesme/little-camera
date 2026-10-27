@@ -3,9 +3,11 @@ import type { Env } from '../env.js';
 import { freshLinkMail, newSubscriberMail, welcomeMail } from '../emails/index.js';
 import { appUrl } from '../config.js';
 import { queueEmail } from '../lib/email.js';
-import { createToken } from '../lib/tokens.js';
+import { setSubscriberCookie } from '../lib/session.js';
+import { createToken, verifyToken } from '../lib/tokens.js';
 import { newestFeedPhoto } from '../repo/photos.js';
 import { findBlogById, type BlogRow } from '../repo/blogs.js';
+import type { Context } from 'hono';
 import {
   approveSubscriber,
   blockSubscriber,
@@ -78,8 +80,21 @@ export function join(env: Env, blog: BlogRow, email: string): JoinOutcome {
   return 'sent';
 }
 
-/** Null when that id is on someone else's list, so no caller can reach across blogs. */
+/** Null when that id is on another blog's list, so no caller can reach across blogs. */
 export function find(env: Env, blog: BlogRow, id: number): SubscriberRow | null {
   const sub = findSubscriberById(env.db, id);
   return sub && sub.blog_id === blog.id ? sub : null;
+}
+
+export type Redemption = { ok: true; subscriber: SubscriberRow } | { ok: false; email: string };
+
+/** An emailed `?t=` becomes a cookie that dies when the link would have; a failure carries the address, to prefill the form. */
+export async function redeemToken(c: Context, env: Env, blog: BlogRow, token: string): Promise<Redemption> {
+  const verified = verifyToken(env, token, 'subscriber');
+  const id = verified.ok ? verified.row.subscriber_id : (verified.expired?.subscriber_id ?? null);
+  const sub = id !== null ? findSubscriberById(env.db, id) : null;
+  const mine = sub && sub.blog_id === blog.id ? sub : null;
+  if (!verified.ok || !mine || mine.status !== 'approved') return { ok: false, email: mine?.email ?? '' };
+  await setSubscriberCookie(c, env, mine.id, verified.row.expires_at - env.now());
+  return { ok: true, subscriber: mine };
 }

@@ -3,28 +3,19 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { parsePbm, pbmToPng, randomCode } from '@little-camera/pbm';
-import { apexUrl, appUrl, blogUrl } from '../config.js';
+import { apexUrl, blogUrl } from '../config.js';
+import { register, sendSignInLink, signInWithToken } from '../core/blogs.js';
 import * as subscribers from '../core/subscribers.js';
 import type { Env } from '../env.js';
-import { loginLinkMail, verifyEmailMail } from '../emails/index.js';
 import { formatFull } from '../lib/dates.js';
-import { queueEmail } from '../lib/email.js';
 import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
 import { verificationQrSvg } from '../lib/qr.js';
-import { clearOwnerCookie, currentOwner, setOwnerCookie } from '../lib/session.js';
-import { createToken, verifyToken } from '../lib/tokens.js';
+import { clearOwnerCookie, currentOwner } from '../lib/session.js';
 import { findCameraByBlog } from '../repo/cameras.js';
 import { insertCode } from '../repo/codes.js';
 import { findOutbox, listOutbox } from '../repo/outbox.js';
 import { findPhotoById } from '../repo/photos.js';
-import {
-  createBlog,
-  findBlogByEmail,
-  findBlogByHandle,
-  markEmailVerified,
-  setAvatarRequested,
-  type BlogRow,
-} from '../repo/blogs.js';
+import { setAvatarRequested, type BlogRow } from '../repo/blogs.js';
 import { listSubscribers } from '../repo/subscribers.js';
 import {
   CheckEmail,
@@ -71,49 +62,34 @@ export function ownerRoutes(env: Env): Hono {
 
     const parsed = registerSchema.safeParse(values);
     if (!parsed.success) return reject(parsed.error.issues[0].message, 400);
-    const { name, email, handle } = parsed.data;
-    if (findBlogByHandle(env.db, handle)) return reject('That handle is taken', 409);
-    if (findBlogByEmail(env.db, email)) return reject('That email already has a little camera. Sign in instead.', 409);
 
-    const blog = createBlog(env.db, { handle, name, email, now: env.now() });
-    const { token } = createToken(env, { kind: 'email_verify', blogId: blog.id });
-    queueEmail(env, email, verifyEmailMail({ name, url: appUrl(env.config, `/verify-email?t=${token}`) }));
+    const made = register(env, parsed.data);
+    if (!made.ok) {
+      return made.taken === 'handle'
+        ? reject('That handle is taken', 409)
+        : reject('That email already has a little camera. Sign in instead.', 409);
+    }
     return c.html(<CheckEmail dev={dev} />);
   });
 
-  app.get('/verify-email', async (c) => {
-    const verified = verifyToken(env, c.req.query('t'), 'email_verify');
-    if (!verified.ok) return c.html(<ExpiredLink />, 410);
-    markEmailVerified(env.db, verified.row.blog_id, env.now());
-    await setOwnerCookie(c, env, verified.row.blog_id);
-    return c.redirect(u('/me'), 303);
-  });
+  app.get('/verify-email', async (c) =>
+    (await signInWithToken(c, env, c.req.query('t'), 'email_verify'))
+      ? c.redirect(u('/me'), 303)
+      : c.html(<ExpiredLink />, 410),
+  );
 
   // The emailed link is registered before the form so a `?t=` request never falls through to an empty page.
   app.get('/login', async (c, next) => {
     const token = c.req.query('t');
     if (!token) return next();
-    const verified = verifyToken(env, token, 'owner_login');
-    if (!verified.ok) return c.html(<ExpiredLink />, 410);
-    await setOwnerCookie(c, env, verified.row.blog_id);
-    return c.redirect(u('/me'), 303);
+    return (await signInWithToken(c, env, token, 'owner_login')) ? c.redirect(u('/me'), 303) : c.html(<ExpiredLink />, 410);
   });
 
   app.get('/login', (c) => c.html(<LoginForm />));
 
   app.post('/login', async (c) => {
-    const form = await c.req.parseBody();
-    const email = emailSchema.safeParse(form.email);
-    const blog = email.success ? findBlogByEmail(env.db, email.data) : null;
-    if (blog) {
-      // An unverified blog gets a verify link instead: it signs them in too, and marks the email verified.
-      const kind = blog.email_verified_at ? 'owner_login' : 'email_verify';
-      const { token } = createToken(env, { kind, blogId: blog.id });
-      const path = kind === 'owner_login' ? '/login' : '/verify-email';
-      const url = appUrl(env.config, `${path}?t=${token}`);
-      const mail = kind === 'owner_login' ? loginLinkMail : verifyEmailMail;
-      queueEmail(env, blog.email, mail({ name: blog.name, url }));
-    }
+    const email = emailSchema.safeParse((await c.req.parseBody()).email);
+    if (email.success) sendSignInLink(env, email.data);
     return c.html(<CheckEmail dev={dev} />);
   });
 

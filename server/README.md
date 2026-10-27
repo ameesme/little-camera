@@ -13,19 +13,21 @@ Both prefixes are `API_PREFIX` / `APP_PREFIX` in `src/config.ts` and every link 
 Hono, Hono JSX, `node:sqlite` (in Node 22, so no native module), `nodemailer`, `qrcode`, `jsqr`. No client framework. `docs/protocol.md` has the camera API, `docs/flows.md` has who does what.
 
 ```
-core/     the five things this server does, and the only place each one is written
-          photos       an upload: parse, dedupe, date, store, maybe link, maybe avatar
-          subscribers  adding, approving, blocking, joining, and the emails that go with it
-          linking      binding a camera to a profile, by QR code or by typed short code
+core/     the five things in this domain, one file each, and the only place each is written
+          cameras      saying hello, and binding to a blog by photographing its QR code
+          blogs        registering one, signing its owner in, and who is reading it
+          photos       an upload: parse, dedupe, date, store, maybe bind, maybe avatar; and comments
+          subscribers  adding, approving, blocking, joining, redeeming a link, and the mail for each
           firmware     the releases on disk, and whether one is newer than what a camera runs
-          viewers      who is looking at a blog, and redeeming an emailed link
 routes/   HTTP only: parse the request, call core/, render
 views/    the HTML, as whole pages
 repo/     plain SQL, one file per table
 lib/      plumbing with no opinions: dates, ids, tokens, cookies, mail, QR
 ```
 
-A route never reaches past `core/` into `repo/` for something `core/` already does. That is the rule that keeps "approve a subscriber and welcome them" in one place instead of four.
+A blog is a handle, a name, a picture and the one email address that owns it, so the owner is a column and not a table of their own. A camera points at the blog it posts to, which lets a camera move to another blog without taking its old photos along.
+
+A route never reaches past `core/` into `repo/` for something `core/` already does. That is the rule that keeps "approve a subscriber and welcome them" in one place instead of four. Plain reads go straight to `repo/`.
 
 ```
 pnpm install

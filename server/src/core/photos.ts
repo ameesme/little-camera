@@ -6,8 +6,11 @@ import type { Env } from '../env.js';
 import { publicId } from '../lib/ids.js';
 import { decodeVerificationCode } from '../lib/qr.js';
 import { findCamera, type CameraRow } from '../repo/cameras.js';
+import { insertComment } from '../repo/comments.js';
 import { anyLiveCode } from '../repo/codes.js';
-import { findBlogById, setAvatarPhoto } from '../repo/blogs.js';
+import { findBlogById, setAvatarPhoto, type BlogRow } from '../repo/blogs.js';
+import { setSubscriberName } from '../repo/subscribers.js';
+import type { Viewer } from './blogs.js';
 import {
   findPhotoByHash,
   insertPhoto,
@@ -16,9 +19,10 @@ import {
   type CapturedAtSource,
   type PhotoRow,
 } from '../repo/photos.js';
-import { bindByCode } from './linking.js';
+import { bindByCode } from './cameras.js';
 
 export const MAX_PHOTO_BYTES = 16 * 1024;
+export const MAX_COMMENT = 1000;
 const WIDTH = 320;
 const HEIGHT = 240;
 
@@ -78,8 +82,7 @@ function storeFile(env: Env, cameraId: string, sha256: string, body: Uint8Array)
   return relPath;
 }
 
-// ponytail: every upload pays a QR decode while any owner has a live code; gate on a cheaper signal if uploads ever get hot.
-/** Binds the camera when the picture turns out to be of someone's verification code, even one it is already bound to someone else by. */
+// ponytail: every upload pays a QR decode while any blog has a live code, and a bound camera rebinds to whatever it photographs.
 function tryVerification(env: Env, camera: CameraRow, pbm: Pbm, photo: PhotoRow): { camera: CameraRow; photo: PhotoRow } {
   if (!anyLiveCode(env.db, env.now())) return { camera, photo };
   const code = decodeVerificationCode(pbm);
@@ -125,4 +128,26 @@ export function uploadPhoto(env: Env, camera: CameraRow, body: Uint8Array, input
 
   const verified = tryVerification(env, camera, pbm, stored);
   return { status: 'stored', photo: tryAvatar(env, verified.camera, verified.photo, capturedAt), camera: verified.camera };
+}
+
+export type Commented = { ok: true; name: string } | { ok: false; reason: 'unauthorized' | 'bad_body' | 'name_required' };
+
+/** The owner comments under the blog's name; a subscriber gives theirs on the first comment and never again. */
+export function comment(env: Env, blog: BlogRow, photo: PhotoRow, viewer: Viewer, input: { body: string; name: string }): Commented {
+  if (viewer.kind === 'anonymous') return { ok: false, reason: 'unauthorized' };
+  if (!input.body || input.body.length > MAX_COMMENT) return { ok: false, reason: 'bad_body' };
+
+  let name = blog.name;
+  if (viewer.kind === 'subscriber') {
+    if (!viewer.name && !input.name) return { ok: false, reason: 'name_required' };
+    name = viewer.name ?? input.name;
+    if (!viewer.name) setSubscriberName(env.db, viewer.id, name);
+  }
+  insertComment(env.db, {
+    photoId: photo.id,
+    subscriberId: viewer.kind === 'subscriber' ? viewer.id : null,
+    body: input.body,
+    now: env.now(),
+  });
+  return { ok: true, name };
 }

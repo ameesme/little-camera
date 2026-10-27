@@ -11,7 +11,7 @@ import { createApp } from '../src/app.js';
 import { APP_PREFIX, loadConfig } from '../src/config.js';
 import { openDb } from '../src/db.js';
 import type { Env } from '../src/env.js';
-import { bind } from '../src/core/linking.js';
+import { bind } from '../src/core/cameras.js';
 import { findCamera } from '../src/repo/cameras.js';
 import { createBlog, markEmailVerified, type BlogRow } from '../src/repo/blogs.js';
 

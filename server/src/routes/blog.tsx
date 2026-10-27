@@ -5,12 +5,13 @@ import { z } from 'zod';
 import { blankPbm, cropSquare, parsePbm, pbmToPng, setPixel } from '@little-camera/pbm';
 import { appUrl, blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
-import { redeemSubscriberToken, viewerOf, type Viewer } from '../core/viewers.js';
+import { viewerOf, type Viewer } from '../core/blogs.js';
+import { comment } from '../core/photos.js';
 import type { Env } from '../env.js';
 import { batteryPercent } from '../lib/battery.js';
 import { formatMeta } from '../lib/dates.js';
 import { findCameraByBlog } from '../repo/cameras.js';
-import { commentsForPhotos, insertComment } from '../repo/comments.js';
+import { commentsForPhotos } from '../repo/comments.js';
 import {
   countFeedPhotos,
   feedPage,
@@ -20,14 +21,13 @@ import {
   type PhotoRow,
 } from '../repo/photos.js';
 import type { BlogRow } from '../repo/blogs.js';
-import { findSubscriberByEmail, setSubscriberName } from '../repo/subscribers.js';
+import { findSubscriberByEmail } from '../repo/subscribers.js';
 import { Simple } from '../views/layout.js';
-import { ExpiredLink, Feed, Teaser, blogTitle, type ArticleData } from '../views/blog.js';
+import { ExpiredLink, Feed, Teaser, type ArticleData } from '../views/blog.js';
 
 type BlogEnv = { Bindings: { blog: BlogRow } };
 
 const PAGE_SIZE = 10;
-const MAX_COMMENT = 1000;
 const emailSchema = z.string().trim().toLowerCase().email().max(200);
 
 const JOIN_NOTICES: Record<string, string> = {
@@ -93,7 +93,7 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
 
   /** Every emailed link lands on a page that redeems it first; `after` is where the browser goes once it has. */
   async function withToken(c: Context<BlogEnv>, blog: BlogRow, token: string, after: string) {
-    const redeemed = await redeemSubscriberToken(c, env, blog, token);
+    const redeemed = await subscribers.redeemToken(c, env, blog, token);
     if (redeemed.ok) return c.redirect(after, 303);
     return c.html(<ExpiredLink email={redeemed.email} />, 410);
   }
@@ -155,30 +155,17 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
     const photo = visiblePhoto(env, blog, c.req.param('public_id'));
     if (!photo) return c.notFound();
     const json = wantsJson(c);
-    const viewer = await viewerOf(c, env, blog);
-    if (viewer.kind === 'anonymous') return json ? c.json({ error: 'unauthorized' }, 401) : c.redirect('/', 303);
-
     const form = await c.req.parseBody();
     const body = String(form.body ?? '').trim();
-    const back = (error: string) => (json ? c.json({ error }, 400) : c.redirect(`/p/${photo.public_id}`, 303));
-    if (!body || body.length > MAX_COMMENT) return back('bad_body');
-
-    let name = blog.name;
-    let subscriberId: number | null = null;
-    if (viewer.kind === 'subscriber') {
-      subscriberId = viewer.id;
-      // A subscriber names themselves on their first comment and never again.
-      if (viewer.name) {
-        name = viewer.name;
-      } else {
-        const given = String(form.name ?? '').trim().slice(0, 60);
-        if (!given) return back('name_required');
-        setSubscriberName(env.db, viewer.id, given);
-        name = given;
-      }
+    const posted = comment(env, blog, photo, await viewerOf(c, env, blog), {
+      body,
+      name: String(form.name ?? '').trim().slice(0, 60),
+    });
+    if (!posted.ok) {
+      if (posted.reason === 'unauthorized') return json ? c.json({ error: posted.reason }, 401) : c.redirect('/', 303);
+      return json ? c.json({ error: posted.reason }, 400) : c.redirect(`/p/${photo.public_id}`, 303);
     }
-    insertComment(env.db, { photoId: photo.id, subscriberId, body, now: env.now() });
-    return json ? c.json({ name, body }) : c.redirect(`/p/${photo.public_id}`, 303);
+    return json ? c.json({ name: posted.name, body }) : c.redirect(`/p/${photo.public_id}`, 303);
   });
 
   // The stored PBM as a 1-bit PNG. Addressed by an unguessable id and never changed, so it can be cached forever.

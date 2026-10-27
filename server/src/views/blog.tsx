@@ -1,6 +1,6 @@
 import type { FC } from 'hono/jsx';
 import { raw } from 'hono/html';
-import type { Viewer } from '../core/viewers.js';
+import type { Viewer } from '../core/blogs.js';
 import type { CommentView } from '../repo/comments.js';
 import type { PhotoRow } from '../repo/photos.js';
 import type { BlogRow } from '../repo/blogs.js';
