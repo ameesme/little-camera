@@ -23,7 +23,7 @@ All multi-byte integers on BLE are **little-endian**. All timestamps are **unix 
 |---|---|---|
 | `camera_id` | The camera's Bluetooth MAC (`esp_read_mac(..., ESP_MAC_BT)`), 12 lowercase hex characters, no separators | `7cdfa1e2b3c4` |
 | `secret` | 16 random bytes generated once on first boot (`esp_fill_random`), stored in NVS. Sent as 32 lowercase hex characters over HTTP | `9f2c…` |
-| `short_code` | 6 characters derived from `camera_id` (below). Shown in the app; typed on the web as the fallback when the QR photo cannot be decoded | `KQ7M2X` |
+| `short_code` | 6 characters derived from `camera_id` (below). Shown in the app and on the camera, so a human can tell two cameras apart | `KQ7M2X` |
 | BLE device name | `lc-` + last 4 hex characters of `camera_id`, uppercase | `lc-B3C4` |
 
 ### Alphabet
@@ -397,7 +397,7 @@ QR version 1 (21×21 modules), error correction **H**, rendered as large as the 
 
 The server decodes the uploaded 1-bit photo with these variants until one yields `^LC:[A-Z2-9]{6}$`: `{as-is, 3×3 majority filter}` × nearest-neighbour scale `{2, 3, 1}`, with both polarities. A match binds `camera_id` to the profile, tags the photo `kind = verification`, back-fills the camera's earlier photos onto the profile and emails the owner.
 
-Fallback: the owner types the `short_code` from the app on the same page. It is accepted only if that camera has uploaded a photo within the last 10 minutes (proof of possession).
+Photographing a QR code is the only way to bind, and it works on a camera that is already bound: whoever holds the camera can move it to another blog. Photos stay with the blog they were posted to, so a rebind takes the camera and not the history.
 
 ---
 

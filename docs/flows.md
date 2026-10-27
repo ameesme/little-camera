@@ -8,7 +8,7 @@ The owner registers on the website with their name, email and a handle, which be
 
 Meanwhile the app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. The owner photographs the phone screen and presses send; the app uploads that photo, and the server decodes the QR, binds the camera to the profile, moves any earlier photos from that camera onto it, and emails that the camera is linked. `/app/me` polls and flips to the blog URL.
 
-If the QR does not decode, typing the camera's short code on `/app/me` binds it instead — but only if it uploaded something in the last 10 minutes, so a code cannot bind a camera the typist does not hold.
+Photographing the code is the only way to bind, which makes holding the camera the proof. It also works on a camera that is already linked, so passing the camera on is just the new owner photographing their own code; the photos already posted stay where they are.
 
 After binding, the app offers "take your profile picture", and the next photo captured becomes the avatar as well as a normal post.
 

@@ -69,13 +69,6 @@ export const ExpiredLink: FC = () => (
   </Simple>
 );
 
-export const NotLinked: FC<{ why: string }> = ({ why }) => (
-  <Simple title="Not linked" heading="Not linked">
-    <p>{why}</p>
-    <p><a href={u('/me')}>Back to the code</a></p>
-  </Simple>
-);
-
 /** Full-viewport white with the QR as large as the screen allows: the camera has to be able to read it. */
 export const VerificationPage: FC<{ code: string; svg: string; email: string; apexUrl: string; blogUrl: string }> = ({ code, svg, email, apexUrl, blogUrl }) => (
   <Page title="This is my little camera" wrap={false}>
@@ -84,13 +77,6 @@ export const VerificationPage: FC<{ code: string; svg: string; email: string; ap
       <div class="qr" aria-label={`QR code LC:${code}`}>{raw(svg)}</div>
       <p class="stmt">Take a picture of this and press send</p>
       <p class="code">LC:{code}</p>
-      <div class="small">
-        Camera not recognised? Type the code from the app.
-        <form method="post" action={u('/me/link-camera')}>
-          <input name="short_code" placeholder="ABC123" maxlength={6} pattern="[A-Za-z2-9]{6}" required autocapitalize="characters" autocomplete="off" />
-          <button class="btn" type="submit">Link</button>
-        </form>
-      </div>
       <p class="small">
         <a href={apexUrl}>Little camera</a> · {email} ·{' '}
         <form method="post" action={u('/logout')} style="display:inline">

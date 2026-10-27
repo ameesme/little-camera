@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { parsePbm, pbmToPng, randomCode } from '@little-camera/pbm';
 import { apexUrl, appUrl, blogUrl } from '../config.js';
-import { bindByShortCode } from '../core/linking.js';
 import * as subscribers from '../core/subscribers.js';
 import type { Env } from '../env.js';
 import { loginLinkMail, verifyEmailMail } from '../emails/index.js';
@@ -34,7 +33,6 @@ import {
   LoginForm,
   Mailbox,
   MailView,
-  NotLinked,
   ProfilePage,
   RegisterForm,
   VerificationPage,
@@ -54,21 +52,10 @@ const registerSchema = z.object({
 
 const emailSchema = z.string().trim().toLowerCase().email().max(200);
 
-const LINK_TRIES = 10;
-const LINK_WINDOW = 3600;
 
 export function ownerRoutes(env: Env): Hono {
   const app = new Hono();
   const dev = env.config.nodeEnv !== 'production';
-
-  // Brute-force guard on a 30-bit code, in memory because one process is one instance and a restart may forget.
-  const tries = new Map<number, number[]>();
-  function mayTryCode(profileId: number, now: number): boolean {
-    const recent = (tries.get(profileId) ?? []).filter((t) => t > now - LINK_WINDOW);
-    if (recent.length >= LINK_TRIES) return false;
-    tries.set(profileId, [...recent, now]);
-    return true;
-  }
 
   const owner = (c: Context): Promise<ProfileRow | null> => currentOwner(c, env);
 
@@ -166,25 +153,6 @@ export function ownerRoutes(env: Env): Hono {
     if (!profile) return c.json({ error: 'unauthorized' }, 401);
     const camera = findCameraByProfile(env.db, profile.id);
     return c.json({ bound: !!camera, url: camera ? blogUrl(env.config, profile.handle) : null });
-  });
-
-  app.post('/me/link-camera', async (c) => {
-    const profile = await owner(c);
-    if (!profile) return c.redirect(u('/login'), 303);
-    if (findCameraByProfile(env.db, profile.id)) return c.redirect(u('/me'), 303);
-
-    const form = await c.req.parseBody();
-    const typed = String(form.short_code ?? '').trim().toUpperCase().replace(/[^A-Z2-9]/g, '');
-    if (!mayTryCode(profile.id, env.now())) {
-      return c.html(<NotLinked why="Too many tries. Wait an hour, or photograph the code instead." />, 400);
-    }
-    const result = bindByShortCode(env, profile.id, typed);
-    if (result.ok) return c.redirect(u('/me'), 303);
-    const why =
-      result.reason === 'no_proof'
-        ? 'That camera has not uploaded anything in the last 10 minutes. Take a picture, press send, and try again.'
-        : 'No camera with that code is waiting to be linked.';
-    return c.html(<NotLinked why={why} />, 400);
   });
 
   app.post('/me/request-avatar', async (c) => {

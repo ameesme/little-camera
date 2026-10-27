@@ -3,7 +3,7 @@ import { HANDLE, RESERVED_HANDLES, handleFromHost } from '../src/lib/handles.js'
 import { findCamera } from '../src/repo/cameras.js';
 import { listOutbox } from '../src/repo/outbox.js';
 import { findProfileByHandle } from '../src/repo/profiles.js';
-import { APEX, CAM, appPage, cookieJar, fixture, hello, makeWorld, upload, type TestWorld } from './helpers.js';
+import { APEX, CAM, appPage, cookieJar, fixture, hello, linkCamera, makeWorld, upload, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
 beforeEach(() => {
@@ -74,7 +74,6 @@ describe('registration', () => {
     expect(html).toContain('This is my little camera');
     expect(html).toContain('Take a picture of this and press send');
     expect(html).toMatch(/LC:[A-Z2-9]{6}/);
-    expect(html).toContain('action="/app/me/link-camera"');
     expect(html).toContain('"/app/me/status"');
     expect(html).toContain('<meta name="color-scheme" content="light"');
 
@@ -130,25 +129,15 @@ describe('login', () => {
   });
 });
 
-describe('/me link-camera fallback', () => {
-  it('binds by short code only when the camera uploaded within 10 minutes', async () => {
+describe('binding a camera moves its orphan photos across', () => {
+  it('claims what the camera already uploaded, and reports bound afterwards', async () => {
     const cookie = await registerAndVerify();
     await hello(w);
-    // No upload yet → refused.
-    let res = await form('/me/link-camera', { short_code: 'MM48F3' }, cookie);
-    expect(res.status).toBe(400);
-    expect(await res.text()).toContain('10 minutes');
-
     await upload(w, fixture('cat'), 1);
-    w.clock.t += 11 * 60;
-    res = await form('/me/link-camera', { short_code: 'mm48f3' }, cookie);
-    expect(res.status).toBe(400);
-
     await upload(w, fixture('cup'), 2);
-    res = await form('/me/link-camera', { short_code: ' mm48f3 ' }, cookie);
-    expect(res.status).toBe(303);
+
+    linkCamera(w, findProfileByHandle(w.env.db, 'mees')!.id);
     expect(findCamera(w.env.db, CAM.id)!.profile_id).toBe(1);
-    // Earlier photos now belong to the profile.
     const n = w.env.db.prepare('SELECT COUNT(*) AS n FROM photos WHERE profile_id = 1').get() as { n: number };
     expect(n.n).toBe(2);
 
@@ -158,16 +147,6 @@ describe('/me link-camera fallback', () => {
     expect(me).toContain('http://mees.localhost:3000');
     expect(me).toContain('Request profile picture');
   });
-
-  it('rate limits to 10 tries per hour', async () => {
-    const cookie = await registerAndVerify();
-    for (let i = 0; i < 10; i++) {
-      expect(await (await form('/me/link-camera', { short_code: 'AAAAAA' }, cookie)).text()).toContain('No camera');
-    }
-    expect(await (await form('/me/link-camera', { short_code: 'AAAAAA' }, cookie)).text()).toContain('Too many');
-    w.clock.t += 3601;
-    expect(await (await form('/me/link-camera', { short_code: 'AAAAAA' }, cookie)).text()).toContain('No camera');
-  });
 });
 
 describe('owner subscriber management on /me', () => {
@@ -175,7 +154,7 @@ describe('owner subscriber management on /me', () => {
     const cookie = await registerAndVerify();
     await hello(w);
     await upload(w, fixture('cat'), 1);
-    await form('/me/link-camera', { short_code: 'MM48F3' }, cookie);
+    linkCamera(w, findProfileByHandle(w.env.db, 'mees')!.id);
     expect((await form('/me/subscribers', { email: 'sanne@example.com', name: 'Sanne' }, cookie)).status).toBe(303);
     const subs = w.env.db.prepare('SELECT * FROM subscribers').all() as { id: number; status: string; name: string }[];
     expect(subs).toHaveLength(1);

@@ -82,14 +82,28 @@ describe('verification QR', () => {
     expect(findCamera(w.env.db, CAM.id)!.profile_id).toBeNull();
   });
 
-  it('does not rebind an already bound camera', async () => {
+  it('rebinds to whoever the camera photographs next, leaving the old blog its photos', async () => {
     const p1 = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
     const p2 = makeProfile(w.env, { handle: 'tess', name: 'Tess', email: 'tess@example.com' });
     insertCode(w.env.db, 'AAAAAA', p1.id, w.clock.t);
     await upload(w, shotBytes('AAAAAA', 8), 1);
+    const mees = await upload(w, fixture('cat'), 2);
+
     insertCode(w.env.db, 'BBBBBB', p2.id, w.clock.t);
-    const r = await upload(w, shotBytes('BBBBBB', 8), 2);
-    expect(r.body.kind).toBe('photo');
-    expect(findCamera(w.env.db, CAM.id)!.profile_id).toBe(p1.id);
+    const r = await upload(w, shotBytes('BBBBBB', 8), 3);
+    expect(r.body.kind).toBe('verification');
+    expect(r.body.bound.handle).toBe('tess');
+    expect(findCamera(w.env.db, CAM.id)!.profile_id).toBe(p2.id);
+    expect(findPhotoByPublicId(w.env.db, mees.body.id)!.profile_id).toBe(p1.id);
+  });
+
+  it('ignores the code of the blog it is already bound to', async () => {
+    const profile = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    insertCode(w.env.db, 'AAAAAA', profile.id, w.clock.t);
+    await upload(w, shotBytes('AAAAAA', 8), 1);
+    insertCode(w.env.db, 'BBBBBB', profile.id, w.clock.t);
+    const again = await upload(w, shotBytes('BBBBBB', 8), 2);
+    expect(again.body.kind).toBe('photo');
+    expect(listOutbox(w.env.db)).toHaveLength(1);
   });
 });

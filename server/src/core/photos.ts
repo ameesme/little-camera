@@ -78,9 +78,10 @@ function storeFile(env: Env, cameraId: string, sha256: string, body: Uint8Array)
   return relPath;
 }
 
-/** Binds the camera when the picture turns out to be of someone's verification code. */
+// ponytail: every upload pays a QR decode while any owner has a live code; gate on a cheaper signal if uploads ever get hot.
+/** Binds the camera when the picture turns out to be of someone's verification code, even one it is already bound to someone else by. */
 function tryVerification(env: Env, camera: CameraRow, pbm: Pbm, photo: PhotoRow): { camera: CameraRow; photo: PhotoRow } {
-  if (camera.profile_id !== null || !anyLiveCode(env.db, env.now())) return { camera, photo };
+  if (!anyLiveCode(env.db, env.now())) return { camera, photo };
   const code = decodeVerificationCode(pbm);
   const bound = code ? bindByCode(env, camera, code) : null;
   if (!bound) return { camera, photo };

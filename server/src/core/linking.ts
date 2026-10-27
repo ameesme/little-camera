@@ -1,10 +1,9 @@
 import { blogUrl } from '../config.js';
 import type { Env } from '../env.js';
-import { bindCamera, findCamera, findCameraByShortCode, type CameraRow } from '../repo/cameras.js';
+import { bindCamera, findCamera, type CameraRow } from '../repo/cameras.js';
 import { deleteCodesForProfile, findLiveCode } from '../repo/codes.js';
 import { cameraLinkedMail } from '../emails/index.js';
 import { queueEmail } from '../lib/email.js';
-import { lastUploadAt } from '../repo/photos.js';
 import { findProfileById } from '../repo/profiles.js';
 
 export interface BoundInfo {
@@ -12,8 +11,6 @@ export interface BoundInfo {
   name: string;
   url: string;
 }
-
-const PROOF_WINDOW = 600;
 
 /** The `bound` object of every camera API response, or null for an unbound camera. */
 export function boundInfo(env: Env, camera: CameraRow): BoundInfo | null {
@@ -31,22 +28,12 @@ export function bind(env: Env, camera: CameraRow, profileId: number): CameraRow 
   return findCamera(env.db, camera.id)!;
 }
 
-/** A verification code read out of an uploaded photo. Null when no live code matches. */
+/** A verification code read out of an uploaded photo. Null when no live code matches, or when it is the binding the camera already has. */
 export function bindByCode(env: Env, camera: CameraRow, code: string): CameraRow | null {
   const live = findLiveCode(env.db, code, env.now());
-  if (!live) return null;
+  if (!live || live.profile_id === camera.profile_id) return null;
   const bound = bind(env, camera, live.profile_id);
   deleteCodesForProfile(env.db, live.profile_id);
   return bound;
 }
 
-export type ShortCodeFailure = 'no_such_camera' | 'no_proof';
-
-/** The typed-code fallback: the recent upload is the proof, so a guessed code cannot claim a camera nobody holds. */
-export function bindByShortCode(env: Env, profileId: number, shortCode: string): { ok: true; camera: CameraRow } | { ok: false; reason: ShortCodeFailure } {
-  const camera = shortCode.length === 6 ? findCameraByShortCode(env.db, shortCode) : null;
-  if (!camera || camera.profile_id !== null) return { ok: false, reason: 'no_such_camera' };
-  const last = lastUploadAt(env.db, camera.id);
-  if (last === null || last < env.now() - PROOF_WINDOW) return { ok: false, reason: 'no_proof' };
-  return { ok: true, camera: bind(env, camera, profileId) };
-}

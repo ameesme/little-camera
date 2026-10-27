@@ -17,10 +17,6 @@ export function findCamera(db: Db, id: string): CameraRow | null {
   return (db.prepare('SELECT * FROM cameras WHERE id = ?').get(id) as CameraRow | undefined) ?? null;
 }
 
-export function findCameraByShortCode(db: Db, code: string): CameraRow | null {
-  return (db.prepare('SELECT * FROM cameras WHERE short_code = ?').get(code) as CameraRow | undefined) ?? null;
-}
-
 /** The camera bound to a profile (a profile has at most one in practice; take the newest binding). */
 export function findCameraByProfile(db: Db, profileId: number): CameraRow | null {
   return (
