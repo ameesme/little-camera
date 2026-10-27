@@ -1,12 +1,10 @@
--- Little Camera schema. All timestamps are unix seconds (UTC).
--- Handles and emails compare case-insensitively (NOCASE) so that a
--- unique index catches Mees@Example.com vs mees@example.com.
+-- Timestamps are unix seconds (UTC). NOCASE on handles and emails so a unique index catches Mees@Example.com.
 
-CREATE TABLE profiles (
+CREATE TABLE blogs (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   handle              TEXT NOT NULL COLLATE NOCASE UNIQUE,
   name                TEXT NOT NULL,
-  email               TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  email               TEXT NOT NULL COLLATE NOCASE UNIQUE,  -- the one address that owns this blog
   email_verified_at   INTEGER,
   avatar_photo_id     INTEGER REFERENCES photos(id) ON DELETE SET NULL,
   avatar_requested_at INTEGER,
@@ -14,21 +12,24 @@ CREATE TABLE profiles (
 );
 
 CREATE TABLE cameras (
-  id          TEXT PRIMARY KEY,               -- 12 hex chars, the BLE MAC
-  secret_hash TEXT NOT NULL,                  -- sha256 of the 32-hex secret
-  short_code  TEXT NOT NULL UNIQUE,           -- derived from id, see protocol §1
-  profile_id  INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
-  bound_at    INTEGER,
-  first_seen  INTEGER NOT NULL,
-  last_seen   INTEGER NOT NULL
+  id               TEXT PRIMARY KEY,               -- 12 hex chars, the BLE MAC
+  secret_hash      TEXT NOT NULL,                  -- sha256 of the 32-hex secret
+  short_code       TEXT NOT NULL UNIQUE,           -- derived from id, see protocol §1
+  blog_id          INTEGER REFERENCES blogs(id) ON DELETE SET NULL,
+  bound_at         INTEGER,
+  first_seen       INTEGER NOT NULL,
+  last_seen        INTEGER NOT NULL,
+  -- Reported by the phone, so a record and not a fact: it decides what /status offers and nothing else.
+  firmware_version TEXT,
+  firmware_seen_at INTEGER
 );
-CREATE INDEX cameras_profile ON cameras(profile_id);
+CREATE INDEX cameras_blog ON cameras(blog_id);
 
 CREATE TABLE photos (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   public_id          TEXT NOT NULL UNIQUE,    -- 12 chars, used in URLs
   camera_id          TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
-  profile_id         INTEGER REFERENCES profiles(id) ON DELETE SET NULL,  -- NULL while the camera is unbound
+  blog_id            INTEGER REFERENCES blogs(id) ON DELETE SET NULL,  -- NULL while the camera is unbound
   kind               TEXT NOT NULL CHECK (kind IN ('photo', 'verification', 'avatar')),
   sha256             TEXT NOT NULL,
   path               TEXT NOT NULL,           -- relative to DATA_DIR
@@ -38,11 +39,11 @@ CREATE TABLE photos (
   uploaded_at        INTEGER NOT NULL,
   UNIQUE (camera_id, sha256)
 );
-CREATE INDEX photos_feed ON photos(profile_id, uploaded_at DESC, id DESC);
+CREATE INDEX photos_feed ON photos(blog_id, uploaded_at DESC, id DESC);
 
 CREATE TABLE verification_codes (
   code       TEXT PRIMARY KEY,                -- the 6 chars after "LC:"
-  profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  blog_id    INTEGER NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   attempts   INTEGER NOT NULL DEFAULT 0
@@ -50,7 +51,7 @@ CREATE TABLE verification_codes (
 
 CREATE TABLE subscribers (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-  profile_id       INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  blog_id          INTEGER NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
   email            TEXT NOT NULL COLLATE NOCASE,
   name             TEXT,
   status           TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'blocked')),
@@ -58,14 +59,14 @@ CREATE TABLE subscribers (
   created_at       INTEGER NOT NULL,
   approved_at      INTEGER,
   last_notified_at INTEGER,
-  UNIQUE (profile_id, email)
+  UNIQUE (blog_id, email)
 );
 
 CREATE TABLE access_tokens (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   token_hash    TEXT NOT NULL UNIQUE,         -- sha256 of the token; the token itself is only in the email
   kind          TEXT NOT NULL CHECK (kind IN ('subscriber', 'owner_login', 'email_verify')),
-  profile_id    INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  blog_id       INTEGER NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
   subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE CASCADE,
   photo_id      INTEGER REFERENCES photos(id) ON DELETE SET NULL,
   expires_at    INTEGER NOT NULL,
@@ -88,9 +89,7 @@ CREATE TABLE email_outbox (
   subject    TEXT NOT NULL,
   text_body  TEXT NOT NULL,
   html_body  TEXT NOT NULL,
-  -- Optional inline picture: the newsletter attaches the newest photo as
-  -- cid:photo. Storing the photo id (not the bytes) keeps the outbox small
-  -- and lets the drainer render the PNG when it sends.
+  -- The newsletter attaches the newest photo as cid:photo; storing the id and not the bytes keeps the outbox small.
   photo_id   INTEGER REFERENCES photos(id) ON DELETE SET NULL,
   status     TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'failed')) DEFAULT 'pending',
   attempts   INTEGER NOT NULL DEFAULT 0,

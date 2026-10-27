@@ -6,7 +6,7 @@ export interface TokenRow {
   id: number;
   token_hash: string;
   kind: TokenKind;
-  profile_id: number;
+  blog_id: number;
   subscriber_id: number | null;
   photo_id: number | null;
   expires_at: number;
@@ -16,14 +16,14 @@ export interface TokenRow {
 
 export function insertToken(
   db: Db,
-  t: { tokenHash: string; kind: TokenKind; profileId: number; subscriberId: number | null; photoId: number | null; expiresAt: number; now: number },
+  t: { tokenHash: string; kind: TokenKind; blogId: number; subscriberId: number | null; photoId: number | null; expiresAt: number; now: number },
 ): TokenRow {
   const r = db
     .prepare(
-      `INSERT INTO access_tokens (token_hash, kind, profile_id, subscriber_id, photo_id, expires_at, created_at)
+      `INSERT INTO access_tokens (token_hash, kind, blog_id, subscriber_id, photo_id, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(t.tokenHash, t.kind, t.profileId, t.subscriberId, t.photoId, t.expiresAt, t.now);
+    .run(t.tokenHash, t.kind, t.blogId, t.subscriberId, t.photoId, t.expiresAt, t.now);
   return db.prepare('SELECT * FROM access_tokens WHERE id = ?').get(Number(r.lastInsertRowid)) as unknown as TokenRow;
 }
 

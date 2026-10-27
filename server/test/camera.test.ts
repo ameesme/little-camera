@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { bindCamera, findCamera } from '../src/repo/cameras.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
 import { listOutbox } from '../src/repo/outbox.js';
-import { CAM, apex, body, cameraGet, cameraPost, fixture, hello, makeProfile, makeWorld, upload, type TestWorld } from './helpers.js';
+import { CAM, apex, body, cameraGet, cameraPost, fixture, hello, makeBlog, makeWorld, upload, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
 beforeEach(() => {
@@ -128,9 +128,9 @@ describe('POST /api/camera/photos', () => {
     expect(noIndex.status).toBe(400);
   });
 
-  it('attaches photos to the profile once bound and turns the next one into the avatar', async () => {
-    const profile = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    bindCamera(w.env.db, CAM.id, profile.id, w.clock.t);
+  it('attaches photos to the blog once bound and turns the next one into the avatar', async () => {
+    const blog = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    bindCamera(w.env.db, CAM.id, blog.id, w.clock.t);
     const before = await upload(w, fixture('cat', { boot: 1, up: 1, t: w.clock.t - 10 }), 1);
     expect(before.body.bound).toEqual({ handle: 'mees', name: 'Mees', url: 'http://mees.localhost:3000' });
     expect(before.body.kind).toBe('photo');
@@ -167,8 +167,8 @@ describe('GET /api/camera/status', () => {
       server_time: w.clock.t,
     });
 
-    const profile = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    bindCamera(w.env.db, CAM.id, profile.id, w.clock.t);
+    const blog = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    bindCamera(w.env.db, CAM.id, blog.id, w.clock.t);
     await cameraPost(w, '/subscribers', { email: 'Sanne@Example.com', name: 'Sanne' });
     const bound = await cameraGet(w, '/status');
     expect(bound.body.bound).toEqual({
@@ -194,8 +194,8 @@ describe('subscribers via the camera API', () => {
 
   it('owner-added subscribers are approved and welcomed; approve/block work by id', async () => {
     await hello(w);
-    const profile = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    bindCamera(w.env.db, CAM.id, profile.id, w.clock.t);
+    const blog = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    bindCamera(w.env.db, CAM.id, blog.id, w.clock.t);
     const add = await cameraPost(w, '/subscribers', { email: 'joris@example.com', name: null });
     expect(add.status).toBe(201);
     expect(add.body).toEqual({ id: 1 });
@@ -219,13 +219,13 @@ describe('subscribers via the camera API', () => {
     await hello(w);
     const other = { id: 'a1b2c3d4e5f6', secret: '11112222333344445555666677778888' };
     await hello(w, other);
-    const p1 = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    const p2 = makeProfile(w.env, { handle: 'tess', name: 'Tess', email: 'tess@example.com' });
+    const p1 = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    const p2 = makeBlog(w.env, { handle: 'tess', name: 'Tess', email: 'tess@example.com' });
     bindCamera(w.env.db, CAM.id, p1.id, w.clock.t);
     bindCamera(w.env.db, other.id, p2.id, w.clock.t);
     const add = await cameraPost(w, '/subscribers', { email: 'x@example.com' });
     const r = await cameraPost(w, `/subscribers/${add.body.id}/block`, {}, other);
     expect(r.status).toBe(404);
-    expect(findCamera(w.env.db, other.id)!.profile_id).toBe(p2.id);
+    expect(findCamera(w.env.db, other.id)!.blog_id).toBe(p2.id);
   });
 });

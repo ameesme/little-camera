@@ -3,7 +3,7 @@ import { raw } from 'hono/html';
 import type { Viewer } from '../core/viewers.js';
 import type { CommentView } from '../repo/comments.js';
 import type { PhotoRow } from '../repo/photos.js';
-import type { ProfileRow } from '../repo/profiles.js';
+import type { BlogRow } from '../repo/blogs.js';
 import { Page, Simple } from './layout.js';
 
 // A real apostrophe, because JSX escapes the ASCII one to &#39;. CSS does the uppercasing.
@@ -153,7 +153,7 @@ const BlogScript: FC = () => <script>{raw(BLOG_SCRIPT)}</script>;
 const DESCRIPTION = 'Photos from a little camera. New ones arrive on their own.';
 
 export interface BlogPage {
-  profile: ProfileRow;
+  blog: BlogRow;
   battery: number;
   meUrl: string;
   avatarUrl: string;
@@ -164,13 +164,13 @@ export interface BlogPage {
 
 const Shell: FC<{ page: BlogPage; children?: unknown }> = ({ page, children }) => (
   <Page
-    title={blogTitle(page.profile.name)}
+    title={blogTitle(page.blog.name)}
     description={DESCRIPTION}
     head={
       <>
         <meta property="og:type" content="website" />
-        <meta property="og:site_name" content={blogTitle(page.profile.name)} />
-        <meta property="og:title" content={blogTitle(page.profile.name)} />
+        <meta property="og:site_name" content={blogTitle(page.blog.name)} />
+        <meta property="og:title" content={blogTitle(page.blog.name)} />
         <meta property="og:description" content={DESCRIPTION} />
         <meta property="og:url" content={page.blogRoot} />
         <meta property="og:image" content={page.avatarUrl} />
@@ -185,7 +185,7 @@ const Shell: FC<{ page: BlogPage; children?: unknown }> = ({ page, children }) =
 /** What the owner and approved subscribers see: the whole feed, one page at a time. */
 export const Feed: FC<BlogPage & { viewer: Viewer; moreHref: string | null }> = (p) => (
   <Shell page={p}>
-    <BlogHeader name={p.profile.name} battery={p.battery} viewer={p.viewer} meUrl={p.meUrl} />
+    <BlogHeader name={p.blog.name} battery={p.battery} viewer={p.viewer} meUrl={p.meUrl} />
     {p.notice ? <Notice text={p.notice} /> : null}
     <main id="feed">
       {p.articles.length === 0 ? <div class="teaser">No pictures yet</div> : null}
@@ -203,7 +203,7 @@ export const Teaser: FC<BlogPage & { hiddenCount: number }> = (p) => {
   const anonymous: Viewer = { kind: 'anonymous' };
   return (
     <Shell page={p}>
-      <BlogHeader name={p.profile.name} battery={p.battery} viewer={anonymous} meUrl={p.meUrl} />
+      <BlogHeader name={p.blog.name} battery={p.battery} viewer={anonymous} meUrl={p.meUrl} />
       {p.notice ? <Notice text={p.notice} /> : null}
       <SubscribeRow open={!p.notice} />
       <main id="feed">

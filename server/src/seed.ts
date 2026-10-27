@@ -13,7 +13,7 @@ import { hashSecret } from './middleware/cameraAuth.js';
 import { bindCamera, createCamera, findCamera } from './repo/cameras.js';
 import { insertComment } from './repo/comments.js';
 import { setPhotoKind } from './repo/photos.js';
-import { createProfile, findProfileByHandle, markEmailVerified, setAvatarPhoto } from './repo/profiles.js';
+import { createBlog, findBlogByHandle, markEmailVerified, setAvatarPhoto } from './repo/blogs.js';
 import { createSubscriber, type SubscriberRow } from './repo/subscribers.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'pbm', 'fixtures');
@@ -36,16 +36,16 @@ const POSTS: { file: string; at: number; comments: [string, string][] }[] = [
 const CAMERA = { id: '7cdfa1e2b3c4', secret: '9f2c0000111122223333444455556666' };
 
 export function seed(env: Env): { link: string } {
-  if (findProfileByHandle(env.db, 'mees')) throw new Error('profile "mees" already exists; delete DATA_DIR to reseed');
+  if (findBlogByHandle(env.db, 'mees')) throw new Error('blog "mees" already exists; delete DATA_DIR to reseed');
   const t0 = POSTS[POSTS.length - 1].at - 3600; // registered an hour before the first picture
 
-  const profile = createProfile(env.db, { handle: 'mees', name: 'Mees', email: 'mees@example.com', now: t0 });
-  markEmailVerified(env.db, profile.id, t0);
+  const blog = createBlog(env.db, { handle: 'mees', name: 'Mees', email: 'mees@example.com', now: t0 });
+  markEmailVerified(env.db, blog.id, t0);
 
   if (!findCamera(env.db, CAMERA.id)) {
     createCamera(env.db, { id: CAMERA.id, secretHash: hashSecret(CAMERA.secret), shortCode: shortCode(CAMERA.id), now: t0 });
   }
-  bindCamera(env.db, CAMERA.id, profile.id, t0);
+  bindCamera(env.db, CAMERA.id, blog.id, t0);
   const camera = findCamera(env.db, CAMERA.id)!;
 
   const subs = new Map<string, SubscriberRow>();
@@ -55,7 +55,7 @@ export function seed(env: Env): { link: string } {
     ['Fenna', 'fenna@example.com'],
     ['Tess', 'tess@example.com'],
   ]) {
-    subs.set(name, createSubscriber(env.db, { profileId: profile.id, email, name, status: 'approved', addedBy: 'owner', now: t0 }));
+    subs.set(name, createSubscriber(env.db, { blogId: blog.id, email, name, status: 'approved', addedBy: 'owner', now: t0 }));
   }
 
   // Oldest first so ids and upload order agree with the dates.
@@ -75,15 +75,15 @@ export function seed(env: Env): { link: string } {
   // On a real blog the avatar is a camera photo, so use the one of a camera.
   if (avatarPhotoId !== null) {
     setPhotoKind(env.db, avatarPhotoId, 'avatar');
-    setAvatarPhoto(env.db, profile.id, avatarPhotoId);
+    setAvatarPhoto(env.db, blog.id, avatarPhotoId);
   }
 
   // Everyone is caught up to now, so the first newsletter run does not mail the whole archive.
-  env.db.prepare('UPDATE subscribers SET last_notified_at = ? WHERE profile_id = ?').run(env.now(), profile.id);
+  env.db.prepare('UPDATE subscribers SET last_notified_at = ? WHERE blog_id = ?').run(env.now(), blog.id);
 
   const sanne = subs.get('Sanne')!;
-  const { token } = createToken(env, { kind: 'subscriber', profileId: profile.id, subscriberId: sanne.id });
-  return { link: `${blogUrl(env.config, profile.handle)}/p/${newestPublicId}?t=${token}` };
+  const { token } = createToken(env, { kind: 'subscriber', blogId: blog.id, subscriberId: sanne.id });
+  return { link: `${blogUrl(env.config, blog.handle)}/p/${newestPublicId}?t=${token}` };
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HANDLE, RESERVED_HANDLES, handleFromHost } from '../src/lib/handles.js';
 import { findCamera } from '../src/repo/cameras.js';
 import { listOutbox } from '../src/repo/outbox.js';
-import { findProfileByHandle } from '../src/repo/profiles.js';
+import { findBlogByHandle } from '../src/repo/blogs.js';
 import { APEX, CAM, appPage, cookieJar, fixture, hello, linkCamera, makeWorld, upload, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
@@ -64,8 +64,8 @@ describe('registration', () => {
 
   it('registers, verifies by email link and lands on /me with the verification picture', async () => {
     const cookie = await registerAndVerify();
-    const profile = findProfileByHandle(w.env.db, 'mees')!;
-    expect(profile.email_verified_at).toBe(w.clock.t);
+    const blog = findBlogByHandle(w.env.db, 'mees')!;
+    expect(blog.email_verified_at).toBe(w.clock.t);
 
     const me = await w.app.request(appPage('/me', { headers: { cookie } }));
     expect(me.status).toBe(200);
@@ -136,9 +136,9 @@ describe('binding a camera moves its orphan photos across', () => {
     await upload(w, fixture('cat'), 1);
     await upload(w, fixture('cup'), 2);
 
-    linkCamera(w, findProfileByHandle(w.env.db, 'mees')!.id);
-    expect(findCamera(w.env.db, CAM.id)!.profile_id).toBe(1);
-    const n = w.env.db.prepare('SELECT COUNT(*) AS n FROM photos WHERE profile_id = 1').get() as { n: number };
+    linkCamera(w, findBlogByHandle(w.env.db, 'mees')!.id);
+    expect(findCamera(w.env.db, CAM.id)!.blog_id).toBe(1);
+    const n = w.env.db.prepare('SELECT COUNT(*) AS n FROM photos WHERE blog_id = 1').get() as { n: number };
     expect(n.n).toBe(2);
 
     const status = await w.app.request(appPage('/me/status', { headers: { cookie } }));
@@ -154,7 +154,7 @@ describe('owner subscriber management on /me', () => {
     const cookie = await registerAndVerify();
     await hello(w);
     await upload(w, fixture('cat'), 1);
-    linkCamera(w, findProfileByHandle(w.env.db, 'mees')!.id);
+    linkCamera(w, findBlogByHandle(w.env.db, 'mees')!.id);
     expect((await form('/me/subscribers', { email: 'sanne@example.com', name: 'Sanne' }, cookie)).status).toBe(303);
     const subs = w.env.db.prepare('SELECT * FROM subscribers').all() as { id: number; status: string; name: string }[];
     expect(subs).toHaveLength(1);

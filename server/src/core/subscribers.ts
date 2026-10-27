@@ -5,7 +5,7 @@ import { appUrl } from '../config.js';
 import { queueEmail } from '../lib/email.js';
 import { createToken } from '../lib/tokens.js';
 import { newestFeedPhoto } from '../repo/photos.js';
-import { findProfileById, type ProfileRow } from '../repo/profiles.js';
+import { findBlogById, type BlogRow } from '../repo/blogs.js';
 import {
   approveSubscriber,
   blockSubscriber,
@@ -18,26 +18,26 @@ import {
 export type JoinOutcome = 'sent' | 'pending' | 'already';
 
 /** A 48-hour link to the newest picture, or to the blog root when there is none yet. */
-export function subscriberLink(env: Env, profile: ProfileRow, subscriber: SubscriberRow): string {
-  const newest = newestFeedPhoto(env.db, profile.id);
+export function subscriberLink(env: Env, blog: BlogRow, subscriber: SubscriberRow): string {
+  const newest = newestFeedPhoto(env.db, blog.id);
   const { token } = createToken(env, {
     kind: 'subscriber',
-    profileId: profile.id,
+    blogId: blog.id,
     subscriberId: subscriber.id,
     photoId: newest?.id ?? null,
   });
-  const base = blogUrl(env.config, profile.handle);
+  const base = blogUrl(env.config, blog.handle);
   return newest ? `${base}/p/${newest.public_id}?t=${token}` : `${base}/?t=${token}`;
 }
 
 function sendWelcome(env: Env, subscriber: SubscriberRow): void {
-  const profile = findProfileById(env.db, subscriber.profile_id);
-  if (!profile) return;
-  queueEmail(env, subscriber.email, welcomeMail({ ownerName: profile.name, url: subscriberLink(env, profile, subscriber) }));
+  const blog = findBlogById(env.db, subscriber.blog_id);
+  if (!blog) return;
+  queueEmail(env, subscriber.email, welcomeMail({ ownerName: blog.name, url: subscriberLink(env, blog, subscriber) }));
 }
 
-export function sendFreshLink(env: Env, profile: ProfileRow, subscriber: SubscriberRow): void {
-  queueEmail(env, subscriber.email, freshLinkMail({ ownerName: profile.name, url: subscriberLink(env, profile, subscriber) }));
+export function sendFreshLink(env: Env, blog: BlogRow, subscriber: SubscriberRow): void {
+  queueEmail(env, subscriber.email, freshLinkMail({ ownerName: blog.name, url: subscriberLink(env, blog, subscriber) }));
 }
 
 /** Approving twice is a no-op, so a double tap cannot send two welcome links. */
@@ -54,11 +54,11 @@ export function block(env: Env, subscriber: SubscriberRow): void {
 }
 
 /** The owner adding someone: approved on the spot, which also approves whoever had already asked to join. */
-export function add(env: Env, profile: ProfileRow, email: string, name: string | null): { subscriber: SubscriberRow; created: boolean } {
-  const existing = findSubscriberByEmail(env.db, profile.id, email);
+export function add(env: Env, blog: BlogRow, email: string, name: string | null): { subscriber: SubscriberRow; created: boolean } {
+  const existing = findSubscriberByEmail(env.db, blog.id, email);
   if (existing) return { subscriber: approve(env, existing), created: false };
   const subscriber = createSubscriber(env.db, {
-    profileId: profile.id,
+    blogId: blog.id,
     email,
     name,
     status: 'approved',
@@ -70,16 +70,16 @@ export function add(env: Env, profile: ProfileRow, email: string, name: string |
 }
 
 /** A visitor asking to be let in. Blocked people get the same answer as pending ones. */
-export function join(env: Env, profile: ProfileRow, email: string): JoinOutcome {
-  const existing = findSubscriberByEmail(env.db, profile.id, email);
+export function join(env: Env, blog: BlogRow, email: string): JoinOutcome {
+  const existing = findSubscriberByEmail(env.db, blog.id, email);
   if (existing) return existing.status === 'approved' ? 'already' : 'pending';
-  createSubscriber(env.db, { profileId: profile.id, email, name: null, status: 'pending', addedBy: 'self', now: env.now() });
-  queueEmail(env, profile.email, newSubscriberMail({ ownerName: profile.name, email, meUrl: appUrl(env.config, '/me') }));
+  createSubscriber(env.db, { blogId: blog.id, email, name: null, status: 'pending', addedBy: 'self', now: env.now() });
+  queueEmail(env, blog.email, newSubscriberMail({ ownerName: blog.name, email, meUrl: appUrl(env.config, '/me') }));
   return 'sent';
 }
 
-/** Null when that id is on someone else's list, so no caller can reach across profiles. */
-export function find(env: Env, profile: ProfileRow, id: number): SubscriberRow | null {
+/** Null when that id is on someone else's list, so no caller can reach across blogs. */
+export function find(env: Env, blog: BlogRow, id: number): SubscriberRow | null {
   const sub = findSubscriberById(env.db, id);
-  return sub && sub.profile_id === profile.id ? sub : null;
+  return sub && sub.blog_id === blog.id ? sub : null;
 }

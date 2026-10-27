@@ -3,16 +3,16 @@ import { createToken } from '../src/lib/tokens.js';
 import { bindCamera } from '../src/repo/cameras.js';
 import { listOutbox } from '../src/repo/outbox.js';
 import { createSubscriber, findSubscriberById, type SubscriberRow } from '../src/repo/subscribers.js';
-import type { ProfileRow } from '../src/repo/profiles.js';
-import { CAM, blog, cookieJar, fixture, hello, makeProfile, makeWorld, upload, type TestWorld } from './helpers.js';
+import type { BlogRow } from '../src/repo/blogs.js';
+import { CAM, blog, cookieJar, fixture, hello, makeBlog, makeWorld, upload, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
-let mees: ProfileRow;
+let mees: BlogRow;
 let ids: string[];
 
 beforeEach(async () => {
   w = makeWorld();
-  mees = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+  mees = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
   await hello(w);
   bindCamera(w.env.db, CAM.id, mees.id, w.clock.t);
   ids = [];
@@ -25,11 +25,11 @@ beforeEach(async () => {
 afterEach(() => w.cleanup());
 
 function approvedSubscriber(email = 'sanne@example.com', name: string | null = 'Sanne'): SubscriberRow {
-  return createSubscriber(w.env.db, { profileId: mees.id, email, name, status: 'approved', addedBy: 'owner', now: w.clock.t });
+  return createSubscriber(w.env.db, { blogId: mees.id, email, name, status: 'approved', addedBy: 'owner', now: w.clock.t });
 }
 
 async function subscriberCookie(sub: SubscriberRow): Promise<string> {
-  const { token } = createToken(w.env, { kind: 'subscriber', profileId: mees.id, subscriberId: sub.id });
+  const { token } = createToken(w.env, { kind: 'subscriber', blogId: mees.id, subscriberId: sub.id });
   const res = await w.app.request(blog('mees', `/p/${ids[3]}?t=${token}`));
   expect(res.status).toBe(303);
   expect(res.headers.get('location')).toBe(`/p/${ids[3]}`);
@@ -124,7 +124,7 @@ describe('teaser vs full feed', () => {
 describe('links and tokens', () => {
   it('rejects an expired token with the fresh-link page, prefilled', async () => {
     const sub = approvedSubscriber();
-    const { token } = createToken(w.env, { kind: 'subscriber', profileId: mees.id, subscriberId: sub.id });
+    const { token } = createToken(w.env, { kind: 'subscriber', blogId: mees.id, subscriberId: sub.id });
     w.clock.t += 49 * 3600;
     const res = await w.app.request(blog('mees', `/p/${ids[3]}?t=${token}`));
     expect(res.status).toBe(410);
@@ -136,7 +136,7 @@ describe('links and tokens', () => {
 
   it('stays valid until expiry even after first use (mail prefetch)', async () => {
     const sub = approvedSubscriber();
-    const { token } = createToken(w.env, { kind: 'subscriber', profileId: mees.id, subscriberId: sub.id });
+    const { token } = createToken(w.env, { kind: 'subscriber', blogId: mees.id, subscriberId: sub.id });
     expect((await w.app.request(blog('mees', `/p/${ids[3]}?t=${token}`))).status).toBe(303);
     w.clock.t += 3600;
     expect((await w.app.request(blog('mees', `/p/${ids[3]}?t=${token}`))).status).toBe(303);
@@ -144,7 +144,7 @@ describe('links and tokens', () => {
 
   it('request-link mails only approved subscribers but always says the same thing', async () => {
     approvedSubscriber();
-    createSubscriber(w.env.db, { profileId: mees.id, email: 'pending@example.com', name: null, status: 'pending', addedBy: 'self', now: w.clock.t });
+    createSubscriber(w.env.db, { blogId: mees.id, email: 'pending@example.com', name: null, status: 'pending', addedBy: 'self', now: w.clock.t });
     const ask = (email: string) =>
       w.app.request(
         blog('mees', '/request-link', {

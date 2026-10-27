@@ -109,17 +109,17 @@ const avatarLine = (p: { avatar_requested_at: number | null; avatar_photo_id: nu
   return p.avatar_photo_id ? 'You have a profile picture.' : 'No profile picture yet.';
 };
 
-export const ProfilePage: FC<{
-  profile: { name: string; avatar_requested_at: number | null; avatar_photo_id: number | null };
+export const MyBlogPage: FC<{
+  blog: { name: string; avatar_requested_at: number | null; avatar_photo_id: number | null };
   blogUrl: string;
   shortCode: string;
   subscribers: SubscriberRow[];
-}> = ({ profile, blogUrl, shortCode, subscribers }) => (
+}> = ({ blog, blogUrl, shortCode, subscribers }) => (
   <Simple title="Your little camera" heading="Your little camera">
     <p>Your blog: <a href={blogUrl}>{blogUrl}</a></p>
-    <p>Camera <code>{shortCode}</code> is linked. {avatarLine(profile)}</p>
+    <p>Camera <code>{shortCode}</code> is linked. {avatarLine(blog)}</p>
     <form method="post" action={u('/me/request-avatar')}>
-      <button class="btn" type="submit">{profile.avatar_photo_id ? 'Replace profile picture' : 'Request profile picture'}</button>
+      <button class="btn" type="submit">{blog.avatar_photo_id ? 'Replace profile picture' : 'Request profile picture'}</button>
     </form>
 
     <h1 style="margin-top:28px">Subscribers</h1>

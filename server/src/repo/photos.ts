@@ -7,7 +7,7 @@ export interface PhotoRow {
   id: number;
   public_id: string;
   camera_id: string;
-  profile_id: number | null;
+  blog_id: number | null;
   kind: PhotoKind;
   sha256: string;
   path: string;
@@ -39,14 +39,14 @@ export function insertPhoto(
 ): PhotoRow {
   const r = db
     .prepare(
-      `INSERT INTO photos (public_id, camera_id, profile_id, kind, sha256, path, camera_index,
+      `INSERT INTO photos (public_id, camera_id, blog_id, kind, sha256, path, camera_index,
                            captured_at, captured_at_source, uploaded_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       p.public_id,
       p.camera_id,
-      p.profile_id,
+      p.blog_id,
       p.kind,
       p.sha256,
       p.path,
@@ -73,27 +73,27 @@ export function shiftUploadBatchBack(db: Db, cameraId: string, cameraIndex: numb
 /** Posts visible on a blog: photos and avatars, never verification shots. */
 export const FEED_KINDS_SQL = `kind IN ('photo', 'avatar')`;
 
-export function countFeedPhotos(db: Db, profileId: number): number {
+export function countFeedPhotos(db: Db, blogId: number): number {
   const r = db
-    .prepare(`SELECT COUNT(*) AS n FROM photos WHERE profile_id = ? AND ${FEED_KINDS_SQL}`)
-    .get(profileId) as { n: number };
+    .prepare(`SELECT COUNT(*) AS n FROM photos WHERE blog_id = ? AND ${FEED_KINDS_SQL}`)
+    .get(blogId) as { n: number };
   return r.n;
 }
 
-export function newestFeedPhoto(db: Db, profileId: number): PhotoRow | null {
+export function newestFeedPhoto(db: Db, blogId: number): PhotoRow | null {
   return (
     (db
       .prepare(
-        `SELECT * FROM photos WHERE profile_id = ? AND ${FEED_KINDS_SQL} ORDER BY uploaded_at DESC, id DESC LIMIT 1`,
+        `SELECT * FROM photos WHERE blog_id = ? AND ${FEED_KINDS_SQL} ORDER BY uploaded_at DESC, id DESC LIMIT 1`,
       )
-      .get(profileId) as PhotoRow | undefined) ?? null
+      .get(blogId) as PhotoRow | undefined) ?? null
   );
 }
 
 /** Newest first by upload time, not capture time, so a photo synced late still arrives at the top. */
 export function feedPage(
   db: Db,
-  profileId: number,
+  blogId: number,
   limit: number,
   before?: { uploadedAt: number; id: number },
 ): PhotoRow[] {
@@ -101,34 +101,34 @@ export function feedPage(
     return db
       .prepare(
         `SELECT * FROM photos
-         WHERE profile_id = ? AND ${FEED_KINDS_SQL}
+         WHERE blog_id = ? AND ${FEED_KINDS_SQL}
            AND (uploaded_at < ? OR (uploaded_at = ? AND id < ?))
          ORDER BY uploaded_at DESC, id DESC LIMIT ?`,
       )
-      .all(profileId, before.uploadedAt, before.uploadedAt, before.id, limit) as unknown as PhotoRow[];
+      .all(blogId, before.uploadedAt, before.uploadedAt, before.id, limit) as unknown as PhotoRow[];
   }
   return db
     .prepare(
-      `SELECT * FROM photos WHERE profile_id = ? AND ${FEED_KINDS_SQL}
+      `SELECT * FROM photos WHERE blog_id = ? AND ${FEED_KINDS_SQL}
        ORDER BY uploaded_at DESC, id DESC LIMIT ?`,
     )
-    .all(profileId, limit) as unknown as PhotoRow[];
+    .all(blogId, limit) as unknown as PhotoRow[];
 }
 
 /** Feed photos newer than `since` (upload time), oldest first. Used by the newsletter. */
-export function feedPhotosSince(db: Db, profileId: number, since: number): PhotoRow[] {
+export function feedPhotosSince(db: Db, blogId: number, since: number): PhotoRow[] {
   return db
     .prepare(
-      `SELECT * FROM photos WHERE profile_id = ? AND ${FEED_KINDS_SQL} AND uploaded_at > ?
+      `SELECT * FROM photos WHERE blog_id = ? AND ${FEED_KINDS_SQL} AND uploaded_at > ?
        ORDER BY uploaded_at ASC, id ASC`,
     )
-    .all(profileId, since) as unknown as PhotoRow[];
+    .all(blogId, since) as unknown as PhotoRow[];
 }
 
 /** Photos from cameras nobody has claimed, uploaded before `cutoff`. */
 export function orphanPhotosBefore(db: Db, cutoff: number): PhotoRow[] {
   return db
-    .prepare('SELECT * FROM photos WHERE profile_id IS NULL AND uploaded_at < ?')
+    .prepare('SELECT * FROM photos WHERE blog_id IS NULL AND uploaded_at < ?')
     .all(cutoff) as unknown as PhotoRow[];
 }
 

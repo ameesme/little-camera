@@ -7,7 +7,7 @@ import { publicId } from '../lib/ids.js';
 import { decodeVerificationCode } from '../lib/qr.js';
 import { findCamera, type CameraRow } from '../repo/cameras.js';
 import { anyLiveCode } from '../repo/codes.js';
-import { findProfileById, setAvatarPhoto } from '../repo/profiles.js';
+import { findBlogById, setAvatarPhoto } from '../repo/blogs.js';
 import {
   findPhotoByHash,
   insertPhoto,
@@ -86,16 +86,16 @@ function tryVerification(env: Env, camera: CameraRow, pbm: Pbm, photo: PhotoRow)
   const bound = code ? bindByCode(env, camera, code) : null;
   if (!bound) return { camera, photo };
   setPhotoKind(env.db, photo.id, 'verification');
-  return { camera: bound, photo: { ...photo, kind: 'verification', profile_id: bound.profile_id } };
+  return { camera: bound, photo: { ...photo, kind: 'verification', blog_id: bound.blog_id } };
 }
 
 /** The first picture taken after the owner asked for a profile picture becomes one. */
 function tryAvatar(env: Env, camera: CameraRow, photo: PhotoRow, capturedAt: number): PhotoRow {
-  if (camera.profile_id === null || photo.kind !== 'photo') return photo;
-  const profile = findProfileById(env.db, camera.profile_id);
-  if (!profile?.avatar_requested_at || capturedAt <= profile.avatar_requested_at) return photo;
+  if (camera.blog_id === null || photo.kind !== 'photo') return photo;
+  const blog = findBlogById(env.db, camera.blog_id);
+  if (!blog?.avatar_requested_at || capturedAt <= blog.avatar_requested_at) return photo;
   setPhotoKind(env.db, photo.id, 'avatar');
-  setAvatarPhoto(env.db, profile.id, photo.id);
+  setAvatarPhoto(env.db, blog.id, photo.id);
   return { ...photo, kind: 'avatar' };
 }
 
@@ -113,7 +113,7 @@ export function uploadPhoto(env: Env, camera: CameraRow, body: Uint8Array, input
   const stored = insertPhoto(env.db, {
     public_id: publicId(),
     camera_id: camera.id,
-    profile_id: camera.profile_id,
+    blog_id: camera.blog_id,
     kind: 'photo',
     sha256,
     path: storeFile(env, camera.id, sha256, body),

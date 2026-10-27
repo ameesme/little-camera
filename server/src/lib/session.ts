@@ -4,7 +4,7 @@ import type { Context } from 'hono';
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie';
 import { apexHost } from '../config.js';
 import type { Env } from '../env.js';
-import { findProfileById, type ProfileRow } from '../repo/profiles.js';
+import { findBlogById, type BlogRow } from '../repo/blogs.js';
 import { findSubscriberById, type SubscriberRow } from '../repo/subscribers.js';
 
 const OWNER = 'owner';
@@ -21,8 +21,8 @@ function base(env: Env) {
   return { path: '/', httpOnly: true, sameSite: 'Lax' as const, secure: env.config.publicScheme === 'https' };
 }
 
-export async function setOwnerCookie(c: Context, env: Env, profileId: number): Promise<void> {
-  await setSignedCookie(c, OWNER, String(profileId), env.config.sessionSecret, {
+export async function setOwnerCookie(c: Context, env: Env, blogId: number): Promise<void> {
+  await setSignedCookie(c, OWNER, String(blogId), env.config.sessionSecret, {
     ...base(env),
     maxAge: OWNER_TTL,
     domain: ownerDomain(env),
@@ -33,22 +33,22 @@ export function clearOwnerCookie(c: Context, env: Env): void {
   deleteCookie(c, OWNER, { path: '/', domain: ownerDomain(env) });
 }
 
-/** The signed-in owner, or null. Only verified profiles ever get the cookie, but check anyway. */
-export async function currentOwner(c: Context, env: Env): Promise<ProfileRow | null> {
+/** The signed-in owner, or null. Only verified blogs ever get the cookie, but check anyway. */
+export async function currentOwner(c: Context, env: Env): Promise<BlogRow | null> {
   const value = await getSignedCookie(c, env.config.sessionSecret, OWNER);
   if (!value || !/^\d+$/.test(value)) return null;
-  const profile = findProfileById(env.db, Number(value));
-  return profile?.email_verified_at ? profile : null;
+  const blog = findBlogById(env.db, Number(value));
+  return blog?.email_verified_at ? blog : null;
 }
 
 export async function setSubscriberCookie(c: Context, env: Env, subscriberId: number, maxAge: number): Promise<void> {
   await setSignedCookie(c, SUB, String(subscriberId), env.config.sessionSecret, { ...base(env), maxAge });
 }
 
-/** The approved subscriber of `profileId` identified by the cookie, or null. */
-export async function currentSubscriber(c: Context, env: Env, profileId: number): Promise<SubscriberRow | null> {
+/** The approved subscriber of `blogId` identified by the cookie, or null. */
+export async function currentSubscriber(c: Context, env: Env, blogId: number): Promise<SubscriberRow | null> {
   const value = await getSignedCookie(c, env.config.sessionSecret, SUB);
   if (!value || !/^\d+$/.test(value)) return null;
   const sub = findSubscriberById(env.db, Number(value));
-  return sub && sub.profile_id === profileId && sub.status === 'approved' ? sub : null;
+  return sub && sub.blog_id === blogId && sub.status === 'approved' ? sub : null;
 }

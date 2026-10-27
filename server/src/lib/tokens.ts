@@ -16,14 +16,14 @@ export function hashToken(token: string): string {
 
 export function createToken(
   env: Env,
-  t: { kind: TokenKind; profileId: number; subscriberId?: number | null; photoId?: number | null },
+  t: { kind: TokenKind; blogId: number; subscriberId?: number | null; photoId?: number | null },
 ): { token: string; row: TokenRow } {
   const token = randomBytes(32).toString('base64url');
   const now = env.now();
   const row = insertToken(env.db, {
     tokenHash: hashToken(token),
     kind: t.kind,
-    profileId: t.profileId,
+    blogId: t.blogId,
     subscriberId: t.subscriberId ?? null,
     photoId: t.photoId ?? null,
     expiresAt: now + TOKEN_TTL[t.kind],

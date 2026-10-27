@@ -4,7 +4,7 @@ export interface CameraRow {
   id: string;
   secret_hash: string;
   short_code: string;
-  profile_id: number | null;
+  blog_id: number | null;
   bound_at: number | null;
   first_seen: number;
   last_seen: number;
@@ -17,12 +17,12 @@ export function findCamera(db: Db, id: string): CameraRow | null {
   return (db.prepare('SELECT * FROM cameras WHERE id = ?').get(id) as CameraRow | undefined) ?? null;
 }
 
-/** The camera bound to a profile (a profile has at most one in practice; take the newest binding). */
-export function findCameraByProfile(db: Db, profileId: number): CameraRow | null {
+/** The camera bound to a blog (a blog has at most one in practice; take the newest binding). */
+export function findCameraByBlog(db: Db, blogId: number): CameraRow | null {
   return (
     (db
-      .prepare('SELECT * FROM cameras WHERE profile_id = ? ORDER BY bound_at DESC LIMIT 1')
-      .get(profileId) as CameraRow | undefined) ?? null
+      .prepare('SELECT * FROM cameras WHERE blog_id = ? ORDER BY bound_at DESC LIMIT 1')
+      .get(blogId) as CameraRow | undefined) ?? null
   );
 }
 
@@ -42,8 +42,8 @@ export function setCameraFirmware(db: Db, id: string, version: string, now: numb
   db.prepare('UPDATE cameras SET firmware_version = ?, firmware_seen_at = ? WHERE id = ?').run(version, now, id);
 }
 
-/** Bind a camera to a profile and move its orphan photos across. */
-export function bindCamera(db: Db, cameraId: string, profileId: number, now: number): void {
-  db.prepare('UPDATE cameras SET profile_id = ?, bound_at = ? WHERE id = ?').run(profileId, now, cameraId);
-  db.prepare('UPDATE photos SET profile_id = ? WHERE camera_id = ? AND profile_id IS NULL').run(profileId, cameraId);
+/** Bind a camera to a blog and move its orphan photos across. */
+export function bindCamera(db: Db, cameraId: string, blogId: number, now: number): void {
+  db.prepare('UPDATE cameras SET blog_id = ?, bound_at = ? WHERE id = ?').run(blogId, now, cameraId);
+  db.prepare('UPDATE photos SET blog_id = ? WHERE camera_id = ? AND blog_id IS NULL').run(blogId, cameraId);
 }

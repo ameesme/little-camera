@@ -11,7 +11,7 @@ import { listOutbox } from '../src/repo/outbox.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
 import { createSubscriber, findSubscriberById } from '../src/repo/subscribers.js';
 import { seed } from '../src/seed.js';
-import { CAM, blog, fixture, hello, makeProfile, makeWorld, upload, type TestWorld } from './helpers.js';
+import { CAM, blog, fixture, hello, makeBlog, makeWorld, upload, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
 beforeEach(async () => {
@@ -21,12 +21,12 @@ afterEach(() => w.cleanup());
 
 describe('newsletter', () => {
   it('sends one email per subscriber per batch, deep-linking the newest photo', async () => {
-    const mees = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    const mees = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
     await hello(w);
     bindCamera(w.env.db, CAM.id, mees.id, w.clock.t);
-    const sanne = createSubscriber(w.env.db, { profileId: mees.id, email: 'sanne@example.com', name: 'Sanne', status: 'approved', addedBy: 'owner', now: w.clock.t });
-    createSubscriber(w.env.db, { profileId: mees.id, email: 'pending@example.com', name: null, status: 'pending', addedBy: 'self', now: w.clock.t });
-    createSubscriber(w.env.db, { profileId: mees.id, email: 'blocked@example.com', name: null, status: 'blocked', addedBy: 'self', now: w.clock.t });
+    const sanne = createSubscriber(w.env.db, { blogId: mees.id, email: 'sanne@example.com', name: 'Sanne', status: 'approved', addedBy: 'owner', now: w.clock.t });
+    createSubscriber(w.env.db, { blogId: mees.id, email: 'pending@example.com', name: null, status: 'pending', addedBy: 'self', now: w.clock.t });
+    createSubscriber(w.env.db, { blogId: mees.id, email: 'blocked@example.com', name: null, status: 'blocked', addedBy: 'self', now: w.clock.t });
 
     expect(runNewsletter(w.env)).toBe(0);
 
@@ -72,8 +72,8 @@ describe('newsletter', () => {
 
 describe('purge', () => {
   it('removes expired tokens and codes and week-old orphan photos with their files', async () => {
-    const mees = makeProfile(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    createToken(w.env, { kind: 'owner_login', profileId: mees.id });
+    const mees = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    createToken(w.env, { kind: 'owner_login', blogId: mees.id });
     insertCode(w.env.db, 'ABCDEF', mees.id, w.clock.t);
     await hello(w);
     const orphan = await upload(w, fixture('cat'), 1);

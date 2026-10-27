@@ -11,7 +11,7 @@ import { batteryPercent } from '../lib/battery.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, hashSecret, secretMatches, type CameraVars } from '../middleware/cameraAuth.js';
 import { createCamera, findCamera, setCameraFirmware, touchCamera } from '../repo/cameras.js';
 import { countFeedPhotos } from '../repo/photos.js';
-import { findProfileById, setAvatarRequested, type ProfileRow } from '../repo/profiles.js';
+import { findBlogById, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
 import { listSubscribers } from '../repo/subscribers.js';
 
 const helloSchema = z.object({
@@ -55,9 +55,9 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
 
   app.use('*', cameraAuth(env));
 
-  const profileOf = (c: { get(k: 'camera'): { profile_id: number | null } }): ProfileRow | null => {
-    const id = c.get('camera').profile_id;
-    return id !== null ? findProfileById(env.db, id) : null;
+  const blogOf = (c: { get(k: 'camera'): { blog_id: number | null } }): BlogRow | null => {
+    const id = c.get('camera').blog_id;
+    return id !== null ? findBlogById(env.db, id) : null;
   };
 
   app.post('/photos', async (c) => {
@@ -91,23 +91,23 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
   app.get('/status', (c) => {
     const camera = c.get('camera');
     const now = env.now();
-    const profile = profileOf(c);
+    const blog = blogOf(c);
     return c.json({
       camera_id: camera.id,
       short_code: camera.short_code,
-      bound: profile
+      bound: blog
         ? {
-            handle: profile.handle,
-            name: profile.name,
-            url: blogUrl(env.config, profile.handle),
-            photo_count: countFeedPhotos(env.db, profile.id),
+            handle: blog.handle,
+            name: blog.name,
+            url: blogUrl(env.config, blog.handle),
+            photo_count: countFeedPhotos(env.db, blog.id),
             battery: batteryPercent(camera.id, camera.bound_at ?? now, now),
           }
         : null,
-      avatar: { requested_at: profile?.avatar_requested_at ?? null, has_avatar: profile?.avatar_photo_id != null },
+      avatar: { requested_at: blog?.avatar_requested_at ?? null, has_avatar: blog?.avatar_photo_id != null },
       firmware: firmwareState(env.config, camera.firmware_version),
-      subscribers: profile
-        ? listSubscribers(env.db, profile.id).map((s) => ({
+      subscribers: blog
+        ? listSubscribers(env.db, blog.id).map((s) => ({
             id: s.id,
             email: s.email,
             name: s.name,
@@ -120,18 +120,18 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
   });
 
   app.post('/subscribers', async (c) => {
-    const profile = profileOf(c);
-    if (!profile) return c.json(UNBOUND, 409);
+    const blog = blogOf(c);
+    if (!blog) return c.json(UNBOUND, 409);
     const parsed = subscriberSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json(error('bad_request', 'Expected { email, name? }'), 400);
-    const { subscriber, created } = subscribers.add(env, profile, parsed.data.email, parsed.data.name ?? null);
+    const { subscriber, created } = subscribers.add(env, blog, parsed.data.email, parsed.data.name ?? null);
     return c.json({ id: subscriber.id }, created ? 201 : 200);
   });
 
   app.post('/subscribers/:id/:action{approve|block}', (c) => {
-    const profile = profileOf(c);
-    if (!profile) return c.json(UNBOUND, 409);
-    const subscriber = subscribers.find(env, profile, Number(c.req.param('id')));
+    const blog = blogOf(c);
+    if (!blog) return c.json(UNBOUND, 409);
+    const subscriber = subscribers.find(env, blog, Number(c.req.param('id')));
     if (!subscriber) return c.json(error('not_found', 'No such subscriber'), 404);
     if (c.req.param('action') === 'approve') subscribers.approve(env, subscriber);
     else subscribers.block(env, subscriber);
@@ -139,10 +139,10 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
   });
 
   app.post('/request-avatar', (c) => {
-    const profile = profileOf(c);
-    if (!profile) return c.json(UNBOUND, 409);
+    const blog = blogOf(c);
+    if (!blog) return c.json(UNBOUND, 409);
     const now = env.now();
-    setAvatarRequested(env.db, profile.id, now);
+    setAvatarRequested(env.db, blog.id, now);
     return c.json({ requested_at: now });
   });
 

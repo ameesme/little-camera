@@ -13,7 +13,7 @@ import { openDb } from '../src/db.js';
 import type { Env } from '../src/env.js';
 import { bind } from '../src/core/linking.js';
 import { findCamera } from '../src/repo/cameras.js';
-import { createProfile, markEmailVerified, type ProfileRow } from '../src/repo/profiles.js';
+import { createBlog, markEmailVerified, type BlogRow } from '../src/repo/blogs.js';
 
 export const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'pbm', 'fixtures');
 export const APEX = 'localhost:3000';
@@ -48,17 +48,17 @@ export function makeWorld(): TestWorld {
   return { env, app, clock, cleanup: () => rmSync(dataDir, { recursive: true, force: true }) };
 }
 
-export function makeProfile(env: Env, p: { handle: string; name: string; email: string; verified?: boolean }): ProfileRow {
-  const profile = createProfile(env.db, { handle: p.handle, name: p.name, email: p.email, now: env.now() });
-  if (p.verified !== false) markEmailVerified(env.db, profile.id, env.now());
-  return { ...profile, email_verified_at: p.verified !== false ? env.now() : null };
+export function makeBlog(env: Env, p: { handle: string; name: string; email: string; verified?: boolean }): BlogRow {
+  const blog = createBlog(env.db, { handle: p.handle, name: p.name, email: p.email, now: env.now() });
+  if (p.verified !== false) markEmailVerified(env.db, blog.id, env.now());
+  return { ...blog, email_verified_at: p.verified !== false ? env.now() : null };
 }
 
 export const CAM = { id: '7cdfa1e2b3c4', secret: '9f2c0000111122223333444455556666' };
 
 /** Bind without photographing a QR code. The QR path itself is covered in qr.test.ts. */
-export function linkCamera(world: TestWorld, profileId: number, cam = CAM) {
-  return bind(world.env, findCamera(world.env.db, cam.id)!, profileId);
+export function linkCamera(world: TestWorld, blogId: number, cam = CAM) {
+  return bind(world.env, findCamera(world.env.db, cam.id)!, blogId);
 }
 
 export function apex(path: string, init: RequestInit = {}): Request {

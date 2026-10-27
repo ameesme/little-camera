@@ -13,18 +13,18 @@ import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
 import { verificationQrSvg } from '../lib/qr.js';
 import { clearOwnerCookie, currentOwner, setOwnerCookie } from '../lib/session.js';
 import { createToken, verifyToken } from '../lib/tokens.js';
-import { findCameraByProfile } from '../repo/cameras.js';
+import { findCameraByBlog } from '../repo/cameras.js';
 import { insertCode } from '../repo/codes.js';
 import { findOutbox, listOutbox } from '../repo/outbox.js';
 import { findPhotoById } from '../repo/photos.js';
 import {
-  createProfile,
-  findProfileByEmail,
-  findProfileByHandle,
+  createBlog,
+  findBlogByEmail,
+  findBlogByHandle,
   markEmailVerified,
   setAvatarRequested,
-  type ProfileRow,
-} from '../repo/profiles.js';
+  type BlogRow,
+} from '../repo/blogs.js';
 import { listSubscribers } from '../repo/subscribers.js';
 import {
   CheckEmail,
@@ -33,7 +33,7 @@ import {
   LoginForm,
   Mailbox,
   MailView,
-  ProfilePage,
+  MyBlogPage,
   RegisterForm,
   VerificationPage,
   u,
@@ -57,7 +57,7 @@ export function ownerRoutes(env: Env): Hono {
   const app = new Hono();
   const dev = env.config.nodeEnv !== 'production';
 
-  const owner = (c: Context): Promise<ProfileRow | null> => currentOwner(c, env);
+  const owner = (c: Context): Promise<BlogRow | null> => currentOwner(c, env);
 
   app.get('/', (c) => c.html(<Landing />));
 
@@ -72,11 +72,11 @@ export function ownerRoutes(env: Env): Hono {
     const parsed = registerSchema.safeParse(values);
     if (!parsed.success) return reject(parsed.error.issues[0].message, 400);
     const { name, email, handle } = parsed.data;
-    if (findProfileByHandle(env.db, handle)) return reject('That handle is taken', 409);
-    if (findProfileByEmail(env.db, email)) return reject('That email already has a little camera. Sign in instead.', 409);
+    if (findBlogByHandle(env.db, handle)) return reject('That handle is taken', 409);
+    if (findBlogByEmail(env.db, email)) return reject('That email already has a little camera. Sign in instead.', 409);
 
-    const profile = createProfile(env.db, { handle, name, email, now: env.now() });
-    const { token } = createToken(env, { kind: 'email_verify', profileId: profile.id });
+    const blog = createBlog(env.db, { handle, name, email, now: env.now() });
+    const { token } = createToken(env, { kind: 'email_verify', blogId: blog.id });
     queueEmail(env, email, verifyEmailMail({ name, url: appUrl(env.config, `/verify-email?t=${token}`) }));
     return c.html(<CheckEmail dev={dev} />);
   });
@@ -84,8 +84,8 @@ export function ownerRoutes(env: Env): Hono {
   app.get('/verify-email', async (c) => {
     const verified = verifyToken(env, c.req.query('t'), 'email_verify');
     if (!verified.ok) return c.html(<ExpiredLink />, 410);
-    markEmailVerified(env.db, verified.row.profile_id, env.now());
-    await setOwnerCookie(c, env, verified.row.profile_id);
+    markEmailVerified(env.db, verified.row.blog_id, env.now());
+    await setOwnerCookie(c, env, verified.row.blog_id);
     return c.redirect(u('/me'), 303);
   });
 
@@ -95,7 +95,7 @@ export function ownerRoutes(env: Env): Hono {
     if (!token) return next();
     const verified = verifyToken(env, token, 'owner_login');
     if (!verified.ok) return c.html(<ExpiredLink />, 410);
-    await setOwnerCookie(c, env, verified.row.profile_id);
+    await setOwnerCookie(c, env, verified.row.blog_id);
     return c.redirect(u('/me'), 303);
   });
 
@@ -104,15 +104,15 @@ export function ownerRoutes(env: Env): Hono {
   app.post('/login', async (c) => {
     const form = await c.req.parseBody();
     const email = emailSchema.safeParse(form.email);
-    const profile = email.success ? findProfileByEmail(env.db, email.data) : null;
-    if (profile) {
-      // An unverified profile gets a verify link instead: it signs them in too, and marks the email verified.
-      const kind = profile.email_verified_at ? 'owner_login' : 'email_verify';
-      const { token } = createToken(env, { kind, profileId: profile.id });
+    const blog = email.success ? findBlogByEmail(env.db, email.data) : null;
+    if (blog) {
+      // An unverified blog gets a verify link instead: it signs them in too, and marks the email verified.
+      const kind = blog.email_verified_at ? 'owner_login' : 'email_verify';
+      const { token } = createToken(env, { kind, blogId: blog.id });
       const path = kind === 'owner_login' ? '/login' : '/verify-email';
       const url = appUrl(env.config, `${path}?t=${token}`);
       const mail = kind === 'owner_login' ? loginLinkMail : verifyEmailMail;
-      queueEmail(env, profile.email, mail({ name: profile.name, url }));
+      queueEmail(env, blog.email, mail({ name: blog.name, url }));
     }
     return c.html(<CheckEmail dev={dev} />);
   });
@@ -123,61 +123,61 @@ export function ownerRoutes(env: Env): Hono {
   });
 
   app.get('/me', async (c) => {
-    const profile = await owner(c);
-    if (!profile) return c.redirect(u('/login'), 303);
-    const camera = findCameraByProfile(env.db, profile.id);
+    const blog = await owner(c);
+    if (!blog) return c.redirect(u('/login'), 303);
+    const camera = findCameraByBlog(env.db, blog.id);
     if (camera) {
       return c.html(
-        <ProfilePage
-          profile={profile}
-          blogUrl={blogUrl(env.config, profile.handle)}
+        <MyBlogPage
+          blog={blog}
+          blogUrl={blogUrl(env.config, blog.handle)}
           shortCode={camera.short_code}
-          subscribers={listSubscribers(env.db, profile.id)}
+          subscribers={listSubscribers(env.db, blog.id)}
         />,
       );
     }
-    const code = insertCode(env.db, randomCode(6), profile.id, env.now());
+    const code = insertCode(env.db, randomCode(6), blog.id, env.now());
     return c.html(
       <VerificationPage
         code={code.code}
         svg={await verificationQrSvg(code.code)}
-        email={profile.email}
+        email={blog.email}
         apexUrl={apexUrl(env.config)}
-        blogUrl={blogUrl(env.config, profile.handle)}
+        blogUrl={blogUrl(env.config, blog.handle)}
       />,
     );
   });
 
   app.get('/me/status', async (c) => {
-    const profile = await owner(c);
-    if (!profile) return c.json({ error: 'unauthorized' }, 401);
-    const camera = findCameraByProfile(env.db, profile.id);
-    return c.json({ bound: !!camera, url: camera ? blogUrl(env.config, profile.handle) : null });
+    const blog = await owner(c);
+    if (!blog) return c.json({ error: 'unauthorized' }, 401);
+    const camera = findCameraByBlog(env.db, blog.id);
+    return c.json({ bound: !!camera, url: camera ? blogUrl(env.config, blog.handle) : null });
   });
 
   app.post('/me/request-avatar', async (c) => {
-    const profile = await owner(c);
-    if (!profile) return c.redirect(u('/login'), 303);
-    setAvatarRequested(env.db, profile.id, env.now());
+    const blog = await owner(c);
+    if (!blog) return c.redirect(u('/login'), 303);
+    setAvatarRequested(env.db, blog.id, env.now());
     return c.redirect(u('/me'), 303);
   });
 
   app.post('/me/subscribers', async (c) => {
-    const profile = await owner(c);
-    if (!profile) return c.redirect(u('/login'), 303);
+    const blog = await owner(c);
+    if (!blog) return c.redirect(u('/login'), 303);
     const form = await c.req.parseBody();
     const email = emailSchema.safeParse(form.email);
     if (email.success) {
       const name = String(form.name ?? '').trim().slice(0, 60) || null;
-      subscribers.add(env, profile, email.data, name);
+      subscribers.add(env, blog, email.data, name);
     }
     return c.redirect(u('/me'), 303);
   });
 
   app.post('/me/subscribers/:id/:action{approve|block}', async (c) => {
-    const profile = await owner(c);
-    if (!profile) return c.redirect(u('/login'), 303);
-    const subscriber = subscribers.find(env, profile, Number(c.req.param('id')));
+    const blog = await owner(c);
+    if (!blog) return c.redirect(u('/login'), 303);
+    const subscriber = subscribers.find(env, blog, Number(c.req.param('id')));
     if (subscriber) {
       if (c.req.param('action') === 'approve') subscribers.approve(env, subscriber);
       else subscribers.block(env, subscriber);

@@ -4,7 +4,7 @@ export type SubscriberStatus = 'pending' | 'approved' | 'blocked';
 
 export interface SubscriberRow {
   id: number;
-  profile_id: number;
+  blog_id: number;
   email: string;
   name: string | null;
   status: SubscriberStatus;
@@ -18,16 +18,16 @@ export function findSubscriberById(db: Db, id: number): SubscriberRow | null {
   return (db.prepare('SELECT * FROM subscribers WHERE id = ?').get(id) as SubscriberRow | undefined) ?? null;
 }
 
-export function findSubscriberByEmail(db: Db, profileId: number, email: string): SubscriberRow | null {
+export function findSubscriberByEmail(db: Db, blogId: number, email: string): SubscriberRow | null {
   return (
-    (db.prepare('SELECT * FROM subscribers WHERE profile_id = ? AND email = ?').get(profileId, email) as
+    (db.prepare('SELECT * FROM subscribers WHERE blog_id = ? AND email = ?').get(blogId, email) as
       | SubscriberRow
       | undefined) ?? null
   );
 }
 
-export function listSubscribers(db: Db, profileId: number): SubscriberRow[] {
-  return db.prepare('SELECT * FROM subscribers WHERE profile_id = ? ORDER BY id').all(profileId) as unknown as SubscriberRow[];
+export function listSubscribers(db: Db, blogId: number): SubscriberRow[] {
+  return db.prepare('SELECT * FROM subscribers WHERE blog_id = ? ORDER BY id').all(blogId) as unknown as SubscriberRow[];
 }
 
 export function listApprovedSubscribers(db: Db): SubscriberRow[] {
@@ -36,16 +36,16 @@ export function listApprovedSubscribers(db: Db): SubscriberRow[] {
 
 export function createSubscriber(
   db: Db,
-  s: { profileId: number; email: string; name: string | null; status: SubscriberStatus; addedBy: 'owner' | 'self'; now: number },
+  s: { blogId: number; email: string; name: string | null; status: SubscriberStatus; addedBy: 'owner' | 'self'; now: number },
 ): SubscriberRow {
   const approvedAt = s.status === 'approved' ? s.now : null;
   // Starting last_notified_at at approval keeps the first newsletter to photos posted after they joined.
   const r = db
     .prepare(
-      `INSERT INTO subscribers (profile_id, email, name, status, added_by, created_at, approved_at, last_notified_at)
+      `INSERT INTO subscribers (blog_id, email, name, status, added_by, created_at, approved_at, last_notified_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(s.profileId, s.email, s.name, s.status, s.addedBy, s.now, approvedAt, approvedAt);
+    .run(s.blogId, s.email, s.name, s.status, s.addedBy, s.now, approvedAt, approvedAt);
   return findSubscriberById(db, Number(r.lastInsertRowid))!;
 }
 

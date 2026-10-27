@@ -4,7 +4,7 @@ import type { Db } from '../db.js';
 
 export interface CodeRow {
   code: string;
-  profile_id: number;
+  blog_id: number;
   created_at: number;
   expires_at: number;
   attempts: number;
@@ -13,10 +13,10 @@ export interface CodeRow {
 /** 15 minutes, per protocol §5. */
 export const CODE_TTL = 15 * 60;
 
-export function insertCode(db: Db, code: string, profileId: number, now: number): CodeRow {
-  db.prepare('INSERT INTO verification_codes (code, profile_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
+export function insertCode(db: Db, code: string, blogId: number, now: number): CodeRow {
+  db.prepare('INSERT INTO verification_codes (code, blog_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
     code,
-    profileId,
+    blogId,
     now,
     now + CODE_TTL,
   );
@@ -36,8 +36,8 @@ export function anyLiveCode(db: Db, now: number): boolean {
   return db.prepare('SELECT 1 FROM verification_codes WHERE expires_at > ? LIMIT 1').get(now) !== undefined;
 }
 
-export function deleteCodesForProfile(db: Db, profileId: number): void {
-  db.prepare('DELETE FROM verification_codes WHERE profile_id = ?').run(profileId);
+export function deleteCodesForBlog(db: Db, blogId: number): void {
+  db.prepare('DELETE FROM verification_codes WHERE blog_id = ?').run(blogId);
 }
 
 export function deleteExpiredCodes(db: Db, now: number): number {
