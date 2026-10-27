@@ -1,204 +1,44 @@
 import SwiftUI
 
+/// One stage at a time. Setup and linking own the whole screen; after that the screens take over.
 struct RootView: View {
     let model: AppModel
 
     var body: some View {
         Group {
-            if model.isSetUp {
-                MainView(model: model)
-            } else {
-                SetupView(model: model)
+            switch model.stage {
+            case .setup: SetupStage(model: model)
+            case .linking: LinkStage(model: model)
+            case .ready: ReadyStage(model: model)
             }
         }
         .font(Theme.body)
         .foregroundStyle(Theme.ink)
         .tint(Theme.ink)
         .background(Theme.paper.ignoresSafeArea())
-        // Black on white, always; dark mode would invert the whole idea.
+        // Black on white, always: dark mode would invert the whole idea.
         .preferredColorScheme(.light)
     }
 }
 
-/// One scroll, sections separated by 1 px rules, like the blog.
-struct MainView: View {
-    let model: AppModel
+/// The bar every stage wears: what the app is, and the camera's short code for linking on the web.
+struct StageHeader: View {
+    let title: String
+    let code: String?
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                HeaderBar(model: model)
-                Rule()
-                CameraCard(model: model)
-                Rule()
-                SyncCard(model: model)
-                Rule()
-                FirmwareCard(model: model)
-                Rule()
-                BlogCard(model: model)
-                Rule()
-                SubscribersSection(model: model)
-                Rule()
-                LogSection(model: model)
-                Rule()
-            }
-        }
-        .background(Theme.paper)
-    }
-}
-
-struct HeaderBar: View {
-    let model: AppModel
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Caption("Little Camera")
-            Spacer()
-            // The short code is the fallback for linking on the web (protocol §5).
-            Text(model.shortCode ?? "······")
-                .font(Theme.font(14, bold: true))
-                .kerning(2)
-        }
-        .card()
-    }
-}
-
-struct CameraCard: View {
-    let model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Caption(model.linkLine)
-            if let info = model.info {
-                StatRow(label: "Photos on camera", value: "\(info.photoCount)")
-                StatRow(label: "Unsynced", value: "\(info.unsyncedCount)")
-                StatRow(label: "Boot", value: "\(info.boot)")
-                StatRow(label: "Clock set", value: info.timeValid ? "Yes" : "No")
-            } else {
-                Text("Press the shutter to wake the camera. It listens for half a minute; the phone does the rest by itself.")
-                    .font(Theme.small)
-            }
-        }
-        .card()
-    }
-}
-
-struct SyncCard: View {
-    let model: AppModel
-
-    private static let clock: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .short
-        f.timeStyle = .short
-        return f
-    }()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Caption("Sync")
-            StatRow(label: "Last sync", value: model.lastSyncAt.map { SyncCard.clock.string(from: $0) } ?? "Never")
-            StatRow(label: "Uploaded", value: "\(model.uploadedCount)")
-            ProgressRule(fraction: model.progressFraction)
-            if !model.recentThumbnails.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(Array(model.recentThumbnails.enumerated()), id: \.offset) { _, image in
-                        Thumbnail(image: image)
-                    }
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Caption(title)
+                Spacer()
+                if let code {
+                    Text(code)
+                        .font(Theme.font(14, bold: true))
+                        .kerning(2)
                 }
             }
-            Button {
-                model.syncNow()
-            } label: {
-                Caption("Sync now")
-            }
-            .buttonStyle(BlackButton())
-            if let error = model.lastError {
-                Text(error)
-                    .font(Theme.small)
-            }
+            .card()
+            Rule()
         }
-        .card()
-    }
-}
-
-/// What firmware the camera runs, and the one waiting for it. The camera shows
-/// its own progress bar while an update runs (protocol §3.7); this one is for
-/// the person holding the phone, who is the one being asked to stand still.
-struct FirmwareCard: View {
-    let model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Caption(model.firmwareLine)
-            if model.updatePhase.isRunning {
-                ProgressRule(fraction: model.updateFraction)
-            }
-            if let release = model.release, let notes = release.notes, !notes.isEmpty {
-                Text(notes)
-                    .font(Theme.small)
-            }
-            if model.canUpdateFirmware, let release = model.release {
-                Text("Keep the app open and the camera close. It keeps running what it has until the whole image is there and checked, so a failed update costs nothing but the time.")
-                    .font(Theme.small)
-                Button {
-                    model.updateFirmware()
-                } label: {
-                    Caption("Update to \(release.version)")
-                }
-                .buttonStyle(BlackButton())
-            }
-        }
-        .card()
-    }
-}
-
-/// Progress bar: 1 px frame, filled with the checker.
-struct ProgressRule: View {
-    let fraction: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            HStack(spacing: 0) {
-                Dither()
-                    .frame(width: max(0, min(1, fraction)) * geo.size.width)
-                Spacer(minLength: 0)
-            }
-        }
-        .frame(height: 8)
-        .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
-    }
-}
-
-/// A 1-bit photo, drawn without interpolation so the dither stays a dither.
-struct Thumbnail: View {
-    let image: CGImage
-
-    var body: some View {
-        Image(decorative: image, scale: 1)
-            .resizable()
-            .interpolation(.none)
-            .aspectRatio(4.0 / 3.0, contentMode: .fit)
-            .frame(width: 80)
-            .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
-    }
-}
-
-struct LogSection: View {
-    let model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Caption("Log")
-            if model.log.lines.isEmpty {
-                Text("Nothing yet.")
-                    .font(Theme.small)
-            }
-            ForEach(Array(model.log.lines.enumerated()), id: \.offset) { _, line in
-                Text(line)
-                    .font(Theme.small)
-                    .lineLimit(2)
-            }
-        }
-        .card()
     }
 }

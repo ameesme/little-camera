@@ -5,8 +5,8 @@ Monorepo for Little Camera. Read the guide for a part before you touch it:
 | Part | Guide | Notes |
 |---|---|---|
 | `firmware/` | `firmware/AGENTS.md` | Pins, panel limits, sleep rules, storage format. Load-bearing, read it whole. |
-| `server/` | `server/README.md` | Hono + `node:sqlite`. No ORM, no SPA. |
-| `app/ios/` | `app/ios/README.md` | SwiftUI + CoreBluetooth, no dependencies, XcodeGen. |
+| `server/` | `server/README.md` | Hono + `node:sqlite`. No ORM, no SPA. `core/` holds the domain; routes call it rather than the database. |
+| `app/ios/` | `app/ios/README.md` | SwiftUI + CoreBluetooth, no dependencies, XcodeGen. Staged UI: one screen does one job. |
 | `hardware/pcb/` | `hardware/README.md` | KiCad 10, written by the Python in `pcb/gen/` rather than by hand. Pin changes land in `firmware/AGENTS.md` too. |
 | `site/` | `site/README.md` | Static teaser on Vercel. `vercel.json` and `.vercelignore` stay at the root. |
 | `packages/pbm/` | inline docs | Pure TypeScript, no Node-only APIs except `zlib` and `crypto`. |

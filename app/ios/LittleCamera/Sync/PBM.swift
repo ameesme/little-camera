@@ -1,8 +1,7 @@
 import Foundation
 import CoreGraphics
 
-/// Binary PBM (P4) as the firmware writes it (protocol §2): `P4`, an optional
-/// `# boot= up= t=` comment, width, height, one whitespace byte, packed rows.
+/// Binary PBM (P4) as the firmware writes it (§2), parsed only as far as the header this app needs.
 struct PBMHeader {
     var width = 0
     var height = 0
@@ -95,8 +94,7 @@ enum PBM {
         }
     }
 
-    /// 8-bit grey CGImage of the raster (set bit = black). Meant for thumbnails:
-    /// draw it with `.interpolation(.none)` so the dither stays crisp.
+    /// 8-bit grey CGImage of the raster (set bit = black). Meant for thumbnails: draw it with `.interpolation(.none)` so the dither stays crisp.
     static func image(_ data: Data) -> CGImage? {
         guard let header = try? parse(data) else { return nil }
         let w = header.width

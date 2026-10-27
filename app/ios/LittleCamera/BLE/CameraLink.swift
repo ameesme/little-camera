@@ -1,5 +1,5 @@
 import Foundation
-import CoreBluetooth
+@preconcurrency import CoreBluetooth
 
 enum LinkError: LocalizedError {
     case notConnected
@@ -21,15 +21,8 @@ enum LinkError: LocalizedError {
     }
 }
 
-/// One camera, one connection. All CoreBluetooth state lives on `queue`; the
-/// outside world gets `Event`s on the main actor and a handful of async calls.
-///
-/// Background strategy: once the owner has picked a camera we always keep a
-/// `connect` pending. iOS does not time pending connects out, and with the
-/// `bluetooth-central` background mode it relaunches us (via state restoration)
-/// when the camera advertises again, even if the app was suspended or killed
-/// for memory. That is the only wake path we need; there is no polling.
-final class CameraLink: NSObject {
+/// One camera, one connection. Every stored property is touched only on `queue`, which is what `@unchecked Sendable` stands in for.
+final class CameraLink: NSObject, @unchecked Sendable {
     enum Event {
         case bluetooth(CBManagerState)
         case scanning
@@ -48,15 +41,13 @@ final class CameraLink: NSObject {
     private var central: CBCentralManager?
     private var pairedId: UUID?
     private var peripheral: CBPeripheral?
-    /// Peripherals seen while scanning. CoreBluetooth drops a CBPeripheral we do
-    /// not retain, so keep them until the owner picks one.
+    /// CoreBluetooth drops a CBPeripheral nobody retains, so these are held until the owner picks one.
     private var found: [UUID: CBPeripheral] = [:]
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
     private var pendingReads: [CBUUID: CheckedContinuation<Data, Error>] = [:]
     private var pendingWrite: CheckedContinuation<Void, Error>?
     private var frameContinuation: AsyncStream<DataFrame>.Continuation?
-    /// A firmware chunk waiting for the controller's queue to drain, with the
-    /// caller it will let go of once it is on the wire.
+    /// A chunk waiting for the controller to drain, with the caller it lets go of once the bytes are on the wire.
     private var queuedChunk: (Data, CheckedContinuation<Void, Error>)?
 
     init(pairedId: UUID?, events: @escaping @MainActor (Event) -> Void) {
@@ -65,8 +56,7 @@ final class CameraLink: NSObject {
         super.init()
     }
 
-    /// Creates the central. Call once, as early as possible after launch: iOS
-    /// expects the manager with the restore identifier to exist when it relaunches us.
+    /// As early after launch as possible: iOS expects the manager with our restore identifier to already exist.
     func start() {
         queue.async {
             guard self.central == nil else { return }
@@ -109,9 +99,7 @@ final class CameraLink: NSObject {
         try CameraInfo(data: try await read(LC.infoUUID))
     }
 
-    /// Reading Secret is what triggers pairing: the characteristic is encrypted +
-    /// authenticated, so on first contact iOS shows the passkey prompt by itself and
-    /// the read completes once the bond exists. Later reads are silent.
+    /// Encrypted and authenticated, so this read is what makes iOS show the passkey prompt. Later reads are silent.
     func readSecret() async throws -> Data {
         let d = try await read(LC.secretUUID)
         guard d.count == 16 else { throw LinkError.badSecretLength(d.count) }
@@ -137,9 +125,7 @@ final class CameraLink: NSObject {
         }
     }
 
-    /// A fresh stream of Data notifications. Call it *before* writing the LIST/GET
-    /// that starts a stream; opening a new one finishes the previous one, so
-    /// leftovers from an aborted transfer can never leak into the next.
+    /// Opened *before* the write that starts a stream, and opening one finishes the last, so leftovers cannot leak.
     func frames() -> AsyncStream<DataFrame> {
         let (stream, continuation) = AsyncStream.makeStream(of: DataFrame.self, bufferingPolicy: .unbounded)
         queue.sync {
@@ -156,8 +142,7 @@ final class CameraLink: NSObject {
         }
     }
 
-    /// Most data bytes that fit in one firmware chunk on this connection: the
-    /// negotiated write size less the 4-byte offset every chunk carries.
+    /// The negotiated write size less the 4-byte offset every chunk carries.
     var maxChunkPayload: Int {
         queue.sync {
             guard let p = peripheral else { return 0 }
@@ -169,11 +154,7 @@ final class CameraLink: NSObject {
         queue.sync { characteristics[LC.updateUUID] != nil }
     }
 
-    /// One firmware chunk, `[u32 offset][data]`, written **without response**
-    /// (§3.7). The call returns when the chunk is on its way, not when the
-    /// camera has it — the offset is what makes that safe. Suspending until
-    /// CoreBluetooth says it can take another write is the flow control on
-    /// this side; the camera's window is the flow control on the other.
+    /// `[u32 offset][data]` without response (§3.7). It returns once the chunk is on its way, which the offset makes safe.
     func sendUpdateChunk(offset: UInt32, data: Data) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             self.queue.async {
@@ -193,9 +174,7 @@ final class CameraLink: NSObject {
                     cont.resume()
                     return
                 }
-                // The controller's buffers are full. Park exactly one chunk;
-                // the caller sends them one at a time, so a second would mean
-                // a bug rather than a backlog.
+                // Buffers are full. One parked chunk is enough, because the caller sends them one at a time.
                 guard self.queuedChunk == nil else {
                     cont.resume(throwing: LinkError.busy)
                     return
@@ -282,8 +261,7 @@ extension CameraLink: CBCentralManagerDelegate {
             return
         }
         if let p = peripheral {
-            // Restored from a background relaunch, or Bluetooth was toggled: if iOS
-            // kept the link alive pick up where we were, otherwise queue a connect.
+            // Restored, or Bluetooth was toggled: carry on if iOS kept the link, otherwise queue a connect.
             if p.state == .connected {
                 discover(p)
             } else {
@@ -299,8 +277,7 @@ extension CameraLink: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
-        // iOS relaunched us in the background because of a pending connect (or an
-        // open connection). Adopt the peripheral; didUpdateState follows and decides.
+        // Relaunched for a pending connect: adopt the peripheral, and didUpdateState decides what to do with it.
         if let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
            let p = restored.first {
             p.delegate = self
@@ -326,8 +303,7 @@ extension CameraLink: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        // Not used for writes (we only notify), but it tells us the negotiated MTU:
-        // withoutResponse length is ATT MTU - 3.
+        // Logged for the MTU alone, which is the withoutResponse write length plus 3.
         let mtu = peripheral.maximumWriteValueLength(for: .withoutResponse) + 3
         emit(.log("connected \(peripheral.name ?? "camera"), MTU \(mtu)"))
         discover(peripheral)
@@ -335,7 +311,7 @@ extension CameraLink: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         emit(.log("connect failed: \(error?.localizedDescription ?? "unknown")"))
-        // Rare (pending connects usually just wait). Back off a little and re-arm.
+        // Rare, since pending connects usually just wait. Back off and re-arm.
         queue.asyncAfter(deadline: .now() + 2) {
             if self.peripheral?.identifier == peripheral.identifier {
                 self.connect(peripheral)
@@ -347,8 +323,7 @@ extension CameraLink: CBCentralManagerDelegate {
         characteristics = [:]
         failPending(LinkError.disconnected)
         emit(.disconnected(error?.localizedDescription))
-        // The camera light-sleeps and takes its radio down; this is the normal end
-        // of every session. Re-arm the connect so the next wake finds us waiting.
+        // The camera light-sleeps and takes its radio with it, so this ends every session; re-arm for the next wake.
         if peripheral.identifier == self.peripheral?.identifier {
             connect(peripheral)
         }

@@ -1,0 +1,82 @@
+import Foundation
+
+/// The firmware the camera runs against the firmware the server has published, and the push between them (§3.7).
+@Observable @MainActor
+final class FirmwareUpdate {
+    private(set) var release: FirmwareRelease?
+    private(set) var phase: FirmwareUpdater.Phase = .idle
+
+    private let server: ServerClient
+    private let log: SyncLog
+    @ObservationIgnored private var updater: FirmwareUpdater?
+    @ObservationIgnored private var task: Task<Void, Never>?
+
+    init(server: ServerClient, log: SyncLog) {
+        self.server = server
+        self.log = log
+    }
+
+    func attach(link: CameraLink) {
+        let updater = FirmwareUpdater(link: link, server: server, log: log)
+        updater.onPhase = { [weak self] phase in self?.phase = phase }
+        self.updater = updater
+    }
+
+    var isRunning: Bool { phase.isRunning }
+
+    var fraction: Double {
+        switch phase {
+        case .sending(let sent, let total) where total > 0: return Double(sent) / Double(total)
+        case .verifying, .restarting: return 1
+        default: return 0
+        }
+    }
+
+    func line(installed: String?) -> String {
+        switch phase {
+        case .downloading: return "DOWNLOADING NEW FIRMWARE"
+        case .sending(let sent, let total): return "SENDING \(sent * 100 / max(total, 1))% — KEEP THE PHONE CLOSE"
+        case .verifying: return "CAMERA IS CHECKING THE IMAGE"
+        case .restarting: return "CAMERA IS RESTARTING"
+        case .failed(let why): return "UPDATE FAILED — \(why.uppercased())"
+        case .idle:
+            guard let installed else { return "FIRMWARE — THIS CAMERA CANNOT SAY" }
+            guard let release, release.version != installed else { return "FIRMWARE \(installed) — UP TO DATE" }
+            return "FIRMWARE \(installed) → \(release.version) AVAILABLE"
+        }
+    }
+
+    /// Worth offering only when the camera can take it: new enough to say what it runs, with room in its spare slot.
+    func isAvailable(for camera: CameraSession) -> Bool {
+        guard let updater, !updater.isRunning, let release else { return false }
+        guard let info = camera.info, let installed = info.firmware, info.canTake(imageOf: release.size) else { return false }
+        guard camera.isReady, camera.canUpdateFirmware, !camera.isSyncing else { return false }
+        return release.version != installed
+    }
+
+    /// Against the version the camera itself reported, not the one the server last heard about.
+    func refresh(installed: String?, published: FirmwareRelease?) {
+        if let published { release = published }
+        Task { @MainActor in
+            do {
+                release = try await server.latestFirmware(installed: installed)
+            } catch {
+                // A camera that cannot be updated is still a camera; the line keeps saying what it knows.
+                log.add("firmware check failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func send(to camera: CameraSession) {
+        guard let updater, let release, let info = camera.info, isAvailable(for: camera) else { return }
+        task?.cancel()
+        task = Task { @MainActor in
+            await updater.run(release: release, info: info)
+        }
+    }
+
+    /// The camera is back, so whichever way the last push ended, the card goes back to reporting what it runs now.
+    func settle() {
+        updater?.settle()
+    }
+}

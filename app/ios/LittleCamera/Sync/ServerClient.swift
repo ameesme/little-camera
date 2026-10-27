@@ -1,8 +1,7 @@
 import Foundation
 import CryptoKit
 
-// HTTP camera API (protocol §4). JSON keys are snake_case on the wire and
-// camelCase here via .convertFromSnakeCase / .convertToSnakeCase, consistently.
+// HTTP camera API (§4). snake_case on the wire, camelCase here, via the key strategies set below.
 
 struct BoundProfile: Codable, Equatable {
     let handle: String
@@ -39,8 +38,7 @@ struct Subscriber: Codable, Equatable, Identifiable {
     let addedBy: String
 }
 
-/// A published firmware image (protocol §4.7). `updateAvailable` is only sent
-/// by `/api/firmware/latest`; inside `/status` the surrounding block says it.
+/// A published firmware image (§4.7). `updateAvailable` comes only from /api/firmware/latest.
 struct FirmwareRelease: Codable, Equatable {
     let version: String
     let channel: String
@@ -93,9 +91,7 @@ enum ServerError: LocalizedError {
     }
 }
 
-/// What the bridge learned from POST /photos. 200 (duplicate), 201 (stored) and
-/// 409 all mean "the server has this file": the photo must not be re-sent, and the
-/// camera may be ACKed.
+/// 200, 201 and 409 all mean the server has the file: do not re-send it, and the camera may be ACKed.
 struct UploadOutcome {
     let statusCode: Int
     let response: PhotoResponse?
@@ -132,9 +128,7 @@ final class ServerClient {
 
     // MARK: Routes
 
-    /// Trust on first use: creates the camera server-side, or checks the secret.
-    /// `firmware` is what Info reported, so the server can say whether there is
-    /// anything newer; a camera too old to say sends nothing.
+    /// Trust on first use: registers the camera, or checks the secret. `firmware` is what Info reported.
     func hello(cameraId: String, secretHex: String, firmware: String?) async throws -> HelloResponse {
         struct Body: Encodable {
             let cameraId: String
@@ -150,8 +144,7 @@ final class ServerClient {
 
     // MARK: Firmware (§4.7)
 
-    /// The newest release for this hardware, or nil when nothing is published.
-    /// Unauthenticated, like the route: an image is not a secret.
+    /// The newest release for this hardware, or nil when nothing is published. Unauthenticated, like the route: an image is not a secret.
     func latestFirmware(installed: String?) async throws -> FirmwareRelease? {
         let base = baseURL.appendingPathComponent("api/firmware/latest")
         guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
@@ -169,10 +162,7 @@ final class ServerClient {
         return try decode(FirmwareRelease.self, code: code, data: data)
     }
 
-    /// The image itself, checked against the release before anyone is told it
-    /// arrived. The camera checks it again after the BLE hop (§3.7) — this one
-    /// catches a bad download early, so a megabyte is not pushed over
-    /// Bluetooth to be rejected at the far end.
+    /// Checked against the release here so a bad download is caught before a megabyte goes over Bluetooth.
     func downloadFirmware(_ release: FirmwareRelease) async throws -> Data {
         guard let url = URL(string: release.url) else { throw ServerError.badURL(release.url) }
         var req = URLRequest(url: url)

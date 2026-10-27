@@ -1,8 +1,7 @@
 import Foundation
 import Security
 
-/// Small, plain wrapper over UserDefaults. Not observable on purpose: AppModel
-/// mirrors whatever the UI needs to show, and this stays a dumb store.
+/// A plain UserDefaults wrapper, deliberately not observable: AppModel mirrors whatever the UI needs.
 final class Settings {
     static let defaultServerBaseURL = "https://lttl.cam"
 
@@ -32,8 +31,7 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.cameraId) }
     }
 
-    /// CoreBluetooth's identifier for the camera on this phone. It is not the MAC:
-    /// iOS hides that, and the identifier differs per phone.
+    /// CoreBluetooth's identifier for the camera on this phone. It is not the MAC: iOS hides that, and the identifier differs per phone.
     var pairedPeripheralId: UUID? {
         get { defaults.string(forKey: Key.pairedPeripheralId).flatMap { UUID(uuidString: $0) } }
         set { defaults.set(newValue?.uuidString, forKey: Key.pairedPeripheralId) }
@@ -44,8 +42,7 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.uploadedIndices) }
     }
 
-    /// SHA-256 hex of files the server has confirmed. Lets a re-run skip the upload
-    /// of a photo whose ACK was lost, without another round trip.
+    /// SHA-256 hex of files the server has confirmed. Lets a re-run skip the upload of a photo whose ACK was lost, without another round trip.
     var uploadedHashes: [String] {
         get { defaults.array(forKey: Key.uploadedHashes) as? [String] ?? [] }
         set { defaults.set(newValue, forKey: Key.uploadedHashes) }
@@ -115,8 +112,7 @@ enum Keychain {
         SecItemDelete(baseQuery(for: cameraId) as CFDictionary)
         var attrs = baseQuery(for: cameraId)
         attrs[kSecValueData as String] = secret
-        // Background syncs can run after a reboot before the first unlock;
-        // AfterFirstUnlock is the weakest class that still keeps it off the disk in clear.
+        // AfterFirstUnlock is the weakest class a background sync can still read after a reboot.
         attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(attrs as CFDictionary, nil)
         guard status == errSecSuccess else { throw KeychainError.status(status) }

@@ -2,21 +2,8 @@ import Foundation
 import UIKit
 import CryptoKit
 
-/// Pushing a firmware image to the camera, protocol §3.7.
-///
-/// The phone is still a pipe here: it fetches an image the server published,
-/// checks it, and writes it to the camera in chunks that each carry their own
-/// offset. It is not trusted with any of it — the camera checks the whole
-/// image against the SHA-256 that went out in `UPDATE_BEGIN` before it points
-/// the bootloader at anything, and writes it to the slot it is not running
-/// from, so nothing this class can get wrong costs the owner their camera.
-///
-/// Two kinds of flow control are in play at once and they are not the same
-/// thing. CoreBluetooth's `canSendWriteWithoutResponse` says whether *this
-/// phone's* controller has room; the camera's window says how much it can
-/// stage while its main loop writes flash. Keeping to the window is what makes
-/// a dropped chunk a rarity rather than the normal case, and an offset that
-/// came back wrong is what makes it survivable either way.
+/// Pushing a firmware image to the camera (§3.7). Nothing this class gets wrong can cost the owner their camera: the image
+/// lands in the slot the camera is not running from and is checked there before the bootloader is pointed at anything.
 @MainActor
 final class FirmwareUpdater {
     enum Phase: Equatable {
@@ -54,25 +41,19 @@ final class FirmwareUpdater {
         }
     }
 
-    /// Silence on the Data characteristic that means something is wrong. The
-    /// camera answers a window inside a loop iteration (~30 ms) and reports
-    /// progress every half window, so this only fires when it has stopped.
+    /// The camera answers a window inside one loop iteration, so this only fires once it has stopped.
     static let statusTimeout: TimeInterval = 15
-    /// The verify at the end reads the whole slot back off flash before the
-    /// camera answers UPDATE_END, which is seconds rather than milliseconds.
+    /// The final verify reads the whole slot back off flash, which is seconds rather than milliseconds.
     static let verifyTimeout: TimeInterval = 60
 
     var onPhase: (@MainActor (Phase) -> Void)?
     private(set) var phase: Phase = .idle {
         didSet { if phase != oldValue { onPhase?(phase) } }
     }
-    /// A run() is in flight. Distinct from `phase.isRunning`, which stays at
-    /// `.restarting` after a successful push while the camera reboots.
+    /// A run is in flight, unlike `phase.isRunning`, which stays `.restarting` while the camera reboots.
     private(set) var isRunning = false
 
-    /// The camera is back. Whatever the last update ended in — a restart into
-    /// the new firmware, or a failure that left it on the old one — the card
-    /// goes back to reporting what it runs now.
+    /// The camera is back, so whichever way the last push ended, the card goes back to reporting what it runs now.
     func settle() {
         guard !isRunning else { return }
         phase = .idle
@@ -91,10 +72,7 @@ final class FirmwareUpdater {
     private var rewindTo: UInt32?
     private var sent: UInt32 = 0
     private var waiter: CheckedContinuation<Void, Never>?
-    /// Bumped by every UPDATE_STATUS. The sender waits on this rather than on
-    /// `acked` moving: the answer to UPDATE_BEGIN carries the offset the camera
-    /// is already at, which is usually the offset it was at before, and waiting
-    /// for that number to change would be waiting for a frame that never comes.
+    /// The sender waits on this count, not on `acked` moving: UPDATE_BEGIN answers with an offset that is usually unchanged.
     private var statusCount = 0
 
     init(link: CameraLink, server: ServerClient, log: SyncLog) {
@@ -103,18 +81,13 @@ final class FirmwareUpdater {
         self.log = log
     }
 
-    /// Download `release` and push it. Returns true when the camera has the
-    /// image and is rebooting into it.
+    /// Download `release` and push it. Returns true when the camera has the image and is rebooting into it.
     @discardableResult
     func run(release: FirmwareRelease, info: CameraInfo) async -> Bool {
         guard !isRunning else { return false }
         isRunning = true
         defer { isRunning = false }
-        // Minutes of Bluetooth writing. The background task window is ~30 s,
-        // which is enough for a few photos and not for a megabyte of firmware,
-        // so hold the screen awake as well and tell the owner to stay put —
-        // the card says so too. Worst case the session is interrupted and the
-        // camera keeps what it was running.
+        // Minutes of writing against a ~30 s background window, so hold the screen awake and ask the owner to stay put.
         let activity = BackgroundActivity(name: "me.amees.littlecamera.firmware")
         UIApplication.shared.isIdleTimerDisabled = true
         defer {
@@ -130,12 +103,7 @@ final class FirmwareUpdater {
             // Whatever happened, the camera is still running what it was.
             phase = .failed(error.localizedDescription)
             log.add("firmware update failed: \(error.localizedDescription)")
-            // A camera that went quiet or dropped the link holds its
-            // half-written slot for a minute and a half, and a retry inside
-            // that window carries on from where this one stopped (§3.7). So
-            // don't throw it away. Anything else is over as far as the camera
-            // is concerned: say so, and let it free the flash handle now
-            // rather than on its own timeout.
+            // A quiet or dropped camera keeps its half-written slot for 90 s and can resume, so only tell the others to let go.
             switch error as? UpdateError {
             case .silent, .linkLost: break
             default: try? await link.write(.updateAbort)
@@ -154,8 +122,7 @@ final class FirmwareUpdater {
         let image = try await server.downloadFirmware(release)
         let digest = Data(SHA256.hash(data: image))
 
-        // Open the stream before the write, as everywhere else: the answer can
-        // arrive a loop iteration later.
+        // Open the stream before the write, as everywhere else: the answer can arrive a loop iteration later.
         let frames = link.frames()
         defer { link.closeFrames() }
         reset()
@@ -174,11 +141,7 @@ final class FirmwareUpdater {
         let step = min(chunk, maxPayload > 0 ? maxPayload : chunk)
         sent = acked
 
-        // Send, then finish. An UPDATE_END the camera answers with "offset"
-        // means it has less than both sides thought — a gap right at the end.
-        // That is worth going back for rather than throwing a whole image
-        // away, but not forever: a camera that keeps losing the same chunk is
-        // telling us something else is wrong.
+        // An UPDATE_END answered with an offset means a gap right at the end: worth filling, but not forever.
         for attempt in 0..<3 {
             try await sendAll(image: image, size: size, step: step)
 
@@ -206,18 +169,13 @@ final class FirmwareUpdater {
             if let failure = failure { throw failure }
             if let to = rewindTo {
                 rewindTo = nil
-                // A chunk went missing. Everything after it is ahead of the
-                // camera too, so go back to where it actually is.
+                // A chunk went missing. Everything after it is ahead of the camera too, so go back to where it actually is.
                 if to != sent { log.add("rewound to \(to) (was at \(sent))") }
                 sent = to
             }
-            // Fill the window. `acked` moves under us while these awaits are
-            // suspended — the consumer is on the same actor — so recompute what
-            // is outstanding each time round rather than counting it off: an
-            // ack that lands mid-window frees room immediately.
+            // `acked` moves under these awaits, so recompute what is outstanding rather than counting it off.
             while sent < size && rewindTo == nil && failure == nil {
-                // Unsigned: a camera claiming more than was sent would trap
-                // here rather than simply be ignored.
+                // Unsigned: a camera claiming more than was sent would trap here rather than simply be ignored.
                 let outstanding = sent > acked ? Int(sent - acked) : 0
                 if outstanding >= window { break }
                 let end = min(sent + UInt32(step), size)
@@ -226,8 +184,7 @@ final class FirmwareUpdater {
                 sent = end
             }
             if acked >= size { return }
-            // Either the window is full or the image is out; either way there
-            // is nothing to do until the camera says how much of it landed.
+            // Window full or image sent: either way, nothing to do until the camera says how much landed.
             try await waitForStatus(timeout: FirmwareUpdater.statusTimeout)
             phase = .sending(sent: Int(acked), total: Int(size))
         }
@@ -279,8 +236,7 @@ final class FirmwareUpdater {
         }
     }
 
-    /// Suspend until the camera says something, or give up. One waiter at a
-    /// time: only the sender waits, and only when it has nothing left to send.
+    /// One waiter at a time, because only the sender waits and only when it has nothing left to send.
     private func waitForStatus(timeout: TimeInterval) async throws {
         let before = statusCount
         let deadline = Date().addingTimeInterval(timeout)
@@ -288,9 +244,7 @@ final class FirmwareUpdater {
             if Date() >= deadline { throw UpdateError.silent }
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                 waiter = cont
-                // A timer resumes the wait even when nothing arrives, so the
-                // deadline above is what actually decides. Being woken for no
-                // reason is harmless: the condition above is re-checked.
+                // A timer wakes the wait so the deadline above is what decides; a spurious wake just re-checks the condition.
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     self.wake()

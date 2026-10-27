@@ -4,8 +4,7 @@ import CryptoKit
 import CoreGraphics
 
 enum SyncError: LocalizedError {
-    /// The notification stream ended (disconnect) before an END frame. Carries
-    /// whatever payload arrived so a GET can resume from that offset.
+    /// The notification stream ended (disconnect) before an END frame. Carries whatever payload arrived so a GET can resume from that offset.
     case streamEnded(received: Data)
     case timeout
     case sequenceGap(expected: UInt16, got: UInt16)
@@ -47,8 +46,7 @@ final class BackgroundActivity {
     }
 }
 
-/// The bridge algorithm, protocol §3.5. One instance per app; `run` is a full
-/// pass over the camera's unsynced photos and is safe to call again afterwards.
+/// The bridge algorithm (§3.5). `run` is one full pass over the camera's unsynced photos and is safe to call again.
 @MainActor
 final class SyncEngine {
     enum Event {
@@ -63,9 +61,7 @@ final class SyncEngine {
         let source: String?
     }
 
-    /// Seconds of silence on the Data characteristic before a stream is abandoned.
-    /// The camera answers a write within one main-loop iteration (~30 ms) and a 9.6 KB
-    /// file takes well under a second, so this only fires when something is wrong.
+    /// A camera answers inside one loop iteration, so this only fires when something is actually wrong.
     static let frameTimeout: TimeInterval = 8
     /// New photos can land while a pass runs; a couple of extra passes cover that.
     static let maxPasses = 3
@@ -77,8 +73,7 @@ final class SyncEngine {
     private let server: ServerClient
     private let settings: Settings
     private let log: SyncLog
-    /// Bytes received for files cut off by a disconnect, by index. In memory only:
-    /// after a background relaunch the GET simply starts from offset 0 again.
+    /// Half-received files, by index. In memory only, so a background relaunch simply starts that GET again.
     private var partial: [UInt16: Data] = [:]
     private var lastFrameAt = Date()
     private var timedOut = false
@@ -94,8 +89,7 @@ final class SyncEngine {
     func run(info initial: CameraInfo) async {
         guard !isRunning else { return }
         isRunning = true
-        // The phone usually goes back into a pocket right after the shutter press;
-        // the ~30 s iOS grants here is enough for a handful of photos.
+        // The phone goes back in a pocket right after the shutter, and the ~30 s iOS grants covers a handful of photos.
         let activity = BackgroundActivity(name: "me.amees.littlecamera.sync")
         defer {
             activity.end()
@@ -169,8 +163,7 @@ final class SyncEngine {
             let dating = SyncEngine.date(header: header, entry: entry, info: info, infoReadAt: infoReadAt)
             var kind = "photo"
             if settings.uploadedHashes.contains(hash) {
-                // The server confirmed this file earlier but the ACK never reached
-                // the camera (disconnect in between). Just ACK.
+                // The server confirmed this file earlier but the ACK never reached the camera (disconnect in between). Just ACK.
                 log.add("#\(entry.index) already on the server")
             } else {
                 let outcome = try await server.uploadPhoto(
@@ -216,8 +209,7 @@ final class SyncEngine {
         }
     }
 
-    /// Writes `op`, then collects the Data frames it produces up to END and
-    /// verifies status, sequence continuity, length and CRC-32.
+    /// Writes `op`, then collects the Data frames it produces up to END and verifies status, sequence continuity, length and CRC-32.
     private func stream(_ op: ControlOp, expecting kind: FrameKind) async throws -> Data {
         // Open the stream before the write: the first frame can arrive ~30 ms later.
         let frames = link.frames()
@@ -225,8 +217,7 @@ final class SyncEngine {
 
         lastFrameAt = Date()
         timedOut = false
-        // Watchdog: a camera that dies mid-stream is only reported by iOS after the
-        // supervision timeout; close the stream ourselves if nothing arrives.
+        // iOS only reports a dead link after the supervision timeout, so close the stream here instead.
         let watchdog = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -282,8 +273,7 @@ final class SyncEngine {
 
     // MARK: Dating (protocol §2)
 
-    /// What to put in `X-Captured-At` / `X-Captured-At-Source`. Nil means the
-    /// server can work it out itself (the file carries `t=`, or it is upload time).
+    /// Nil means the server can date it itself, from the file's own `t=` or from upload time.
     static func date(header: PBMHeader, entry: ListEntry, info: CameraInfo, infoReadAt: Date) -> Dating {
         // 1. The camera knew the time: the file says so and the server reads it.
         if let t = header.t, t > 0 {

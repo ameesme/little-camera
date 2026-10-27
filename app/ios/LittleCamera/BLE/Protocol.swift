@@ -2,8 +2,7 @@ import Foundation
 import CoreBluetooth
 import CryptoKit
 
-// Byte-level contract with the camera. Everything here is written from
-// docs/protocol.md; change that file first.
+// Byte-level contract with the camera. Everything here is written from docs/protocol.md; change that file first.
 
 /// GATT identifiers (protocol §3). Base UUID `1C0000xx-4C43-4D52-8000-6C6974746C65`.
 enum LC {
@@ -33,8 +32,7 @@ enum ProtocolError: LocalizedError {
 // MARK: - Little-endian helpers
 
 extension Data {
-    // Offsets are relative to the slice, not to the underlying buffer: Data slices
-    // keep their parent's indices, which is a classic way to read the wrong byte.
+    // Data slices keep their parent's indices, so every read here is relative to the slice.
     func lcByte(_ offset: Int) -> UInt8 {
         self[startIndex + offset]
     }
@@ -114,9 +112,7 @@ struct CameraInfo: Equatable {
         uptimeMs = data.lcU32(15)
         epoch = data.lcU32(19)
         flags = data.lcByte(23)
-        // Parse by length, not by version number: §3.1 says a reader takes what
-        // it knows and ignores the rest, so a camera newer than this app keeps
-        // working and one older than it simply has no firmware fields.
+        // By length, not version: §3.1 says a reader takes what it knows and ignores the rest.
         if v >= 2 && data.count >= CameraInfo.byteCountV2 {
             firmware = "\(data.lcByte(24)).\(data.lcByte(25)).\(data.lcByte(26))"
             updateState = UpdateState(rawValue: data.lcByte(27)) ?? .idle
@@ -273,8 +269,7 @@ struct EndFrame {
     }
 }
 
-/// UPDATE_STATUS payload, 15 bytes (§3.7). The answer to an update command, and
-/// the unsolicited progress report that hands the phone its next window.
+/// UPDATE_STATUS payload, 15 bytes (§3.7): the answer to an update command, and the progress report while one runs.
 struct UpdateStatus {
     static let byteCount = 15
 
@@ -366,11 +361,7 @@ enum ShortCode {
     /// 32 characters, no `0 O 1 I`.
     static let alphabet: [Character] = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
-    /// Test vectors (shared with the firmware and the server):
-    ///   7cdfa1e2b3c4 → MM48F3
-    ///   000000000000 → 882TLC
-    ///   ffffffffffff → XMPHSF
-    ///   a1b2c3d4e5f6 → ZZWB7E
+    /// Test vectors shared with the firmware and the server: 7cdfa1e2b3c4 → MM48F3, 000000000000 → 882TLC, ffffffffffff → XMZZZZ.
     static func compute(_ cameraId: String) -> String {
         let hash = Array(SHA256.hash(data: Data(cameraId.utf8)))
         // First 40 bits, big-endian; six 5-bit groups from the top.

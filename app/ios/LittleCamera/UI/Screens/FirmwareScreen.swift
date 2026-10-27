@@ -1,0 +1,40 @@
+import SwiftUI
+
+/// What the camera runs against what the server has published. The camera draws its own bar; this one is for the
+/// person holding the phone, who is the one being asked to stand still.
+struct FirmwareScreen: View {
+    let model: AppModel
+
+    private var firmware: FirmwareUpdate { model.firmware }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                Caption(firmware.line(installed: model.camera.info?.firmware))
+                if firmware.isRunning {
+                    ProgressRule(fraction: firmware.fraction)
+                }
+                if let notes = firmware.release?.notes, !notes.isEmpty {
+                    Text(notes).font(Theme.small)
+                }
+            }
+            .card()
+            Rule()
+            if firmware.isAvailable(for: model.camera), let release = firmware.release {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Keep the app open and the camera close. It keeps running what it has until the whole image is there and checked, so a failed update costs nothing but the time.")
+                        .font(Theme.small)
+                    StatRow(label: "Image", value: "\(release.size / 1024) KB")
+                    Button {
+                        firmware.send(to: model.camera)
+                    } label: {
+                        Caption("Update to \(release.version)")
+                    }
+                    .buttonStyle(BlackButton())
+                }
+                .card()
+                Rule()
+            }
+        }
+    }
+}

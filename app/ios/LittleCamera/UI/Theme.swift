@@ -1,15 +1,14 @@
+import CoreGraphics
 import SwiftUI
 
-// Black and white only. No accent tints, no greys: where a grey is unavoidable
-// it is a 2 px checker (`Dither`), the same rule as the blog and the camera.
+// Black and white only: where a grey is unavoidable it is a 2 px checker, the same rule as the blog and the camera.
 
 enum Theme {
     static let ink = Color.black
     static let paper = Color.white
     static let pad: CGFloat = 14
 
-    /// Helvetica Neue ships with iOS; Font.custom falls back to the system face
-    /// by itself if the name is ever missing, so no runtime check is needed.
+    /// Font.custom falls back to the system face by itself, so a missing Helvetica Neue needs no runtime check.
     static func font(_ size: CGFloat, bold: Bool = false) -> Font {
         Font.custom(bold ? "HelveticaNeue-Bold" : "HelveticaNeue", size: size)
     }
@@ -78,8 +77,7 @@ struct BlackButton: ButtonStyle {
     }
 }
 
-/// Underlined text input, like the blog's forms. 16 pt so iOS Safari-style
-/// focus zoom never applies and it matches the web exactly.
+/// Underlined text input, like the blog's forms, at the 16 pt that stops iOS zooming on focus.
 struct Field: View {
     let placeholder: String
     @Binding var text: String
@@ -128,5 +126,35 @@ struct CardPadding: ViewModifier {
 extension View {
     func card() -> some View {
         modifier(CardPadding())
+    }
+}
+
+/// Progress bar: 1 px frame filled with the checker.
+struct ProgressRule: View {
+    let fraction: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                Dither().frame(width: max(0, min(1, fraction)) * geo.size.width)
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(height: 8)
+        .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
+    }
+}
+
+/// A 1-bit photo, drawn without interpolation so the dither stays a dither.
+struct Thumbnail: View {
+    let image: CGImage
+
+    var body: some View {
+        Image(decorative: image, scale: 1)
+            .resizable()
+            .interpolation(.none)
+            .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            .frame(width: 80)
+            .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
     }
 }

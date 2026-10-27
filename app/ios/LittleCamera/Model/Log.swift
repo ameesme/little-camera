@@ -1,7 +1,6 @@
 import Foundation
 
-/// The on-screen sync log: the last 20 lines, newest last. Anything may post
-/// from any thread; the list itself is only touched on the main actor.
+/// The on-screen sync log: the last 20 lines, newest last. Anything may post from any thread; the list itself is only touched on the main actor.
 @Observable @MainActor
 final class SyncLog {
     static let capacity = 20
