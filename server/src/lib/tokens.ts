@@ -8,6 +8,7 @@ export const TOKEN_TTL: Record<TokenKind, number> = {
   subscriber: 48 * 3600,
   owner_login: 1 * 3600,
   email_verify: 24 * 3600,
+  device_claim: 1 * 3600,
 };
 
 export function hashToken(token: string): string {
@@ -16,7 +17,7 @@ export function hashToken(token: string): string {
 
 export function createToken(
   env: Env,
-  t: { kind: TokenKind; blogId: number; subscriberId?: number | null; photoId?: number | null },
+  t: { kind: TokenKind; blogId: number; cameraId?: string | null; subscriberId?: number | null; photoId?: number | null },
 ): { token: string; row: TokenRow } {
   const token = randomBytes(32).toString('base64url');
   const now = env.now();
@@ -24,6 +25,7 @@ export function createToken(
     tokenHash: hashToken(token),
     kind: t.kind,
     blogId: t.blogId,
+    cameraId: t.cameraId ?? null,
     subscriberId: t.subscriberId ?? null,
     photoId: t.photoId ?? null,
     expiresAt: now + TOKEN_TTL[t.kind],

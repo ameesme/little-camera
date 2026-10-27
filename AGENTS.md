@@ -16,7 +16,7 @@ Monorepo for Little Camera. Read the guide for a part before you touch it:
 
 - **Black and white only.** No colour tokens anywhere: CSS, SwiftUI, emails, app icon, QR page. Grey is a 2 px checker (`.dither50`, the `Dither` view). For emphasis, invert.
 - **PBM is the photo.** The firmware's 320×240 P4 files are served unchanged; PNG is generated on the fly and cached by hash. Never re-dither, scale or anti-alias a photo on the server.
-- **The phone is a bridge, not a user.** It authenticates as the camera (`Authorization: Camera <id>:<secret>`). Human decisions live on the web or in camera-scoped API calls.
+- **The phone authenticates as the camera** (`Authorization: Camera <id>:<secret>`), never as a person — there is no password anywhere. That proves a camera, so anything that is a *person's* business (reading a blog, its comments, its list) needs the owner to let that phone in once, by email: `docs/protocol.md` §4.9. The approval names both the camera and the blog, so it cannot be replayed or carried to another blog.
 - **Generated hardware output is not committed.** Only the KiCad sources, their libraries and `pcb/fab/` are tracked; `pcb/out/` and the heavy parts of `pcb/gen/` are rebuilt from the scripts.
 - **Photos already on a device are precious.** `default_8MB.csv`, the LittleFS mount parameters and the on-flash file format are frozen.
 - Commits: lowercase `feat:`/`fix:`/`chore:`, optional scope, present-participle description.

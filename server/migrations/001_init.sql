@@ -19,9 +19,21 @@ CREATE TABLE cameras (
   bound_at         INTEGER,
   first_seen       INTEGER NOT NULL,
   last_seen        INTEGER NOT NULL,
-  -- Reported by the phone, so a record and not a fact: it decides what /status offers and nothing else.
+  -- All of this is read off Info (protocol §3.1) by the phone and relayed, so it is a record and not a fact.
   firmware_version TEXT,
-  firmware_seen_at INTEGER
+  firmware_seen_at INTEGER,
+  battery_percent  INTEGER,                       -- the camera's own reading; never recomputed here
+  battery_mv       INTEGER,
+  charging         INTEGER NOT NULL DEFAULT 0,
+  used_bytes       INTEGER,
+  total_bytes      INTEGER,
+  happiness        INTEGER,                       -- 0-255; the face is happiness >> 6
+  mood_elapsed_s   INTEGER,
+  telemetry_at     INTEGER,                       -- when the phone last relayed the above
+  -- When the owner allowed this phone to manage a blog, by opening an emailed link, and which blog
+  -- they allowed. Both, because a phone can be let in before it photographs the QR that binds it.
+  claim_approved_at INTEGER,
+  claim_blog_id     INTEGER REFERENCES blogs(id) ON DELETE SET NULL
 );
 CREATE INDEX cameras_blog ON cameras(blog_id);
 
@@ -65,8 +77,9 @@ CREATE TABLE subscribers (
 CREATE TABLE access_tokens (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   token_hash    TEXT NOT NULL UNIQUE,         -- sha256 of the token; the token itself is only in the email
-  kind          TEXT NOT NULL CHECK (kind IN ('subscriber', 'owner_login', 'email_verify')),
+  kind          TEXT NOT NULL CHECK (kind IN ('subscriber', 'owner_login', 'email_verify', 'device_claim')),
   blog_id       INTEGER NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+  camera_id     TEXT REFERENCES cameras(id) ON DELETE CASCADE,  -- device_claim only: the phone being let in
   subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE CASCADE,
   photo_id      INTEGER REFERENCES photos(id) ON DELETE SET NULL,
   expires_at    INTEGER NOT NULL,

@@ -2,14 +2,15 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
-import { boundInfo, sayHello } from '../core/cameras.js';
-import { MAX_PHOTO_BYTES, PhotoRejected, uploadPhoto } from '../core/photos.js';
+import { boundInfo, claimState, letPhoneIn, relayTelemetry, requestClaim, sayHello } from '../core/cameras.js';
+import { register } from '../core/blogs.js';
+import { MAX_PHOTO_BYTES, PhotoRejected, feed, uploadPhoto } from '../core/photos.js';
 import { VERSION, firmwareState } from '../core/firmware.js';
 import type { Env } from '../env.js';
-import { batteryPercent } from '../lib/battery.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, type CameraVars } from '../middleware/cameraAuth.js';
 import { countFeedPhotos } from '../repo/photos.js';
-import { findBlogById, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
+import { findBlogById, findBlogByEmail, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
+import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
 import { listSubscribers } from '../repo/subscribers.js';
 
 const helloSchema = z.object({
@@ -17,6 +18,29 @@ const helloSchema = z.object({
   secret: z.string().regex(SECRET_HEX),
   firmware: z.string().regex(VERSION).optional(),
 });
+
+const telemetrySchema = z.object({
+  battery_percent: z.number().int().min(0).max(100),
+  battery_mv: z.number().int().min(0).max(6000),
+  charging: z.boolean(),
+  used_bytes: z.number().int().min(0),
+  total_bytes: z.number().int().min(0),
+  happiness: z.number().int().min(0).max(255),
+  mood_elapsed_s: z.number().int().min(0),
+});
+
+const blogSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  email: z.string().trim().toLowerCase().email().max(200),
+  handle: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(HANDLE)
+    .refine((h) => !RESERVED_HANDLES.has(h)),
+});
+
+const FEED_PAGE = 20;
 
 const subscriberSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(200),
@@ -91,11 +115,12 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
             name: blog.name,
             url: blogUrl(env.config, blog.handle),
             photo_count: countFeedPhotos(env.db, blog.id),
-            battery: batteryPercent(camera.id, camera.bound_at ?? now, now),
           }
         : null,
       avatar: { requested_at: blog?.avatar_requested_at ?? null, has_avatar: blog?.avatar_photo_id != null },
       firmware: firmwareState(env.config, camera.firmware_version),
+      // Whether the owner has let this phone in. Until they have, the app shows the blog's name and nothing of its contents.
+      claim: claimState(camera),
       subscribers: blog
         ? listSubscribers(env.db, blog.id).map((s) => ({
             id: s.id,
@@ -107,6 +132,78 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
         : [],
       server_time: now,
     });
+  });
+
+  // What the phone read out of Info (§3.1). Stored as given: the percentage is the camera's own.
+  app.post('/telemetry', async (c) => {
+    const parsed = telemetrySchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json(error('bad_request', 'Expected the Info fields'), 400);
+    const t = parsed.data;
+    relayTelemetry(env, c.get('camera'), {
+      batteryPercent: t.battery_percent,
+      batteryMv: t.battery_mv,
+      charging: t.charging,
+      usedBytes: t.used_bytes,
+      totalBytes: t.total_bytes,
+      happiness: t.happiness,
+      moodElapsedS: t.mood_elapsed_s,
+    });
+    return c.json({ ok: true });
+  });
+
+  // A blog of its own, made by the phone that is holding the camera. Binding is still the QR photo.
+  app.post('/blog', async (c) => {
+    if (c.get('camera').blog_id !== null) return c.json(error('already_bound', 'This camera already posts to a blog'), 409);
+    const parsed = blogSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json(error('bad_request', 'Expected { name, email, handle }'), 400);
+    const made = register(env, parsed.data);
+    if (!made.ok) return c.json(error(`${made.taken}_taken`, `That ${made.taken} is already in use`), 409);
+    // The phone that made it is let in without a second email; it chose the address.
+    letPhoneIn(env, c.get('camera'), made.blog.id);
+    return c.json({ handle: made.blog.handle, url: blogUrl(env.config, made.blog.handle) }, 201);
+  });
+
+  // Asks the owner, by email, whether this phone may manage the blog. Also the way into a blog that has no camera yet.
+  app.post('/claim', async (c) => {
+    const camera = c.get('camera');
+    const bound = blogOf(c);
+    if (bound) {
+      requestClaim(env, camera, bound);
+      return c.json({ state: 'pending' });
+    }
+    if (camera.blog_id !== null) return c.json(error('not_found', 'That blog is gone'), 404);
+    const parsed = z.object({ email: z.string().trim().toLowerCase().email().max(200) }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json(error('bad_request', 'Expected { email } while the camera is unbound'), 400);
+    // Same answer either way, so the form cannot be used to find out who has a camera.
+    const blog = findBlogByEmail(env.db, parsed.data.email);
+    if (blog) requestClaim(env, camera, blog);
+    return c.json({ state: 'pending' });
+  });
+
+  app.get('/feed', (c) => {
+    const blog = blogOf(c);
+    if (!blog) return c.json(UNBOUND, 409);
+    const camera = c.get('camera');
+    if (claimState(camera) !== 'approved') return c.json(error('unclaimed', 'The owner has not let this phone in'), 403);
+    const raw = c.req.query('before');
+    const parts = raw?.split('.').map(Number);
+    const before = parts?.length === 2 && parts.every(Number.isInteger) ? { uploadedAt: parts[0], id: parts[1] } : undefined;
+    const photos = feed(env, blog, FEED_PAGE + 1, before);
+    const page = photos.slice(0, FEED_PAGE);
+    const last = page[page.length - 1];
+    return c.json({
+      photos: page,
+      next: photos.length > FEED_PAGE && last ? `${last.uploaded_at}.0` : null,
+    });
+  });
+
+  app.delete('/subscribers/:id', (c) => {
+    const blog = blogOf(c);
+    if (!blog) return c.json(UNBOUND, 409);
+    const subscriber = subscribers.find(env, blog, Number(c.req.param('id')));
+    if (!subscriber) return c.json(error('not_found', 'No such subscriber'), 404);
+    subscribers.remove(env, subscriber);
+    return c.json({ ok: true });
   });
 
   app.post('/subscribers', async (c) => {

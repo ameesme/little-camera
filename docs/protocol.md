@@ -336,27 +336,61 @@ Server-side, in order: parse + hash → dedupe → date (rule in §2) → if the
 {
   "camera_id": "7cdfa1e2b3c4",
   "short_code": "KQ7M2X",
-  "bound": null | { "handle": "mees", "name": "Mees", "url": "…", "photo_count": 12, "battery": 68 },
+  "bound": null | { "handle": "mees", "name": "Mees", "url": "…", "photo_count": 12 },
   "avatar": { "requested_at": 1757789000 | null, "has_avatar": false },
   "firmware": { "installed": "0.2.0" | null, "latest": null | { "version": "0.3.0", "size": 1481712, "sha256": "…", "url": "…", "notes": "…", "released_at": 1757789000 }, "update_available": false },
+  "claim": "unbound" | "pending" | "approved",
   "subscribers": [ { "id": 3, "email": "sanne@example.com", "name": "Sanne" | null, "status": "pending" | "approved" | "blocked", "added_by": "self" | "owner" } ],
   "server_time": 1757789000
 }
 ```
 
-`subscribers` is empty and `bound` is `null` until the camera is bound.
+`subscribers` is empty and `bound` is `null` until the camera is bound. `claim` is how far the phone has got with §4.9; the battery and the rest of the camera's own state are not here, because the phone reads them off `Info` (§3.1) and sends them the other way (§4.8).
 
 ### 4.5 Subscribers (bound cameras only)
 
 - `POST /subscribers` `{ "email": "…", "name": "…" | null }` → `201 { "id": 4 }`. Owner-added subscribers are approved immediately and receive a welcome link.
 - `POST /subscribers/:id/approve` → `200`. Sends the welcome link.
-- `POST /subscribers/:id/block` → `200`.
+- `POST /subscribers/:id/block` → `200`. Reversible.
+- `DELETE /subscribers/:id` → `200`. Not reversible: the row and its comments go.
 
 ### 4.6 `POST /request-avatar`
 
 `{}` → `200 { "requested_at": 1757789000 }`. The next photo captured after this moment becomes the profile picture.
 
-### 4.7 Firmware releases
+### 4.7 `GET /feed` (bound and claimed)
+
+The owner's own blog as data, newest first. `403 unclaimed` until §4.9 is through.
+
+```json
+{
+  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png", "kind": "photo" | "avatar", "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…" } ] } ],
+  "next": "1757789100.0" | null
+}
+```
+
+Twenty a page. Pass `next` back as `?before=` for the next one.
+
+### 4.8 `POST /telemetry`
+
+What the phone read out of `Info` (§3.1), relayed so the blog and the app can show it:
+
+```json
+{ "battery_percent": 44, "battery_mv": 3820, "charging": false, "used_bytes": 1234567, "total_bytes": 6553600, "happiness": 200, "mood_elapsed_s": 90061 }
+```
+
+Stored as given. **The percentage is the camera's**: the server does not recompute it, and the blog shows no battery at all until a phone has sent one, because an invented number is worse than none.
+
+### 4.9 Letting a phone in
+
+The camera credential proves a camera, not a person. Reading a blog's pictures, comments and list is a person's business, so the phone asks the owner once, by email.
+
+- `POST /blog` `{ "name": "…", "email": "…", "handle": "…" }` → `201 { "handle", "url" }`. A new blog, made by the phone holding the camera. `409 already_bound` if the camera has one, `409 handle_taken` / `409 email_taken` otherwise. The phone is let in on the spot — it chose the address — and a confirmation mail goes out. Binding is still the QR photo (§5).
+- `POST /claim` `{}` on a bound camera, or `{ "email": "…" }` on an unbound one → `200 { "state": "pending" }` and a mail to the owner. The unbound form answers the same for an address nobody registered.
+- The mail links to `/app/claim?t=…`, which **asks** and grants nothing; the `POST` behind its button is what approves. Mail clients prefetch links, so a GET must not be the grant.
+- The approval names the camera *and* the blog, so a link cannot be replayed onto another phone, and an approval for one blog does not follow the camera to another.
+
+### 4.10 Firmware releases
 
 Two routes under `/api/firmware`, both **unauthenticated**: a firmware image is
 not a secret, and leaving it open means a proxy or a CDN can cache it and a

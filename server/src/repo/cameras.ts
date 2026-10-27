@@ -11,6 +11,38 @@ export interface CameraRow {
   /** What the bridge app last reported from Info, or null from a camera too old to say. */
   firmware_version: string | null;
   firmware_seen_at: number | null;
+  battery_percent: number | null;
+  battery_mv: number | null;
+  charging: number;
+  used_bytes: number | null;
+  total_bytes: number | null;
+  happiness: number | null;
+  mood_elapsed_s: number | null;
+  telemetry_at: number | null;
+  claim_approved_at: number | null;
+  claim_blog_id: number | null;
+}
+
+export interface Telemetry {
+  batteryPercent: number;
+  batteryMv: number;
+  charging: boolean;
+  usedBytes: number;
+  totalBytes: number;
+  happiness: number;
+  moodElapsedS: number;
+}
+
+/** What the phone read out of Info. Stored as reported: the percentage is the camera's, not ours. */
+export function setCameraTelemetry(db: Db, id: string, t: Telemetry, now: number): void {
+  db.prepare(
+    `UPDATE cameras SET battery_percent = ?, battery_mv = ?, charging = ?, used_bytes = ?,
+     total_bytes = ?, happiness = ?, mood_elapsed_s = ?, telemetry_at = ? WHERE id = ?`,
+  ).run(t.batteryPercent, t.batteryMv, t.charging ? 1 : 0, t.usedBytes, t.totalBytes, t.happiness, t.moodElapsedS, now, id);
+}
+
+export function approveCameraClaim(db: Db, id: string, blogId: number, now: number): void {
+  db.prepare('UPDATE cameras SET claim_approved_at = ?, claim_blog_id = ? WHERE id = ?').run(now, blogId, id);
 }
 
 export function findCamera(db: Db, id: string): CameraRow | null {

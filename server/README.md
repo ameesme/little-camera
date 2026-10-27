@@ -14,7 +14,7 @@ Hono, Hono JSX, `node:sqlite` (in Node 22, so no native module), `nodemailer`, `
 
 ```
 core/     the five things in this domain, one file each, and the only place each is written
-          cameras      saying hello, and binding to a blog by photographing its QR code
+          cameras      saying hello, binding by QR code, relayed telemetry, letting a phone in
           blogs        registering one, signing its owner in, and who is reading it
           photos       an upload: parse, dedupe, date, store, maybe bind, maybe avatar; and comments
           subscribers  adding, approving, blocking, joining, redeeming a link, and the mail for each

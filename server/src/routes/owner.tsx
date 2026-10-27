@@ -5,6 +5,11 @@ import { z } from 'zod';
 import { parsePbm, pbmToPng, randomCode } from '@little-camera/pbm';
 import { apexUrl, blogUrl } from '../config.js';
 import { register, sendSignInLink, signInWithToken } from '../core/blogs.js';
+import { approveClaim } from '../core/cameras.js';
+import { blogUrl as blogUrlFor } from '../config.js';
+import { hashToken } from '../lib/tokens.js';
+import { findTokenByHash } from '../repo/tokens.js';
+import { findCamera } from '../repo/cameras.js';
 import * as subscribers from '../core/subscribers.js';
 import type { Env } from '../env.js';
 import { formatFull } from '../lib/dates.js';
@@ -15,10 +20,12 @@ import { findCameraByBlog } from '../repo/cameras.js';
 import { insertCode } from '../repo/codes.js';
 import { findOutbox, listOutbox } from '../repo/outbox.js';
 import { findPhotoById } from '../repo/photos.js';
-import { setAvatarRequested, type BlogRow } from '../repo/blogs.js';
+import { findBlogById, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
 import { listSubscribers } from '../repo/subscribers.js';
 import {
   CheckEmail,
+  ClaimDone,
+  ClaimPrompt,
   ExpiredLink,
   Landing,
   LoginForm,
@@ -47,6 +54,7 @@ const emailSchema = z.string().trim().toLowerCase().email().max(200);
 export function ownerRoutes(env: Env): Hono {
   const app = new Hono();
   const dev = env.config.nodeEnv !== 'production';
+  const hostOf = (handle: string) => blogUrlFor(env.config, handle).replace(/^https?:\/\//, '');
 
   const owner = (c: Context): Promise<BlogRow | null> => currentOwner(c, env);
 
@@ -70,6 +78,25 @@ export function ownerRoutes(env: Env): Hono {
         : reject('That email already has a little camera. Sign in instead.', 409);
     }
     return c.html(<CheckEmail dev={dev} />);
+  });
+
+  // Shown before anything is granted, because the link lands in a mail client that may have prefetched it.
+  app.get('/claim', (c) => {
+    const token = c.req.query('t') ?? '';
+    const row = findTokenByHash(env.db, hashToken(token));
+    const camera = row?.camera_id ? findCamera(env.db, row.camera_id) : null;
+    const blog = row ? findBlogById(env.db, row.blog_id) : null;
+    if (!row || row.kind !== 'device_claim' || row.expires_at <= env.now() || !camera || !blog) {
+      return c.html(<ExpiredLink />, 410);
+    }
+    return c.html(<ClaimPrompt blogName={hostOf(blog.handle)} shortCode={camera.short_code} token={token} />);
+  });
+
+  app.post('/claim', async (c) => {
+    const claimed = approveClaim(env, String((await c.req.parseBody()).t ?? ''));
+    return claimed
+      ? c.html(<ClaimDone blogName={hostOf(claimed.blog.handle)} />)
+      : c.html(<ExpiredLink />, 410);
   });
 
   app.get('/verify-email', async (c) =>

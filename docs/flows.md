@@ -34,7 +34,9 @@ Back the other way, over USB: `ota revert` on the serial console, because `pio r
 
 ## Battery
 
-The camera reads its own VBAT and shows the raw millivolts on the sleep face, but never sends them: `Info` (§3.1) has no battery field. So the blog's indicator is a deterministic fake, a 7-day curve seeded by the camera id.
+The camera reads its own VBAT, turns it into a percentage with the one curve in `firmware/src/power.h`, and puts both in `Info` (§3.1). The phone relays them to `POST /api/camera/telemetry`, and the blog and the app show what the camera said. Nothing downstream recomputes a percentage, and until a phone has reported one the blog shows no battery at all.
+
+Neither the curve nor the charging correction is calibrated yet — see `firmware/AGENTS.md`.
 
 ## Sleep vs Bluetooth
 

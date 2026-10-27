@@ -69,6 +69,26 @@ export const ExpiredLink: FC = () => (
   </Simple>
 );
 
+export const ClaimPrompt: FC<{ blogName: string; shortCode: string; token: string }> = ({ blogName, shortCode, token }) => (
+  <Simple title="Let this phone in?" heading="Let this phone in?">
+    <p>
+      A phone holding camera <code>{shortCode}</code> wants to manage <b>{blogName}</b>: your pictures, your comments and
+      who is on your list.
+    </p>
+    <p>Only do this if it is your phone, and if you just asked it to.</p>
+    <form method="post" action={u('/claim')}>
+      <input type="hidden" name="t" value={token} />
+      <button class="btn" type="submit">Let it in</button>
+    </form>
+  </Simple>
+);
+
+export const ClaimDone: FC<{ blogName: string }> = ({ blogName }) => (
+  <Simple title="Phone let in" heading="Phone let in">
+    <p>That phone can manage <b>{blogName}</b> now. Go back to the app.</p>
+  </Simple>
+);
+
 /** Full-viewport white with the QR as large as the screen allows: the camera has to be able to read it. */
 export const VerificationPage: FC<{ code: string; svg: string; email: string; apexUrl: string; blogUrl: string }> = ({ code, svg, email, apexUrl, blogUrl }) => (
   <Page title="This is my little camera" wrap={false}>

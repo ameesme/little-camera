@@ -1,11 +1,23 @@
 import { shortCode } from '@little-camera/pbm';
-import { blogUrl } from '../config.js';
 import type { Env } from '../env.js';
 import { cameraLinkedMail } from '../emails/index.js';
 import { queueEmail } from '../lib/email.js';
 import { hashSecret, secretMatches } from '../middleware/cameraAuth.js';
-import { bindCamera, createCamera, findCamera, setCameraFirmware, touchCamera, type CameraRow } from '../repo/cameras.js';
-import { findBlogById } from '../repo/blogs.js';
+import { appUrl, blogUrl } from '../config.js';
+import { deviceClaimMail } from '../emails/index.js';
+import { createToken, verifyToken } from '../lib/tokens.js';
+import {
+  approveCameraClaim,
+  bindCamera,
+  createCamera,
+  findCamera,
+  setCameraFirmware,
+  setCameraTelemetry,
+  touchCamera,
+  type CameraRow,
+  type Telemetry,
+} from '../repo/cameras.js';
+import { findBlogById, type BlogRow } from '../repo/blogs.js';
 import { deleteCodesForBlog, findLiveCode } from '../repo/codes.js';
 
 export interface BoundInfo {
@@ -65,4 +77,52 @@ export function bindByCode(env: Env, camera: CameraRow, code: string): CameraRow
   const bound = bind(env, camera, live.blog_id);
   deleteCodesForBlog(env.db, live.blog_id);
   return bound;
+}
+
+export function relayTelemetry(env: Env, camera: CameraRow, t: Telemetry): CameraRow {
+  setCameraTelemetry(env.db, camera.id, t, env.now());
+  return findCamera(env.db, camera.id)!;
+}
+
+export type ClaimState = 'unbound' | 'pending' | 'approved';
+
+/** Approved only for the blog the owner actually allowed, so a pre-approval cannot follow the camera elsewhere. */
+export function claimState(camera: CameraRow): ClaimState {
+  if (camera.blog_id === null) return 'unbound';
+  return camera.claim_blog_id === camera.blog_id ? 'approved' : 'pending';
+}
+
+export function letPhoneIn(env: Env, camera: CameraRow, blogId: number): CameraRow {
+  approveCameraClaim(env.db, camera.id, blogId, env.now());
+  return findCamera(env.db, camera.id)!;
+}
+
+/** Mails the blog's owner, asking whether this phone may manage it. */
+export function requestClaim(env: Env, camera: CameraRow, blog: BlogRow): void {
+  const { token } = createToken(env, { kind: 'device_claim', blogId: blog.id, cameraId: camera.id });
+  queueEmail(
+    env,
+    blog.email,
+    deviceClaimMail({
+      name: blog.name,
+      blogName: blogUrl(env.config, blog.handle).replace(/^https?:\/\//, ''),
+      shortCode: camera.short_code,
+      url: appUrl(env.config, `/claim?t=${token}`),
+    }),
+  );
+}
+
+export interface Claim {
+  camera: CameraRow;
+  blog: BlogRow;
+}
+
+/** Redeem the emailed link. It names the camera, so it cannot be replayed onto another phone. */
+export function approveClaim(env: Env, token: string | undefined): Claim | null {
+  const verified = verifyToken(env, token, 'device_claim');
+  if (!verified.ok || !verified.row.camera_id) return null;
+  const camera = findCamera(env.db, verified.row.camera_id);
+  const blog = findBlogById(env.db, verified.row.blog_id);
+  if (!camera || !blog) return null;
+  return { camera: letPhoneIn(env, camera, blog.id), blog };
 }

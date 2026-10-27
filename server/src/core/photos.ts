@@ -6,12 +6,14 @@ import type { Env } from '../env.js';
 import { publicId } from '../lib/ids.js';
 import { decodeVerificationCode } from '../lib/qr.js';
 import { findCamera, type CameraRow } from '../repo/cameras.js';
-import { insertComment } from '../repo/comments.js';
+import { blogUrl } from '../config.js';
+import { commentsForPhotos, insertComment } from '../repo/comments.js';
 import { anyLiveCode } from '../repo/codes.js';
 import { findBlogById, setAvatarPhoto, type BlogRow } from '../repo/blogs.js';
 import { setSubscriberName } from '../repo/subscribers.js';
 import type { Viewer } from './blogs.js';
 import {
+  feedPage,
   findPhotoByHash,
   insertPhoto,
   setPhotoKind,
@@ -128,6 +130,36 @@ export function uploadPhoto(env: Env, camera: CameraRow, body: Uint8Array, input
 
   const verified = tryVerification(env, camera, pbm, stored);
   return { status: 'stored', photo: tryAvatar(env, verified.camera, verified.photo, capturedAt), camera: verified.camera };
+}
+
+export interface FeedComment {
+  id: number;
+  name: string;
+  body: string;
+}
+
+export interface FeedPhoto {
+  id: string;
+  url: string;
+  kind: string;
+  captured_at: number;
+  uploaded_at: number;
+  comments: FeedComment[];
+}
+
+/** The owner's own feed: what the blog shows, as data, newest first. */
+export function feed(env: Env, blog: BlogRow, limit: number, before?: { uploadedAt: number; id: number }): FeedPhoto[] {
+  const photos = feedPage(env.db, blog.id, limit, before);
+  const comments = commentsForPhotos(env.db, photos.map((p) => p.id), blog.name);
+  const base = blogUrl(env.config, blog.handle);
+  return photos.map((p) => ({
+    id: p.public_id,
+    url: `${base}/photos/${p.public_id}.png`,
+    kind: p.kind,
+    captured_at: p.captured_at,
+    uploaded_at: p.uploaded_at,
+    comments: (comments.get(p.id) ?? []).map((cm) => ({ id: cm.id, name: cm.name, body: cm.body })),
+  }));
 }
 
 export type Commented = { ok: true; name: string } | { ok: false; reason: 'unauthorized' | 'bad_body' | 'name_required' };

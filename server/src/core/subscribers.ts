@@ -12,6 +12,7 @@ import {
   approveSubscriber,
   blockSubscriber,
   createSubscriber,
+  deleteSubscriber,
   findSubscriberByEmail,
   findSubscriberById,
   type SubscriberRow,
@@ -53,6 +54,11 @@ export function approve(env: Env, subscriber: SubscriberRow): SubscriberRow {
 
 export function block(env: Env, subscriber: SubscriberRow): void {
   blockSubscriber(env.db, subscriber.id);
+}
+
+/** Gone for good, comments and all. Blocking is the reversible one; this is not. */
+export function remove(env: Env, subscriber: SubscriberRow): void {
+  deleteSubscriber(env.db, subscriber.id);
 }
 
 /** The owner adding someone: approved on the spot, which also approves whoever had already asked to join. */

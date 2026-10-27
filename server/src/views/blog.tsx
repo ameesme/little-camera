@@ -11,7 +11,7 @@ export function blogTitle(name: string): string {
   return `${name}’s little camera`;
 }
 
-const BlogHeader: FC<{ name: string; battery: number; viewer: Viewer; meUrl: string }> = ({ name, battery, viewer, meUrl }) => (
+const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer; meUrl: string }> = ({ name, battery, viewer, meUrl }) => (
   <header>
     <a href="/">
       <img src="/avatar.png" width="44" height="44" alt="Profile picture" />
@@ -20,12 +20,14 @@ const BlogHeader: FC<{ name: string; battery: number; viewer: Viewer; meUrl: str
       <b>
         <a href="/">{blogTitle(name)}</a>
       </b>
-      <span class="batt">
-        <span class="cell">
-          <i class="dither50" style={`width:${battery}%`}></i>
+      {battery === null ? null : (
+        <span class="batt">
+          <span class="cell">
+            <i class="dither50" style={`width:${battery}%`}></i>
+          </span>
+          {battery}%
         </span>
-        {battery}%
-      </span>
+      )}
     </div>
     {viewer.kind === 'anonymous' ? (
       <a class="btn" id="subbtn" href="#join" aria-expanded="false">
@@ -154,7 +156,7 @@ const DESCRIPTION = 'Photos from a little camera. New ones arrive on their own.'
 
 export interface BlogPage {
   blog: BlogRow;
-  battery: number;
+  battery: number | null;
   meUrl: string;
   avatarUrl: string;
   blogRoot: string;

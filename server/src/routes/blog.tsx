@@ -8,7 +8,6 @@ import * as subscribers from '../core/subscribers.js';
 import { viewerOf, type Viewer } from '../core/blogs.js';
 import { comment } from '../core/photos.js';
 import type { Env } from '../env.js';
-import { batteryPercent } from '../lib/battery.js';
 import { formatMeta } from '../lib/dates.js';
 import { findCameraByBlog } from '../repo/cameras.js';
 import { commentsForPhotos } from '../repo/comments.js';
@@ -39,11 +38,8 @@ const JOIN_NOTICES: Record<string, string> = {
 export function blogRoutes(env: Env): Hono<BlogEnv> {
   const app = new Hono<BlogEnv>();
 
-  const battery = (blog: BlogRow): number => {
-    const camera = findCameraByBlog(env.db, blog.id);
-    const now = env.now();
-    return camera ? batteryPercent(camera.id, camera.bound_at ?? now, now) : 100;
-  };
+  // What the camera last told the phone, or nothing: an indicator that invents a number is worse than no indicator.
+  const battery = (blog: BlogRow): number | null => findCameraByBlog(env.db, blog.id)?.battery_percent ?? null;
 
   function articles(blog: BlogRow, photos: PhotoRow[]): ArticleData[] {
     const comments = commentsForPhotos(env.db, photos.map((p) => p.id), blog.name);

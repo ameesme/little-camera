@@ -66,6 +66,22 @@ export function cameraLinkedMail(p: { name: string; blogUrl: string }): Mail {
   };
 }
 
+export function deviceClaimMail(p: { name: string; blogName: string; shortCode: string; url: string }): Mail {
+  return {
+    subject: `Let a phone manage ${p.blogName}?`,
+    text: `Hi ${p.name},\n\nA phone holding camera ${p.shortCode} asked to manage ${p.blogName}. If that was you, open this link to let it in:\n\n${p.url}\n\nThe link works for an hour. If it was not you, ignore this: the phone cannot see your pictures until you do.\n`,
+    html: shell(
+      'Let this phone in?',
+      [
+        `Hi ${esc(p.name)},`,
+        `A phone holding camera <strong>${esc(p.shortCode)}</strong> asked to manage ${esc(p.blogName)}. If that was you, let it in. The link works for an hour.`,
+        'If it was not you, ignore this. The phone cannot see your pictures until you open it.',
+      ],
+      { label: 'Let this phone in', url: p.url },
+    ),
+  };
+}
+
 export function newSubscriberMail(p: { ownerName: string; email: string; meUrl: string }): Mail {
   return {
     subject: `${p.email} wants to follow your little camera`,

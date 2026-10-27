@@ -124,6 +124,11 @@ export async function upload(
   return { status: res.status, body: await res.json() };
 }
 
+export async function cameraDelete(world: TestWorld, path: string, cam = CAM) {
+  const res = await world.app.request(apex(`/api/camera${path}`, { method: 'DELETE', headers: cameraHeaders(cam) }));
+  return { status: res.status, body: await res.json() };
+}
+
 export async function cameraGet(world: TestWorld, path: string, cam = CAM) {
   const res = await world.app.request(apex(`/api/camera${path}`, { headers: cameraHeaders(cam) }));
   return { status: res.status, body: await res.json() };

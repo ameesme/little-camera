@@ -30,6 +30,10 @@ export function listSubscribers(db: Db, blogId: number): SubscriberRow[] {
   return db.prepare('SELECT * FROM subscribers WHERE blog_id = ? ORDER BY id').all(blogId) as unknown as SubscriberRow[];
 }
 
+export function deleteSubscriber(db: Db, id: number): void {
+  db.prepare('DELETE FROM subscribers WHERE id = ?').run(id);
+}
+
 export function listApprovedSubscribers(db: Db): SubscriberRow[] {
   return db.prepare(`SELECT * FROM subscribers WHERE status = 'approved' ORDER BY id`).all() as unknown as SubscriberRow[];
 }
