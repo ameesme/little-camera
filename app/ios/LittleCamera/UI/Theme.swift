@@ -69,11 +69,15 @@ struct BlackButton: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
-        let inverted = configuration.isPressed || !isEnabled
+        let plain = configuration.isPressed || !isEnabled
         return configuration.label
             .frame(maxWidth: .infinity, minHeight: 54)
-            .foregroundStyle(inverted ? Theme.ink : Theme.paper)
-            .background(inverted ? Theme.paper : Theme.ink)
+            .foregroundStyle(plain ? Theme.ink : Theme.paper)
+            .background {
+                // Not answerable yet, so the fill goes to the checker rather than to
+                // white, which would make it the button underneath it.
+                if isEnabled { configuration.isPressed ? AnyView(Theme.paper) : AnyView(Theme.ink) } else { AnyView(Dither()) }
+            }
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
     }
 }
@@ -94,11 +98,16 @@ struct Field: View {
     let placeholder: String
     @Binding var text: String
     var keyboard: UIKeyboardType = .default
+    /// Set where the screen asks one question, so the keyboard is already up.
+    var autofocus = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 4) {
             TextField(placeholder, text: $text)
                 .font(Theme.font(16))
+                .focused($focused)
+                .task { focused = autofocus }
                 .textFieldStyle(.plain)
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(.never)

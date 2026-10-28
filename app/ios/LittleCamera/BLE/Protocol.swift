@@ -373,25 +373,3 @@ enum CRC32 {
     }
 }
 
-// MARK: - Short code (§1)
-
-enum ShortCode {
-    /// 32 characters, no `0 O 1 I`.
-    static let alphabet: [Character] = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-
-    /// Test vectors shared with the firmware and the server: 7cdfa1e2b3c4 → MM48F3, 000000000000 → 882TLC, ffffffffffff → XMZZZZ.
-    static func compute(_ cameraId: String) -> String {
-        let hash = Array(SHA256.hash(data: Data(cameraId.utf8)))
-        // First 40 bits, big-endian; six 5-bit groups from the top.
-        var v: UInt64 = 0
-        for i in 0..<5 {
-            v = (v << 8) | UInt64(hash[i])
-        }
-        var code = ""
-        for i in 0..<6 {
-            let shift = UInt64(35 - 5 * i)
-            code.append(alphabet[Int((v >> shift) & 31)])
-        }
-        return code
-    }
-}

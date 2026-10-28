@@ -6,7 +6,7 @@ struct ClaimStage: View {
     let model: AppModel
 
     var body: some View {
-        DeviceStage(title: "Is this your blog?") {
+        DeviceStage(title: "Is this your blog?", mood: .mail) {
             if let bound = model.blog.bound {
                 Text(bound.url.withoutScheme)
                     .font(Theme.font(20, bold: true))

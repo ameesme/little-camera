@@ -4,6 +4,8 @@ import Foundation
 @Observable @MainActor
 final class AppModel {
     enum Stage {
+        /// Nothing has happened yet: what the camera is, and the way in.
+        case intro
         /// No camera chosen yet: pick the server and the camera.
         case setup
         /// Paired, and the camera is behind the firmware the server has published.
@@ -18,6 +20,9 @@ final class AppModel {
 
     /// Set once the owner has waved the firmware offer away, so it does not block them twice.
     private var firmwareDeferred = false
+    /// Mirrors the stored flag, because `stage` has to be recomputed the moment it changes.
+    private var avatarSkipped: Bool
+    private var started = false
 
     let camera: CameraSession
     let blog: Blog
@@ -33,6 +38,7 @@ final class AppModel {
         let settings = Settings()
         self.settings = settings
         serverURL = settings.serverBaseURL
+        avatarSkipped = settings.avatarSkipped
         server = ServerClient(baseURL: AppModel.url(from: settings.serverBaseURL))
         camera = CameraSession(settings: settings, server: server, log: log)
         blog = Blog(server: server)
@@ -44,19 +50,22 @@ final class AppModel {
         if let forced = Demo.stage {
             camera.seedDemo(info: Demo.info)
             blog.seedDemo(
-                status: Demo.status(claim: forced == .claim ? .pending : .approved, bound: forced != .onboarding),
-                photos: forced == .ready ? Demo.photos : []
+                status: Demo.status(claim: forced == .claim ? .pending : .approved, bound: Demo.step == .avatar || (Demo.step == nil && forced != .onboarding)),
+                photos: forced == .ready ? Demo.photos : [],
+                code: Demo.code,
+                asked: Demo.asked
             )
+            if let found = Demo.found { camera.seedFound(found) }
             firmware.seedDemo(release: Demo.release)
         }
     }
 
     var stage: Stage {
         if let forced = Demo.stage { return forced }
-        if !camera.isPaired { return .setup }
+        if !camera.isPaired { return started ? .setup : .intro }
         if !firmwareDeferred && firmware.isAvailable(for: camera) { return .firmware }
         switch blog.claim {
-        case .approved: return .ready
+        case .approved: return blog.needsAvatar && !avatarSkipped ? .onboarding : .ready
         case .pending: return .claim
         case .unbound, .none: return .onboarding
         }
@@ -66,14 +75,28 @@ final class AppModel {
         firmwareDeferred = true
     }
 
+    func getStarted() {
+        started = true
+    }
+
+    /// The blog keeps its empty head and the tabs take over.
+    func skipAvatar() {
+        avatarSkipped = true
+        settings.avatarSkipped = true
+    }
+
     /// Logging out and disconnecting are the same act: this phone forgets the camera and the blog at once.
     func disconnect() {
         firmwareDeferred = false
+        avatarSkipped = false
+        started = true
         blog.forget()
         camera.forget()
     }
 
     func start() {
+        // A demo run is seeded data and nothing else: no radio, no server, nothing to overwrite it.
+        guard Demo.stage == nil else { return }
         camera.onAwake = { [weak self] in self?.firmware.settle() }
         camera.onAvatarTaken = { [weak self] in self?.blog.avatarTaken() }
         camera.onConnected = { [weak self] in self?.refresh() }
@@ -82,6 +105,7 @@ final class AppModel {
     }
 
     func refresh() {
+        guard Demo.stage == nil else { return }
         blog.refresh()
         camera.reportTelemetry()
         firmware.refresh(installed: camera.info?.firmware, published: blog.publishedFirmware)

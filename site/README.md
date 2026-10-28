@@ -8,7 +8,11 @@ The device on it is a **placeholder** at the real dimensions: 57.6 × 34.56 mm o
 
 ## Remaking the assets
 
-The screens are real frames from the firmware's preview tool (`sleep`, `sleep --breath`, `viewfinder --src`, `gallery --pbm`, over `packages/pbm/fixtures/`). Render at 400×240 and replace the matching base64 string in `SCREENS` in `camera-element.js`. The four sleeping faces (`sleep`, `fine`, `glum`, `sad`, each with its `A`/`B` breath frame) follow `docs/mood.md`, and a scene key ending in `A` or `B` is what makes the element breathe:
+The photographic screens are real frames from the firmware's preview tool (`viewfinder --src`, `gallery --pbm`, over `packages/pbm/fixtures/`). Render at 400×240 and replace the matching base64 string in `SCREENS` in `camera-element.js`. The rest are generated, and the generators write straight into that object:
+
+- `tools/gen_faces.py` draws the four sleeping faces (`sleep`, `fine`, `glum`, `sad`, each with its `A`/`B` breath frame) from the geometry in `firmware/src/display.cpp`, and asserts its band-3 output matches the committed `sleepA`/`sleepB` so the art cannot drift from the panel's. A scene key ending in `A` or `B` is what makes the element breathe.
+- `tools/gen_icons.py` lifts `mail`, `send`, `images` and `camera` straight out of `firmware/src/icons.h`, so the app's screens are the camera's own Lucide icons rather than a second set drawn by hand.
+
 
 ```
 cd firmware/tools/preview && make

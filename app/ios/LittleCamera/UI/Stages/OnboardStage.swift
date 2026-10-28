@@ -5,16 +5,19 @@ import SwiftUI
 struct OnboardStage: View {
     let model: AppModel
 
-    enum Step {
+    /// One question per screen, in the order the server needs the answers.
+    enum Step: Equatable {
         case choose
-        case create
+        case name
+        case email
+        case handle
         case signIn
         case sent
         case bind
         case avatar
     }
 
-    @State private var step: Step = .choose
+    @State private var step: Step = Demo.step ?? .choose
     @State private var name = ""
     @State private var email = ""
     @State private var handle = ""
@@ -26,7 +29,8 @@ struct OnboardStage: View {
             } else {
                 DeviceStage(
                     title: title,
-                    celebrate: model.blog.isLinked ? 1 : 0
+                    mood: mood,
+                    turn: model.blog.isLinked ? 1 : 0
                 ) {
                     content
                     if let error = model.blog.error {
@@ -45,10 +49,21 @@ struct OnboardStage: View {
         }
     }
 
+    private var mood: DeviceMood {
+        switch step {
+        case .choose, .name, .email, .handle, .signIn: return .images
+        case .sent: return .mail
+        case .bind: return .images
+        case .avatar: return .camera
+        }
+    }
+
     private var title: String {
         switch step {
         case .choose: return "Ready to blog?"
-        case .create: return "Make a blog"
+        case .name: return "What should we call you?"
+        case .email: return "Your email"
+        case .handle: return "Pick an address"
         case .signIn, .sent: return "Sign in"
         case .bind: return ""
         case .avatar: return "One of you"
@@ -59,15 +74,18 @@ struct OnboardStage: View {
         switch step {
         case .choose:
             Text("Get started with a new blog\nor continue one you already have")
-        case .create:
-            Field(placeholder: "Your name", text: $name)
-            Field(placeholder: "you@example.com", text: $email, keyboard: .emailAddress)
-            Field(placeholder: "handle", text: $handle)
-            Text("\(handle.isEmpty ? "handle" : handle).\(model.serverURL.withoutScheme)")
-                .font(Theme.small)
+        case .name:
+            Text("It goes under every picture you send.")
+            Field(placeholder: "Your name", text: $name, autofocus: true)
+        case .email:
+            Text("The only way back in, so make it one you read.")
+            Field(placeholder: "you@example.com", text: $email, keyboard: .emailAddress, autofocus: true)
+        case .handle:
+            Text("\(handle.isEmpty ? "yours" : handle).\(model.serverURL.withoutScheme)")
+            Field(placeholder: "yours", text: $handle, autofocus: true)
         case .signIn:
             Text("The address your blog is registered to.")
-            Field(placeholder: "you@example.com", text: $email, keyboard: .emailAddress)
+            Field(placeholder: "you@example.com", text: $email, keyboard: .emailAddress, autofocus: true)
         case .sent:
             Text("Check your email. The link works for an hour.")
             Waiting(text: "Waiting for you")
@@ -86,24 +104,28 @@ struct OnboardStage: View {
     @ViewBuilder private var buttons: some View {
         switch step {
         case .choose:
-            Button { step = .create } label: { Caption("Make a blog") }
+            Button { step = .name } label: { Caption("Make a blog") }
                 .buttonStyle(BlackButton())
             Button { step = .signIn } label: { Caption("I already have one") }
                 .buttonStyle(QuietButton())
-        case .create:
+        case .name:
+            next(to: .email, enabled: !name.trimmed.isEmpty)
+            back(to: .choose)
+        case .email:
+            next(to: .handle, enabled: email.trimmed.contains("@"))
+            back(to: .name)
+        case .handle:
             Button { model.blog.createBlog(name: name, email: email, handle: handle) } label: {
                 Caption("Make it")
             }
             .buttonStyle(BlackButton())
-            .disabled(name.trimmed.isEmpty || email.trimmed.isEmpty || handle.trimmed.isEmpty)
-            Button { step = .choose } label: { Caption("Back") }
-                .buttonStyle(QuietButton())
+            .disabled(handle.trimmed.isEmpty)
+            back(to: .email)
         case .signIn:
             Button { model.blog.signIn(email: email); step = .sent } label: { Caption("Email me a link") }
                 .buttonStyle(BlackButton())
                 .disabled(email.trimmed.isEmpty)
-            Button { step = .choose } label: { Caption("Back") }
-                .buttonStyle(QuietButton())
+            back(to: .choose)
         case .sent:
             Button { model.refresh(); step = .bind } label: { Caption("I opened it") }
                 .buttonStyle(BlackButton())
@@ -119,29 +141,44 @@ struct OnboardStage: View {
         }
     }
 
+    private func next(to target: Step, enabled: Bool) -> some View {
+        Button { step = target } label: { Caption("Next") }
+            .buttonStyle(BlackButton())
+            .disabled(!enabled)
+    }
+
+    private func back(to target: Step) -> some View {
+        Button { step = target } label: { Caption("Back") }
+            .buttonStyle(QuietButton())
+    }
+
     /// The code fills the screen, because the camera has to read it off this glass.
     private var bindScreen: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             Text("Point the camera at this")
-                .font(Theme.font(26, bold: true))
-                .kerning(-0.5)
-                .card()
+                .font(Theme.font(30, bold: true))
+                .kerning(-1)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, Theme.pad)
             if let code = model.blog.verificationCode {
                 QRView(code: code)
                     .padding(.horizontal, Theme.pad)
+                    .padding(.top, 24)
             } else {
                 Dither().aspectRatio(1, contentMode: .fit).padding(.horizontal, Theme.pad)
             }
             Text("Holding the camera is the proof. Nothing is typed.")
-                .font(Theme.small)
-                .card()
+                .font(Theme.lead)
+                .padding(.top, 20)
             Waiting(text: "Waiting for the camera")
+                .padding(.top, 10)
             Spacer(minLength: 0)
             Button { model.refresh() } label: { Caption("Check again") }
                 .buttonStyle(QuietButton())
                 .card()
         }
+        .multilineTextAlignment(.center)
         .background(Theme.paper.ignoresSafeArea())
         .task { model.blog.fetchVerificationCode() }
     }

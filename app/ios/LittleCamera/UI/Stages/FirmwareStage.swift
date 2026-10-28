@@ -5,13 +5,13 @@ struct FirmwareStage: View {
     let model: AppModel
 
     var body: some View {
-        DeviceStage(title: "New firmware") {
+        DeviceStage(title: "New firmware", mood: .send) {
             if let release = model.firmware.release {
                 Caption("\(model.camera.info?.firmware ?? "?") → \(release.version)")
                 if let notes = release.notes, !notes.isEmpty {
                     Text(notes)
                 }
-                Text("It goes to the spare slot and is checked before anything switches.")
+                Text("Takes a minute. Keep the phone close to it.")
                     .font(Theme.small)
             }
             if model.firmware.isRunning {

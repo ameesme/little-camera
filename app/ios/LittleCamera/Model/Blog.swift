@@ -22,7 +22,8 @@ final class Blog {
     var bound: BoundBlog? { status?.bound }
     var isLinked: Bool { status?.bound != nil }
     var claim: ClaimState? { status?.claim }
-    var isMine: Bool { status?.claim == .approved }
+    /// The blog has no picture at its head yet, which is the last thing onboarding asks for.
+    var needsAvatar: Bool { status.map { !$0.avatar.hasAvatar } ?? false }
     var subscribers: [Subscriber] { status?.subscribers ?? [] }
     var waiting: [Subscriber] { subscribers.filter { $0.status == "pending" } }
     var approved: [Subscriber] { subscribers.filter { $0.status == "approved" } }
@@ -125,11 +126,15 @@ final class Blog {
 
     func avatarTaken() {
         awaitingAvatar = false
+        refresh()
     }
 
-    func seedDemo(status: StatusResponse, photos: [FeedPhoto]) {
+    func seedDemo(status: StatusResponse, photos: [FeedPhoto], code: String?, asked: Bool) {
         self.status = status
         self.photos = photos
+        verificationCode = code
+        askedToBeLetIn = asked
+        awaitingAvatar = Demo.name == "avatar"
     }
 
     func forget() {

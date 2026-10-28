@@ -9,6 +9,7 @@ struct RootView: View {
         ZStack {
             Group {
                 switch model.stage {
+                case .intro: IntroStage(model: model)
                 case .setup: SetupStage(model: model)
                 case .firmware: FirmwareStage(model: model)
                 case .claim: ClaimStage(model: model)
@@ -41,7 +42,7 @@ struct Splash: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
-            Device(celebrate: turn)
+            Device(turn: turn)
             Wordmark()
                 .padding(.top, 8)
             Spacer()
@@ -52,17 +53,17 @@ struct Splash: View {
     }
 }
 
-/// `little camera`, set tight and heavy, the way the landing page sets it.
+/// The logo itself, the same file the board is silkscreened from.
 struct Wordmark: View {
+    var width: CGFloat = 190
+
     var body: some View {
-        VStack(alignment: .leading, spacing: -6) {
-            Text("little")
-            Text("camera")
-        }
-        .font(Theme.font(38, bold: true))
-        .kerning(-1.5)
-        .accessibilityElement()
-        .accessibilityLabel("Little Camera")
+        Image("Wordmark")
+            .renderingMode(.template)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: width)
+            .accessibilityLabel("Little Camera")
     }
 }
 
@@ -71,14 +72,15 @@ struct Wordmark: View {
 struct DeviceStage<Content: View, Actions: View>: View {
     let title: String
     var mood: DeviceMood = .asleep
-    var celebrate: Int = 0
+    var turn: Int = 0
+    var lit: Bool = true
     @ViewBuilder var content: () -> Content
     @ViewBuilder var actions: () -> Actions
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
-            Device(mood: mood, celebrate: celebrate)
+            Device(mood: mood, turn: turn, lit: lit)
             VStack(spacing: 12) {
                 Text(title)
                     .font(Theme.font(30, bold: true))

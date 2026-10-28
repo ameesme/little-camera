@@ -19,6 +19,7 @@ final class Settings {
         static let uploadedHashes = "uploadedHashes"
         static let uploadedCount = "uploadedCount"
         static let lastSyncAt = "lastSyncAt"
+        static let avatarSkipped = "avatarSkipped"
     }
 
     var serverBaseURL: String {
@@ -53,6 +54,12 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.uploadedCount) }
     }
 
+    /// The owner waved the blog's picture away. Asked once, not at every launch.
+    var avatarSkipped: Bool {
+        get { defaults.bool(forKey: Key.avatarSkipped) }
+        set { defaults.set(newValue, forKey: Key.avatarSkipped) }
+    }
+
     var lastSyncAt: Date? {
         get { defaults.object(forKey: Key.lastSyncAt) as? Date }
         set { defaults.set(newValue, forKey: Key.lastSyncAt) }
@@ -60,7 +67,7 @@ final class Settings {
 
     /// Everything this phone knew about the camera it was paired with. The secret is in the keychain, not here.
     func forgetCamera() {
-        for key in [Key.cameraId, Key.pairedPeripheralId, Key.uploadedIndices, Key.uploadedHashes, Key.uploadedCount, Key.lastSyncAt] {
+        for key in [Key.cameraId, Key.pairedPeripheralId, Key.uploadedIndices, Key.uploadedHashes, Key.uploadedCount, Key.lastSyncAt, Key.avatarSkipped] {
             defaults.removeObject(forKey: key)
         }
     }

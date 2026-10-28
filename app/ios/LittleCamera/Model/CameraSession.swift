@@ -57,7 +57,6 @@ final class CameraSession {
     var isReady: Bool { link?.isReady ?? false }
     var canUpdateFirmware: Bool { link?.canUpdate ?? false }
     var isSyncing: Bool { sync?.isRunning ?? false }
-    var shortCode: String? { cameraId.map { ShortCode.compute($0) } }
 
     var progress: Double {
         if case .syncing(let done, let total) = state, total > 0 { return Double(done) / Double(total) }
@@ -111,7 +110,13 @@ final class CameraSession {
         }
     }
 
+    func seedFound(_ camera: Found) {
+        found = [camera]
+        state = .scanning
+    }
+
     func seedDemo(info: CameraInfo) {
+        bluetooth = .poweredOn
         self.info = info
         cameraId = info.cameraId
         name = info.deviceName

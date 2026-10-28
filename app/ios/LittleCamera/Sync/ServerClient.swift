@@ -39,7 +39,6 @@ struct FeedPage: Codable, Equatable {
 
 struct HelloResponse: Codable {
     let cameraId: String
-    let shortCode: String
     let bound: BoundBlog?
     let serverTime: Int
 }
@@ -85,7 +84,6 @@ struct FirmwareState: Codable, Equatable {
 
 struct StatusResponse: Codable, Equatable {
     let cameraId: String
-    let shortCode: String
     let bound: BoundBlog?
     let avatar: AvatarState
     let firmware: FirmwareState?

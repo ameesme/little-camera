@@ -8,7 +8,7 @@ struct QRView: View {
     let code: String
 
     var body: some View {
-        VStack(spacing: 10) {
+        Group {
             if let image = QRView.render("LC:\(code)") {
                 Image(decorative: image, scale: 1)
                     .resizable()
@@ -17,9 +17,6 @@ struct QRView: View {
                     .padding(12)
                     .background(Theme.paper)
             }
-            Text("LC:\(code)")
-                .font(Theme.font(15, bold: true))
-                .kerning(2)
         }
         .accessibilityLabel("QR code \(code)")
     }

@@ -22,7 +22,7 @@ struct BlogTab: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if blog.photos.isEmpty {
                         Text("No pictures yet. Take one and press send.")
-                            .font(Theme.small)
+                            .font(Theme.lead)
                             .card()
                     }
                     ForEach(blog.photos) { photo in
@@ -189,18 +189,6 @@ private struct LogSheet: View {
             }
             .navigationTitle("Activity")
             .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}
-
-extension View {
-    /// `sheet(item:)` with a name that reads at the call site.
-    func sheet<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        sheet(isPresented: Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } })) {
-            if let value = item.wrappedValue { content(value) }
         }
     }
 }

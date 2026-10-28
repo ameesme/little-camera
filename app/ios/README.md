@@ -19,7 +19,7 @@ Every stage renders in the simulator without a camera, which is how the screensh
 xcrun simctl launch booted me.amees.littlecamera -demo onboarding
 ```
 
-`-demo <setup|firmware|claim|onboarding|ready>` seeds `Demo.swift` with a plausible camera, blog and feed and drops the app straight into that stage.
+`-demo <name>` seeds `Demo.swift` with a plausible camera, blog and feed and drops the app straight into that screen, with the radio and the server both switched off so nothing overwrites it. The names are the stages (`intro`, `setup`, `firmware`, `claim`, `onboarding`, `ready`) plus the screens inside them: `found`, `create`, `handle`, `signin`, `sent`, `bind`, `avatar`, `asked`.
 
 ## Layout
 
@@ -39,9 +39,11 @@ UI/       Stages/         setup → firmware → claim or onboarding → ready
           Ground          the landing page's dithered vignette, as a cached CGImage
 ```
 
-The app is **staged**, not one long page. `AppModel.stage` decides which of five takes the screen: `setup` until a camera is picked, `firmware` while there is an update worth offering, then either `claim` (the camera already posts to a blog, so the owner's inbox has to let this phone in) or `onboarding` (no blog yet: make one or sign into one, photograph the code, take the picture that heads it), and finally `ready`, which is the two tabs.
+The app is **staged**, not one long page. `AppModel.stage` decides which of six takes the screen: `intro` until the owner presses Get started, `setup` until a camera is picked, `firmware` while there is an update worth offering, then either `claim` (the camera already posts to a blog, so the owner's inbox has to let this phone in) or `onboarding` (no blog yet: make one or sign into one, photograph the code, take the picture that heads it), and finally `ready`, which is the two tabs. Onboarding asks one question per screen and never puts two fields on one.
 
-The camera on screen is the same object as the one on lttl.cam: `UI/Device/DeviceView.swift` is a `WKWebView` loading `Resources/device.html`, which loads `site/camera-element.js` straight out of the site directory — one file, no copy, listed in `project.yml`. Swift talks to it through `window.lc`, and the face it shows is the camera's own mood off Info (`docs/mood.md`), never something the app decided.
+The camera on screen is the same object as the one on lttl.cam: its panel shows the camera's own mood while it sleeps, and the icons it shows otherwise are lifted from `firmware/src/icons.h`, so the app never invents artwork the device could not draw itself.
+
+ `UI/Device/DeviceView.swift` is a `WKWebView` loading `Resources/device.html`, which loads `site/camera-element.js` straight out of the site directory — one file, no copy, listed in `project.yml`. Swift talks to it through `window.lc`, and the face it shows is the camera's own mood off Info (`docs/mood.md`), never something the app decided.
 
 Every call to the server goes through one `perform` in `Blog`, so there is exactly one place where a failure becomes a line on screen.
 
