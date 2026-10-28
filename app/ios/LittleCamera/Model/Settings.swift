@@ -20,6 +20,7 @@ final class Settings {
         static let uploadedCount = "uploadedCount"
         static let lastSyncAt = "lastSyncAt"
         static let avatarSkipped = "avatarSkipped"
+        static let setUp = "setUp"
     }
 
     var serverBaseURL: String {
@@ -54,6 +55,13 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.uploadedCount) }
     }
 
+    /// True once a camera and a blog have been through the whole way in, so a launch
+    /// after that opens on the blog rather than on the way in again.
+    var setUp: Bool {
+        get { defaults.bool(forKey: Key.setUp) }
+        set { defaults.set(newValue, forKey: Key.setUp) }
+    }
+
     /// The owner waved the blog's picture away. Asked once, not at every launch.
     var avatarSkipped: Bool {
         get { defaults.bool(forKey: Key.avatarSkipped) }
@@ -67,7 +75,7 @@ final class Settings {
 
     /// Everything this phone knew about the camera it was paired with. The secret is in the keychain, not here.
     func forgetCamera() {
-        for key in [Key.cameraId, Key.pairedPeripheralId, Key.uploadedIndices, Key.uploadedHashes, Key.uploadedCount, Key.lastSyncAt, Key.avatarSkipped] {
+        for key in [Key.cameraId, Key.pairedPeripheralId, Key.uploadedIndices, Key.uploadedHashes, Key.uploadedCount, Key.lastSyncAt, Key.avatarSkipped, Key.setUp] {
             defaults.removeObject(forKey: key)
         }
     }

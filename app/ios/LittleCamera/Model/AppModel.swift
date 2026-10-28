@@ -22,6 +22,8 @@ final class AppModel {
     private var firmwareDeferred = false
     /// Mirrors the stored flag, because `stage` has to be recomputed the moment it changes.
     private var avatarSkipped: Bool
+    /// Mirrors the stored flag for the same reason.
+    private var setUp: Bool
     private var started = false
 
     let camera: CameraSession
@@ -39,6 +41,7 @@ final class AppModel {
         self.settings = settings
         serverURL = settings.serverBaseURL
         avatarSkipped = settings.avatarSkipped
+        setUp = settings.setUp
         server = ServerClient(baseURL: AppModel.url(from: settings.serverBaseURL))
         camera = CameraSession(settings: settings, server: server, log: log)
         blog = Blog(server: server)
@@ -62,7 +65,9 @@ final class AppModel {
 
     var stage: Stage {
         if let forced = Demo.stage { return forced }
-        if !camera.isPaired { return started ? .setup : .intro }
+        // Until a camera and a blog have found each other, every launch opens on the way in.
+        if !started && !setUp { return .intro }
+        if !camera.isPaired { return .setup }
         if !firmwareDeferred && firmware.isAvailable(for: camera) { return .firmware }
         switch blog.claim {
         case .approved: return blog.needsAvatar && !avatarSkipped ? .onboarding : .ready
@@ -89,7 +94,9 @@ final class AppModel {
     func disconnect() {
         firmwareDeferred = false
         avatarSkipped = false
-        started = true
+        setUp = false
+        settings.setUp = false
+        started = false
         blog.forget()
         camera.forget()
     }
@@ -97,6 +104,11 @@ final class AppModel {
     func start() {
         // A demo run is seeded data and nothing else: no radio, no server, nothing to overwrite it.
         guard Demo.stage == nil else { return }
+        blog.onStatus = { [weak self] status in
+            guard let self, status.claim == .approved, status.bound != nil else { return }
+            setUp = true
+            settings.setUp = true
+        }
         camera.onAwake = { [weak self] in self?.firmware.settle() }
         camera.onAvatarTaken = { [weak self] in self?.blog.avatarTaken() }
         camera.onConnected = { [weak self] in self?.refresh() }

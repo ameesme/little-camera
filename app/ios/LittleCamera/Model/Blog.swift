@@ -23,6 +23,9 @@ final class Blog {
         case taken
     }
 
+    /// Raised on every answer from /status, so the app can remember that this phone is set up.
+    var onStatus: (@MainActor (StatusResponse) -> Void)?
+
     private let server: ServerClient
 
     init(server: ServerClient) {
@@ -44,6 +47,7 @@ final class Blog {
         perform { [self] in
             let fresh = try await server.status()
             status = fresh
+            onStatus?(fresh)
             awaitingAvatar = fresh.avatar.requestedAt != nil && !fresh.avatar.hasAvatar
             if fresh.claim == .approved { await loadFeed(reset: true) }
         }

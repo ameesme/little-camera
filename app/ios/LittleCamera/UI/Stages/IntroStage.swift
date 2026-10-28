@@ -19,11 +19,11 @@ struct IntroStage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Capped, so the slack falls below the lockup rather than around it.
-            Spacer(minLength: 16).frame(maxHeight: 40)
+            // The wordmark sits at the top of the page; the camera keeps the middle.
             Wordmark()
+                .padding(.top, 8)
+            Spacer(minLength: 20)
             Device(mood: current.mood, turn: turns)
-                .padding(.top, 20)
             Text(current.line)
                 .font(Theme.lead)
                 .multilineTextAlignment(.center)
