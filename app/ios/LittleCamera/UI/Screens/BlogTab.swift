@@ -88,18 +88,6 @@ private struct PhotoPost: View {
                 Dither().aspectRatio(4.0 / 3.0, contentMode: .fit)
             }
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
-            .contextMenu {
-                Button { save() } label: { Label("Save to photos", systemImage: "square.and.arrow.down") }
-                Button(role: .destructive) { confirmingDelete = true } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-            .confirmationDialog("Delete this picture?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) { blog.delete(photo) }
-            } message: {
-                Text("It goes off the blog for everyone, with whatever was said under it.")
-            }
-
             Caption(Date(timeIntervalSince1970: TimeInterval(photo.capturedAt)).formatted(date: .abbreviated, time: .shortened))
             ForEach(photo.comments) { comment in
                 Text("**\(comment.name)** \(comment.body)")
@@ -107,6 +95,17 @@ private struct PhotoPost: View {
             }
         }
         .card()
+        .contextMenu {
+            Button { save() } label: { Label("Save to photos", systemImage: "square.and.arrow.down") }
+            Button(role: .destructive) { confirmingDelete = true } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .confirmationDialog("Delete this picture?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { blog.delete(photo) }
+        } message: {
+            Text("It goes off the blog for everyone, with whatever was said under it.")
+        }
     }
 
     /// The server's PNG, not a redraw of it: the dither is the picture (AGENTS.md).
