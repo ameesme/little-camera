@@ -25,6 +25,9 @@ final class AppModel {
     /// Mirrors the stored flag for the same reason.
     private var setUp: Bool
     private var started = false
+    /// `-demo <screen>` pins the stage so a screenshot can be taken of it; pressing the
+    /// way in unpins it, so the flow can still be walked through on a simulator.
+    private var demoStage: Stage? = Demo.stage
 
     let camera: CameraSession
     let blog: Blog
@@ -64,7 +67,7 @@ final class AppModel {
     }
 
     var stage: Stage {
-        if let forced = Demo.stage { return forced }
+        if let demoStage { return demoStage }
         // Until a camera and a blog have found each other, every launch opens on the way in.
         if !started && !setUp { return .intro }
         if !camera.isPaired { return .setup }
@@ -81,6 +84,7 @@ final class AppModel {
     }
 
     func getStarted() {
+        demoStage = nil
         started = true
     }
 

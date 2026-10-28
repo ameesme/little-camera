@@ -5,7 +5,7 @@ struct IntroStage: View {
     let model: AppModel
     @State private var beat = 0
     @State private var turns = 0
-    /// The first seconds are the launch screen: the wordmark and the camera, and nothing to do.
+    /// The camera arrives first and alone; everything that names it follows.
     @State private var settled = false
 
     private static let beats: [(mood: DeviceMood, line: String)] = [
@@ -20,10 +20,11 @@ struct IntroStage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The wordmark sits at the top of the page; the camera keeps the middle.
+            // The camera keeps the middle; the wordmark centres in whatever is left above it.
             Wordmark()
-                .padding(.top, 52)
-            Spacer(minLength: 20)
+                .opacity(settled ? 1 : 0)
+                .offset(y: settled ? 0 : -12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             Device(mood: Self.beats[beat].mood, turn: turns)
             Text(Self.beats[caption].line)
                 .font(Theme.lead)
@@ -35,7 +36,9 @@ struct IntroStage: View {
                 .transition(.opacity)
                 .opacity(settled ? 1 : 0)
                 .offset(y: settled ? 0 : 14)
-            Spacer(minLength: 24)
+            // The same expanding share as the wordmark's, so the camera lands in the middle
+            // and the wordmark halves the gap above it.
+            Color.clear.frame(minHeight: 24, maxHeight: .infinity)
             Button { model.getStarted() } label: { Caption("Get started") }
                 .buttonStyle(BlackButton())
                 .card()

@@ -10,7 +10,7 @@ struct Device: View {
 
     var body: some View {
         DeviceView(mood: mood, turn: turn)
-            .aspectRatio(1.3, contentMode: .fit)
+            .aspectRatio(1.15, contentMode: .fit)
             .containerRelativeFrame(.horizontal) { width, _ in width * 0.72 }
             .blur(radius: lit ? 0 : 12)
             .opacity(lit ? 1 : 0.4)

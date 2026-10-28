@@ -247,6 +247,7 @@ function compile(g, type, src){
 const RAD = Math.PI / 180;
 const ease = (t) => t * t * t * (t * (t * 6 - 15) + 10);
 const SPIN_MS = 1100;
+const RETURN_MS = 520;
 const BREATH_MS = 2500;
 
 const sheet = new CSSStyleSheet();
@@ -264,6 +265,7 @@ class LittleCamera extends HTMLElement {
   #scene = 'sleepA';
   #spinFrom = 0; #spinTo = 0; #spinAt = -1e9;
   #dragYaw = 0; #dragging = false; #dragX = 0;
+  #dragFrom = 0; #releasedAt = -1e9;
   #breathAt = 0; #breathOut = false; #swapAt = 0;
   #frame = 0;
 
@@ -299,7 +301,14 @@ class LittleCamera extends HTMLElement {
       this.#dragX = e.clientX;
     });
     for (const kind of ['pointerup', 'pointercancel', 'pointerleave']) {
-      this.#canvas.addEventListener(kind, () => { this.#dragging = false; });
+      this.#canvas.addEventListener(kind, () => {
+        if (!this.#dragging) return;
+        this.#dragging = false;
+        // Let go and it comes back to where it was, rather than keeping whatever
+        // half-turn the finger left it in.
+        this.#dragFrom = this.#dragYaw;
+        this.#releasedAt = performance.now();
+      });
     }
     this.#resize = () => this.#size();
     addEventListener('resize', this.#resize);
@@ -355,6 +364,8 @@ class LittleCamera extends HTMLElement {
 
   reset() {
     this.#dragYaw = 0;
+    this.#dragFrom = 0;
+    this.#releasedAt = -1e9;
     this.#spinFrom = this.#spinTo = 0;
     this.#spinAt = -1e9;
   }
@@ -440,6 +451,10 @@ class LittleCamera extends HTMLElement {
   }
 
   #draw(now) {
+    if (!this.#dragging && this.#dragYaw !== 0) {
+      const back = Math.min(1, Math.max(0, (now - this.#releasedAt) / RETURN_MS));
+      this.#dragYaw = back >= 1 ? 0 : this.#dragFrom * (1 - ease(back));
+    }
     const spun = Math.min(1, Math.max(0, (now - this.#spinAt) / SPIN_MS));
     const spin = this.#spinFrom + (this.#spinTo - this.#spinFrom) * ease(spun);
     const yaw = (spin + this.#dragYaw) * RAD + Math.sin(now / 11000 * 2 * Math.PI) * 10.5 * RAD;
