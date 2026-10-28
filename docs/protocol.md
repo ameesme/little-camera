@@ -9,7 +9,7 @@ The single source of truth for how the three parties talk. The firmware (`firmwa
 └──────────┘                └──────────┘                        └──────────┘
 ```
 
-The phone is a dumb pipe. It never authenticates as a person; it authenticates **as the camera**, using an id and a secret it read from the camera over an encrypted BLE link. Everything that needs a human (email verification, the QR verification picture, approving subscribers) happens on the server, on the web, or is exposed to the phone as camera-scoped API calls. Firmware travels the same pipe backwards — server to phone over HTTPS (§4.7), phone to camera over BLE (§3.7) — and is verified at the far end, so the pipe stays dumb.
+The phone is a dumb pipe. It never authenticates as a person; it authenticates **as the camera**, using an id and a secret it read from the camera over an encrypted BLE link. Making a blog, showing the QR verification picture and approving subscribers are all camera-scoped API calls the app makes; the web keeps only the two things a person must do out of band, in their own mail client: confirming the address and letting a phone in. Firmware travels the same pipe backwards — server to phone over HTTPS (§4.7), phone to camera over BLE (§3.7) — and is verified at the far end, so the pipe stays dumb.
 
 Hosts: the service is `lttl.cam`. A blog is one label under it (`mees.lttl.cam`), the landing page owns `lttl.cam/`, and everything this server answers on that domain sits under `/api` (machines) or `/app` (people) so a proxy can tell the two apart.
 
@@ -277,7 +277,7 @@ bricking it:
 
 Base: `https://lttl.cam/api/camera`. JSON unless noted. Errors are `{ "error": "<code>", "message": "<human text>" }`.
 
-Only two prefixes on that domain are the server's: `/api/…` for machines and `/app/…` for the pages a person opens. Everything else, `/` above all, belongs to the landing page behind the same proxy. Blogs are unaffected, each owning the root of its own subdomain.
+Only two prefixes on that domain are the server's: `/api/…` for machines and `/app/…` for the two pages an emailed link opens — `/app/verify-email` and `/app/claim`. There is no owner session and no management on the web: the app does all of it over this API. Everything else, `/` above all, belongs to the landing page behind the same proxy. Blogs are unaffected, each owning the root of its own subdomain.
 
 ### 4.1 Authentication
 
@@ -388,7 +388,9 @@ Stored as given. **The percentage is the camera's**: the server does not recompu
 
 The camera credential proves a camera, not a person. Reading a blog's pictures, comments and list is a person's business, so the phone asks the owner once, by email.
 
-- `POST /blog` `{ "name": "…", "email": "…", "handle": "…" }` → `201 { "handle", "url" }`. A new blog, made by the phone holding the camera. `409 already_bound` if the camera has one, `409 handle_taken` / `409 email_taken` otherwise. The phone is let in on the spot — it chose the address — and a confirmation mail goes out. Binding is still the QR photo (§5).
+- `POST /blog` `{ "name": "…", "email": "…", "handle": "…" }` → `201 { "handle", "url" }`. A new blog, made by the phone holding the camera. `409 already_bound` if the camera has one, `409 handle_taken` / `409 email_taken` otherwise. The phone is let in on the spot — it chose the address — and a mail goes out linking to `/app/verify-email?t=…`. The blog answers `404` until that link is opened. Binding is still the QR photo (§5).
+- `GET /handle?handle=…` → `200 { "handle", "available" }`. So the app can say *taken* before the form is sent.
+- `POST /verification-code` `{}` → `201 { "code": "KQ7M2X", "expires_at": … }`. The code the app draws as the QR (§5). `409 no_blog` until there is a blog to bind to, `409 already_bound` once the camera is on one.
 - `POST /claim` `{}` on a bound camera, or `{ "email": "…" }` on an unbound one → `200 { "state": "pending" }` and a mail to the owner. The unbound form answers the same for an address nobody registered.
 - The mail links to `/app/claim?t=…`, which **asks** and grants nothing; the `POST` behind its button is what approves. Mail clients prefetch links, so a GET must not be the grant.
 - The approval names the camera *and* the blog, so a link cannot be replayed onto another phone, and an approval for one blog does not follow the camera to another.
@@ -430,13 +432,13 @@ is trusted with the image.
 
 ## 5. Verification picture
 
-The web page `https://lttl.cam/app/me` for a verified blog with no camera shows a QR code. Payload:
+The app shows a QR code on the phone's own screen, from the code `POST /verification-code` (§4.9) hands it. Payload:
 
 ```
 LC:<6 chars from the alphabet in §1>
 ```
 
-QR version 1 (21×21 modules), error correction **H**, rendered as large as the phone's screen allows with a 4-module quiet zone on white. Code lifetime 15 minutes; the page regenerates on reload.
+QR version 1 (21×21 modules), error correction **H**, rendered as large as the phone's screen allows with a 4-module quiet zone on white. Code lifetime 15 minutes; the app asks for a fresh one when it expires.
 
 The server decodes the uploaded 1-bit photo with these variants until one yields `^LC:[A-Z2-9]{6}$`: `{as-is, 3×3 majority filter}` × nearest-neighbour scale `{2, 3, 1}`, with both polarities. A match binds `camera_id` to the blog, tags the photo `kind = verification`, back-fills the camera's unclaimed photos onto the blog and emails the owner.
 

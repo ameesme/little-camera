@@ -1,7 +1,6 @@
 // Reading the verification QR out of a 1-bit camera photo (protocol §5).
 
 import jsqrModule from 'jsqr';
-import QRCode from 'qrcode';
 import { majority3x3, scaleNearest, toRgba, type Pbm } from '@little-camera/pbm';
 
 // jsqr is CommonJS: plain Node hands back `{ default: jsQR }` while tsx and vitest unwrap it, so accept either.
@@ -25,14 +24,4 @@ export function decodeVerificationCode(pbm: Pbm): string | null {
     }
   }
   return null;
-}
-
-/** Inline SVG of the verification QR: version 1, ECC H, 4-module quiet zone, black on white. */
-export async function verificationQrSvg(code: string): Promise<string> {
-  return QRCode.toString(`LC:${code}`, {
-    type: 'svg',
-    errorCorrectionLevel: 'H',
-    margin: 4,
-    color: { dark: '#000000', light: '#ffffff' },
-  });
 }

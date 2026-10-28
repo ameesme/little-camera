@@ -279,22 +279,4 @@ describe('comments', () => {
     const long = await post(cookie, ids[3], { body: 'x'.repeat(1001) }, true);
     expect(long.status).toBe(400);
   });
-
-  it('lets the owner comment under their own name', async () => {
-    // The owner cookie is set on the apex; on localhost it has no Domain
-    // so we forge the same signed cookie for the blog host in this test.
-    const { setSignedCookie } = await import('hono/cookie');
-    const { Hono } = await import('hono');
-    const probe = new Hono();
-    probe.get('/', async (c) => {
-      await setSignedCookie(c, 'owner', String(mees.id), w.env.config.sessionSecret, { path: '/' });
-      return c.text('ok');
-    });
-    const cookie = cookieJar(await probe.request('/'));
-    const ok = await post(cookie, ids[3], { body: 'thanks all' }, true);
-    expect(await ok.json()).toEqual({ name: 'Mees', body: 'thanks all' });
-    const html = await (await w.app.request(blog('mees', '/', { headers: { cookie } }))).text();
-    expect(html).toContain('<b>Mees</b><span>thanks all</span>');
-    expect(html).toContain('href="http://localhost:3000/app/me"');
-  });
 });

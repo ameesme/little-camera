@@ -43,17 +43,6 @@ export function verifyEmailMail(p: { name: string; url: string }): Mail {
   };
 }
 
-export function loginLinkMail(p: { name: string; url: string }): Mail {
-  return {
-    subject: 'Your sign-in link',
-    text: `Hi ${p.name},\n\nSign in to your little camera:\n\n${p.url}\n\nThe link works for one hour.\n`,
-    html: shell('Sign in', [`Hi ${esc(p.name)},`, 'Sign in to your little camera. The link works for one hour.'], {
-      label: 'Sign in',
-      url: p.url,
-    }),
-  };
-}
-
 export function cameraLinkedMail(p: { name: string; blogUrl: string }): Mail {
   return {
     subject: 'Your camera is linked',
@@ -82,15 +71,14 @@ export function deviceClaimMail(p: { name: string; blogName: string; shortCode: 
   };
 }
 
-export function newSubscriberMail(p: { ownerName: string; email: string; meUrl: string }): Mail {
+export function newSubscriberMail(p: { ownerName: string; email: string }): Mail {
   return {
     subject: `${p.email} wants to follow your little camera`,
-    text: `Hi ${p.ownerName},\n\n${p.email} asked to follow your little camera. Approve them in the app, or here:\n\n${p.meUrl}\n`,
-    html: shell(
-      'Someone wants to follow',
-      [`Hi ${esc(p.ownerName)},`, `<b>${esc(p.email)}</b> asked to follow your little camera. Approve them in the app, or on the web.`],
-      { label: 'Manage subscribers', url: p.meUrl },
-    ),
+    text: `Hi ${p.ownerName},\n\n${p.email} asked to follow your little camera. Open the app to let them in.\n`,
+    html: shell('Someone wants to follow', [
+      `Hi ${esc(p.ownerName)},`,
+      `<b>${esc(p.email)}</b> asked to follow your little camera. Open the app to let them in.`,
+    ]),
   };
 }
 

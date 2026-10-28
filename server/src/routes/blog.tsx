@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { blankPbm, cropSquare, parsePbm, pbmToPng, setPixel } from '@little-camera/pbm';
-import { appUrl, blogUrl } from '../config.js';
+import { blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
 import { viewerOf, type Viewer } from '../core/blogs.js';
 import { comment } from '../core/photos.js';
@@ -21,8 +21,7 @@ import {
 } from '../repo/photos.js';
 import type { BlogRow } from '../repo/blogs.js';
 import { findSubscriberByEmail } from '../repo/subscribers.js';
-import { Simple } from '../views/layout.js';
-import { ExpiredLink, Feed, Teaser, type ArticleData } from '../views/blog.js';
+import { ExpiredLink, Feed, FreshLinkSent, Teaser, type ArticleData } from '../views/blog.js';
 
 type BlogEnv = { Bindings: { blog: BlogRow } };
 
@@ -61,7 +60,6 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
         blog={blog}
         viewer={viewer}
         battery={battery(blog)}
-        meUrl={appUrl(env.config, '/me')}
         avatarUrl={`${blogUrl(env.config, blog.handle)}/avatar.png`}
         blogRoot={`${blogUrl(env.config, blog.handle)}/`}
         articles={articles(blog, page)}
@@ -77,7 +75,6 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
       <Teaser
         blog={blog}
         battery={battery(blog)}
-        meUrl={appUrl(env.config, '/me')}
         avatarUrl={`${blogUrl(env.config, blog.handle)}/avatar.png`}
         blogRoot={`${blogUrl(env.config, blog.handle)}/`}
         articles={newest ? articles(blog, [newest]) : []}
@@ -127,11 +124,7 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
     const email = emailSchema.safeParse(form.email);
     const sub = email.success ? findSubscriberByEmail(env.db, blog.id, email.data) : null;
     if (sub?.status === 'approved') subscribers.sendFreshLink(env, blog, sub);
-    return c.html(
-      <Simple title="Check your email" heading="Check your email">
-        <p>If that address is on the list, a fresh link is on its way.</p>
-      </Simple>,
-    );
+    return c.html(<FreshLinkSent />);
   });
 
   app.post('/subscribe', async (c) => {

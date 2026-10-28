@@ -6,7 +6,6 @@ import { findTokenByHash, insertToken, markTokenUsed, type TokenKind, type Token
 
 export const TOKEN_TTL: Record<TokenKind, number> = {
   subscriber: 48 * 3600,
-  owner_login: 1 * 3600,
   email_verify: 24 * 3600,
   device_claim: 1 * 3600,
 };

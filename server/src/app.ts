@@ -16,8 +16,6 @@ export function createApp(env: Env): Hono {
   owner.route(`${API_PREFIX}/camera`, cameraRoutes(env));
   owner.route(`${API_PREFIX}/firmware`, firmwareRoutes(env));
   owner.route(APP_PREFIX, ownerRoutes(env));
-  // So that a server running on its own — pnpm dev, a bare container — still lands somewhere useful.
-  owner.get('/', (c) => c.redirect(APP_PREFIX, 302));
 
   const blogs = blogRoutes(env);
 

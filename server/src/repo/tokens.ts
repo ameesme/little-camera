@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 
-export type TokenKind = 'subscriber' | 'owner_login' | 'email_verify' | 'device_claim';
+export type TokenKind = 'subscriber' | 'email_verify' | 'device_claim';
 
 export interface TokenRow {
   id: number;

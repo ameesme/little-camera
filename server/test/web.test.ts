@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HANDLE, RESERVED_HANDLES, handleFromHost } from '../src/lib/handles.js';
-import { findCamera } from '../src/repo/cameras.js';
 import { listOutbox } from '../src/repo/outbox.js';
 import { findBlogByHandle } from '../src/repo/blogs.js';
-import { APEX, CAM, appPage, cookieJar, fixture, hello, linkCamera, makeWorld, upload, type TestWorld } from './helpers.js';
+import { APEX, appPage, blog, cameraPost, hello, makeWorld, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
 beforeEach(() => {
@@ -11,31 +10,14 @@ beforeEach(() => {
 });
 afterEach(() => w.cleanup());
 
-const form = (path: string, fields: Record<string, string>, cookie = '') =>
-  w.app.request(
-    appPage(path, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie },
-      body: new URLSearchParams(fields),
-    }),
-  );
-
-// Emailed links carry the app prefix; the token is what the test is after.
 const linkFrom = (text: string, path: string) =>
   text.match(new RegExp(`http://${APEX}/app${path}\\?t=([A-Za-z0-9_-]+)`))![1];
 
-/** Register, click the verification link, return the owner cookie. */
-async function registerAndVerify(handle = 'mees', email = 'mees@example.com') {
-  const res = await form('/register', { name: 'Mees', email, handle });
-  expect(res.status).toBe(200);
-  const mail = listOutbox(w.env.db)[0];
-  const token = linkFrom(mail.text_body, '/verify-email');
-  const verify = await w.app.request(appPage(`/verify-email?t=${token}`));
-  expect(verify.status).toBe(303);
-  expect(verify.headers.get('location')).toBe('/app/me');
-  const cookie = cookieJar(verify);
-  expect(cookie).toMatch(/^owner=/);
-  return cookie;
+/** The app makes the blog; the web only confirms the address. */
+async function makeBlogFromApp() {
+  await hello(w);
+  await cameraPost(w, '/blog', { name: 'Mees', email: 'mees@example.com', handle: 'mees' });
+  return linkFrom(listOutbox(w.env.db)[0].text_body, '/verify-email');
 }
 
 describe('handles', () => {
@@ -53,127 +35,46 @@ describe('handles', () => {
   });
 });
 
-describe('registration', () => {
-  it('validates the form', async () => {
-    expect((await form('/register', { name: 'Mees', email: 'nope', handle: 'mees' })).status).toBe(400);
-    expect((await form('/register', { name: '', email: 'a@b.co', handle: 'mees' })).status).toBe(400);
-    expect((await form('/register', { name: 'Mees', email: 'a@b.co', handle: 'www' })).status).toBe(400);
-    expect((await form('/register', { name: 'Mees', email: 'a@b.co', handle: 'Bad Handle' })).status).toBe(400);
-    expect(await (await form('/register', { name: 'Mees', email: 'a@b.co', handle: 'www' })).text()).toContain('reserved');
+describe('confirming the email', () => {
+  it('is what makes the blog answer, and hands the owner back to the app', async () => {
+    const token = await makeBlogFromApp();
+    expect((await w.app.request(blog('mees', '/'))).status).toBe(404);
+
+    const res = await w.app.request(appPage(`/verify-email?t=${token}`));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('http://mees.localhost:3000');
+    expect(html).toContain('Go back to the app');
+    expect(findBlogByHandle(w.env.db, 'mees')!.email_verified_at).toBe(w.clock.t);
+    expect((await w.app.request(blog('mees', '/'))).status).toBe(200);
   });
 
-  it('registers, verifies by email link and lands on /me with the verification picture', async () => {
-    const cookie = await registerAndVerify();
-    const blog = findBlogByHandle(w.env.db, 'mees')!;
-    expect(blog.email_verified_at).toBe(w.clock.t);
-
-    const me = await w.app.request(appPage('/me', { headers: { cookie } }));
-    expect(me.status).toBe(200);
-    const html = await me.text();
-    expect(html).toContain('<svg');
-    expect(html).toContain('This is my little camera');
-    expect(html).toContain('Take a picture of this and press send');
-    expect(html).toMatch(/LC:[A-Z2-9]{6}/);
-    expect(html).toContain('"/app/me/status"');
-    expect(html).toContain('<meta name="color-scheme" content="light"');
-
-    // The code is in the database and lives 15 minutes.
-    const code = html.match(/LC:([A-Z2-9]{6})/)![1];
-    const row = w.env.db.prepare('SELECT * FROM verification_codes WHERE code = ?').get(code) as { expires_at: number };
-    expect(row.expires_at).toBe(w.clock.t + 900);
-
-    const status = await w.app.request(appPage('/me/status', { headers: { cookie } }));
-    expect(await status.json()).toEqual({ bound: false, url: null });
-
-    // Blog is reachable (teaser) once verified.
-    expect((await w.app.request(new Request('http://mees.localhost:3000/', { headers: { host: 'mees.localhost:3000' } }))).status).toBe(200);
-  });
-
-  it('refuses a taken handle or email, and the blog stays 404 until verified', async () => {
-    await form('/register', { name: 'Mees', email: 'mees@example.com', handle: 'mees' });
-    expect((await w.app.request(new Request('http://mees.localhost:3000/', { headers: { host: 'mees.localhost:3000' } }))).status).toBe(404);
-    expect((await form('/register', { name: 'X', email: 'other@example.com', handle: 'MEES' })).status).toBe(409);
-    expect((await form('/register', { name: 'X', email: 'Mees@Example.com', handle: 'other' })).status).toBe(409);
-  });
-
-  it('expired verification links are refused', async () => {
-    await form('/register', { name: 'Mees', email: 'mees@example.com', handle: 'mees' });
-    const token = linkFrom(listOutbox(w.env.db)[0].text_body, '/verify-email');
+  it('refuses an expired or unknown link', async () => {
+    const token = await makeBlogFromApp();
     w.clock.t += 25 * 3600;
     expect((await w.app.request(appPage(`/verify-email?t=${token}`))).status).toBe(410);
-    expect((await w.app.request(appPage(`/verify-email?t=garbage`))).status).toBe(410);
-  });
-
-  it('/me redirects to /login without a cookie', async () => {
-    const res = await w.app.request(appPage('/me'));
-    expect(res.status).toBe(303);
-    expect(res.headers.get('location')).toBe('/app/login');
+    expect((await w.app.request(appPage('/verify-email?t=garbage'))).status).toBe(410);
+    expect((await w.app.request(appPage('/verify-email'))).status).toBe(410);
   });
 });
 
-describe('login', () => {
-  it('mails a one-hour link to known owners and says the same thing to strangers', async () => {
-    await registerAndVerify();
-    const a = await form('/login', { email: 'mees@example.com' });
-    const b = await form('/login', { email: 'nobody@example.com' });
-    expect(await a.text()).toBe(await b.text());
-    const mails = listOutbox(w.env.db);
-    expect(mails).toHaveLength(2); // verify + login
-    const token = linkFrom(mails[0].text_body, '/login');
-    w.clock.t += 61 * 60;
-    expect((await w.app.request(appPage(`/login?t=${token}`))).status).toBe(410);
-    w.clock.t -= 61 * 60;
-    const ok = await w.app.request(appPage(`/login?t=${token}`));
-    expect(ok.status).toBe(303);
-    expect(cookieJar(ok)).toMatch(/^owner=/);
+describe('the web manages nothing', () => {
+  it('has no owner pages left to open', async () => {
+    for (const path of ['/register', '/login', '/me', '/me/status', '/me/subscribers']) {
+      expect((await w.app.request(appPage(path))).status).toBe(404);
+    }
   });
-});
 
-describe('binding a camera moves its orphan photos across', () => {
-  it('claims what the camera already uploaded, and reports bound afterwards', async () => {
-    const cookie = await registerAndVerify();
-    await hello(w);
-    await upload(w, fixture('cat'), 1);
-    await upload(w, fixture('cup'), 2);
-
-    linkCamera(w, findBlogByHandle(w.env.db, 'mees')!.id);
-    expect(findCamera(w.env.db, CAM.id)!.blog_id).toBe(1);
-    const n = w.env.db.prepare('SELECT COUNT(*) AS n FROM photos WHERE blog_id = 1').get() as { n: number };
-    expect(n.n).toBe(2);
-
-    const status = await w.app.request(appPage('/me/status', { headers: { cookie } }));
-    expect(await status.json()).toEqual({ bound: true, url: 'http://mees.localhost:3000' });
-    const me = await (await w.app.request(appPage('/me', { headers: { cookie } }))).text();
-    expect(me).toContain('http://mees.localhost:3000');
-    expect(me).toContain('Request profile picture');
-  });
-});
-
-describe('owner subscriber management on /me', () => {
-  it('adds, approves and blocks', async () => {
-    const cookie = await registerAndVerify();
-    await hello(w);
-    await upload(w, fixture('cat'), 1);
-    linkCamera(w, findBlogByHandle(w.env.db, 'mees')!.id);
-    expect((await form('/me/subscribers', { email: 'sanne@example.com', name: 'Sanne' }, cookie)).status).toBe(303);
-    const subs = w.env.db.prepare('SELECT * FROM subscribers').all() as { id: number; status: string; name: string }[];
-    expect(subs).toHaveLength(1);
-    expect(subs[0]).toMatchObject({ status: 'approved', name: 'Sanne' });
-    expect(listOutbox(w.env.db)[0].to_email).toBe('sanne@example.com');
-    await form(`/me/subscribers/${subs[0].id}/block`, {}, cookie);
-    expect((w.env.db.prepare('SELECT status FROM subscribers').get() as { status: string }).status).toBe('blocked');
-    await form(`/me/subscribers/${subs[0].id}/approve`, {}, cookie);
-    expect((w.env.db.prepare('SELECT status FROM subscribers').get() as { status: string }).status).toBe('approved');
-    const me = await (await w.app.request(appPage('/me', { headers: { cookie } }))).text();
-    expect(me).toContain('sanne@example.com');
-    await form('/me/request-avatar', {}, cookie);
-    expect(await (await w.app.request(appPage('/me', { headers: { cookie } }))).text()).toContain('next picture you take');
+  it('hands its own root back to the landing page', async () => {
+    const res = await w.app.request(appPage(''));
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(`http://${APEX}`);
   });
 });
 
 describe('dev mailbox', () => {
   it('lists and shows mails outside production', async () => {
-    await form('/register', { name: 'Mees', email: 'mees@example.com', handle: 'mees' });
+    await makeBlogFromApp();
     const list = await (await w.app.request(appPage('/dev/mailbox'))).text();
     expect(list).toContain('Confirm your email');
     const one = await (await w.app.request(appPage('/dev/mailbox/1'))).text();

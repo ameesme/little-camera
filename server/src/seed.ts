@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodePbm, parsePbm, shortCode } from '@little-camera/pbm';
-import { blogUrl, loadConfig } from './config.js';
+import { appUrl, blogUrl, loadConfig } from './config.js';
 import { now, openDb } from './db.js';
 import type { Env } from './env.js';
 import { uploadPhoto } from './core/photos.js';
@@ -93,6 +93,6 @@ if (isMain) {
   const { link } = seed(env);
   console.log(`seeded ${blogUrl(config, 'mees')}`);
   console.log(`camera ${CAMERA.id} secret ${CAMERA.secret} (short code ${shortCode(CAMERA.id)})`);
-  console.log(`owner sign-in: POST /app/login with mees@example.com, then open /app/dev/mailbox`);
+  console.log(`mail for mees@example.com lands in ${appUrl(config, '/dev/mailbox')}`);
   console.log(`subscriber link for sanne@example.com (48 h):\n${link}`);
 }

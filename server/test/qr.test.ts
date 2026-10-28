@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import QRCode from 'qrcode';
 import { encodePbm, parsePbm } from '@little-camera/pbm';
 import { fakeCameraShot } from '../src/lib/simulate.js';
-import { decodeVerificationCode, verificationQrSvg } from '../src/lib/qr.js';
+import { decodeVerificationCode } from '../src/lib/qr.js';
 import { insertCode } from '../src/repo/codes.js';
 import { findCamera } from '../src/repo/cameras.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
@@ -22,12 +22,8 @@ const shotBytes = (code: string, modulePx: number, blur = 1) => {
 };
 
 describe('verification QR', () => {
-  it('fits in a version 1 symbol at ECC H and renders as SVG', async () => {
+  it('fits in a version 1 symbol at ECC H', () => {
     expect(QRCode.create('LC:KQ7M2X', { errorCorrectionLevel: 'H' }).version).toBe(1);
-    const svg = await verificationQrSvg('KQ7M2X');
-    expect(svg).toMatch(/^<svg/);
-    expect(svg).toContain('#000000');
-    expect(svg).not.toMatch(/#(?!000000|ffffff)[0-9a-f]{6}/i);
   });
 
   it.each([7, 8, 10])('decodes a dithered shot at %i px per module', (modulePx) => {

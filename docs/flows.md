@@ -4,9 +4,9 @@ Who does what, in order, across the three codebases. Byte-level details live in 
 
 ## Registering a blog
 
-The owner registers on the website with their name, email and a handle, which becomes their subdomain. A link emailed to them verifies the address and logs them in, and `/app/me` then shows the **verification picture**: a big QR code, good for 15 minutes.
+The app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. Then it asks for a name, an email and a handle, which becomes the subdomain, and makes the blog with `POST /api/camera/blog`. A link emailed to the owner confirms the address, and the blog answers `404` until it is opened.
 
-Meanwhile the app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. The owner photographs the phone screen and presses send; the app uploads that photo, and the server decodes the QR, binds the camera to the blog, moves any earlier photos from that camera onto it, and emails that the camera is linked. `/app/me` polls and flips to the blog URL.
+The app then asks the server for a code and draws the **verification picture** itself: a big QR, good for 15 minutes. The owner points the camera at their own phone and presses send; the app uploads that photo, and the server decodes the QR, binds the camera to the blog, moves any earlier photos from that camera onto it, and emails that the camera is linked.
 
 Photographing the code is the only way to bind, which makes holding the camera the proof. It also works on a camera that is already linked, so passing the camera on is just the new owner photographing their own code; the photos already posted stay where they are.
 
@@ -19,6 +19,8 @@ Press, review, press again to save it to flash as unsynced. When the phone is ne
 ## Subscribing and reading
 
 A visitor can enter their email in the blog's Join form, which the owner then approves from the app; the owner can also add an email directly, which is approved on the spot. Approval sends a welcome email with a 48-hour link.
+
+The web is read-only for the owner too: the blog has a Join form, a comment box for whoever holds a link, and nothing else. Making the blog, binding the camera, approving people, deleting a picture and commenting as the blog all happen in the app, over the camera API.
 
 Without a link the blog shows the header, the Join form and the newest photo as a teaser. With one it shows the whole feed, scrolled to that photo, and allows comments; the cookie expires with the token. An expired link offers a fresh one, which only an approved subscriber actually gets — the response looks the same either way.
 

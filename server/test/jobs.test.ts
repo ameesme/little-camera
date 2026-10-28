@@ -73,7 +73,7 @@ describe('newsletter', () => {
 describe('purge', () => {
   it('removes expired tokens and codes and week-old orphan photos with their files', async () => {
     const mees = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    createToken(w.env, { kind: 'owner_login', blogId: mees.id });
+    createToken(w.env, { kind: 'email_verify', blogId: mees.id });
     insertCode(w.env.db, 'ABCDEF', mees.id, w.clock.t);
     await hello(w);
     const orphan = await upload(w, fixture('cat'), 1);

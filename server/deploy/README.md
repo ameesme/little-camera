@@ -6,7 +6,7 @@ The domain is shared. Caddy forwards `/api/*` and `/app/*` to the server and ser
 
 ```
 https://lttl.cam/            the landing page (static files from LANDING_DIR)
-https://lttl.cam/app/…       registration, sign-in, /app/me
+https://lttl.cam/app/…       the two pages an emailed link opens
 https://lttl.cam/api/…       the camera API and firmware releases
 https://mees.lttl.cam/       a blog
 ```
@@ -16,7 +16,7 @@ https://mees.lttl.cam/       a blog
 1. Point DNS at the box: `A  lttl.cam  → IP` and `A  *.lttl.cam → IP`.
 2. `cp .env.example .env` and fill it in. The wildcard certificate needs the DNS-01 challenge, and the Caddy build here ships the Cloudflare module, so the only extra secret is a Cloudflare API token with `Zone:Read` + `DNS:Edit` on that zone. For another provider, edit `Dockerfile.caddy` and the `tls` blocks in `Caddyfile`.
 3. `docker compose up -d --build`.
-4. Open `https://lttl.cam/app/register`.
+4. Make the first blog from the app, or with `pnpm fake-camera`.
 
 Backups: the `data` volume holds `little-camera.sqlite` (SQLite, WAL mode), `photos/` and `firmware/`. Either run `docker compose exec server sqlite3 /data/little-camera.sqlite ".backup /data/backup.db"` or copy the volume while the container is stopped.
 

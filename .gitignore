@@ -14,3 +14,4 @@ app/ios/LittleCamera/Info.plist
 .pio/
 .vscode/
 __pycache__/
+design/

@@ -4,7 +4,7 @@
 // verification QR (--code) or one of the fixture photos (--fixture cat).
 // Enough to walk the whole registration flow on a laptop without hardware.
 //
-//   pnpm fake-camera --code LC:KQ7M2X            # bind the camera to /app/me
+//   pnpm fake-camera --code LC:KQ7M2X            # bind the camera to the blog that code belongs to
 //   pnpm fake-camera --fixture moon              # post a picture
 //   pnpm fake-camera --fixture moon --index 12   # with a specific camera index
 //   pnpm fake-camera --status                    # GET /status

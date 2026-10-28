@@ -1,44 +1,14 @@
-// Two cookies, both signed with SESSION_SECRET.
+// One cookie, signed with SESSION_SECRET. There is no owner session: the owner uses the app.
 
 import type { Context } from 'hono';
-import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie';
-import { apexHost } from '../config.js';
+import { getSignedCookie, setSignedCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
-import { findBlogById, type BlogRow } from '../repo/blogs.js';
 import { findSubscriberById, type SubscriberRow } from '../repo/subscribers.js';
 
-const OWNER = 'owner';
 const SUB = 'sub';
-const OWNER_TTL = 30 * 24 * 3600;
-
-function ownerDomain(env: Env): string | undefined {
-  const host = apexHost(env.config);
-  // Set on the parent domain so the owner is recognised on their own blog too; localhost and bare IPs cannot carry it.
-  return host.includes('.') && !/^\d+\.\d+\.\d+\.\d+$/.test(host) ? `.${host}` : undefined;
-}
 
 function base(env: Env) {
   return { path: '/', httpOnly: true, sameSite: 'Lax' as const, secure: env.config.publicScheme === 'https' };
-}
-
-export async function setOwnerCookie(c: Context, env: Env, blogId: number): Promise<void> {
-  await setSignedCookie(c, OWNER, String(blogId), env.config.sessionSecret, {
-    ...base(env),
-    maxAge: OWNER_TTL,
-    domain: ownerDomain(env),
-  });
-}
-
-export function clearOwnerCookie(c: Context, env: Env): void {
-  deleteCookie(c, OWNER, { path: '/', domain: ownerDomain(env) });
-}
-
-/** The signed-in owner, or null. Only verified blogs ever get the cookie, but check anyway. */
-export async function currentOwner(c: Context, env: Env): Promise<BlogRow | null> {
-  const value = await getSignedCookie(c, env.config.sessionSecret, OWNER);
-  if (!value || !/^\d+$/.test(value)) return null;
-  const blog = findBlogById(env.db, Number(value));
-  return blog?.email_verified_at ? blog : null;
 }
 
 export async function setSubscriberCookie(c: Context, env: Env, subscriberId: number, maxAge: number): Promise<void> {

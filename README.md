@@ -72,4 +72,4 @@ Needs a real device, because Bluetooth. Set the server URL on first launch. The 
 
 ## The whole flow
 
-Register on the web, then photograph the QR code on `/app/me` with the camera and press send: the app uploads it, the server binds the camera to your blog, and every photo you send from then on lands on `https://<handle>.lttl.cam`. Friends join with their email and get one link per batch of new pictures. Step by step in `docs/flows.md`.
+Make the blog in the app, confirm the address from the link it emails you, then photograph the QR the app draws and press send: the app uploads it, the server binds the camera to your blog, and every photo you send from then on lands on `https://<handle>.lttl.cam`. Friends join with their email and get one link per batch of new pictures. The web only ever shows pictures — everything else is the app. Step by step in `docs/flows.md`.

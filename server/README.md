@@ -6,7 +6,7 @@ One Node process serving two things, told apart by the `Host` header. On `BASE_D
 |---|---|
 | `/api/camera/*` | the camera API (`docs/protocol.md` §4) |
 | `/api/firmware/*` | firmware releases (§4.7), no auth |
-| `/app/*` | registration, sign-in links, `/app/me`, the dev mailbox |
+| `/app/*` | the two pages an emailed link opens — `/verify-email` and `/claim` — and the dev mailbox |
 
 Both prefixes are `API_PREFIX` / `APP_PREFIX` in `src/config.ts` and every link goes through `appUrl()` / `apiUrl()`, so they are written down once. `GET /` redirects into `/app` so a server running on its own still lands somewhere.
 
@@ -15,7 +15,7 @@ Hono, Hono JSX, `node:sqlite` (in Node 22, so no native module), `nodemailer`, `
 ```
 core/     the five things in this domain, one file each, and the only place each is written
           cameras      saying hello, binding by QR code, relayed telemetry, letting a phone in
-          blogs        registering one, signing its owner in, and who is reading it
+          blogs        registering one, confirming its address, and who is reading it
           photos       an upload: parse, dedupe, date, store, maybe bind, maybe avatar; and comments
           subscribers  adding, approving, blocking, joining, redeeming a link, and the mail for each
           firmware     the releases on disk, and whether one is newer than what a camera runs
@@ -41,7 +41,8 @@ pnpm seed     # a demo blog "mees" with the mockup's pictures and comments
 ## Walk the registration flow without a camera
 
 ```
-# register, open /app/dev/mailbox, click the link; /app/me then shows a QR with a code under it
+# the app makes the blog: POST /api/camera/blog, then open /app/dev/mailbox and click the link.
+# the code is what POST /api/camera/verification-code hands back; the app draws it as a QR.
 pnpm fake-camera --code LC:KQ7M2X     # "photographs" the code and uploads it as a camera
 pnpm fake-camera --fixture moon       # post a picture
 pnpm fake-camera --status             # what the app would see

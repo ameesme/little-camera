@@ -1,83 +1,32 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { z } from 'zod';
-import { parsePbm, pbmToPng, randomCode } from '@little-camera/pbm';
+import { parsePbm, pbmToPng } from '@little-camera/pbm';
 import { apexUrl, blogUrl } from '../config.js';
-import { register, sendSignInLink, signInWithToken } from '../core/blogs.js';
+import { confirmEmail } from '../core/blogs.js';
 import { approveClaim } from '../core/cameras.js';
-import { blogUrl as blogUrlFor } from '../config.js';
 import { hashToken } from '../lib/tokens.js';
 import { findTokenByHash } from '../repo/tokens.js';
 import { findCamera } from '../repo/cameras.js';
-import * as subscribers from '../core/subscribers.js';
 import type { Env } from '../env.js';
 import { formatFull } from '../lib/dates.js';
-import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
-import { verificationQrSvg } from '../lib/qr.js';
-import { clearOwnerCookie, currentOwner } from '../lib/session.js';
-import { findCameraByBlog } from '../repo/cameras.js';
-import { insertCode } from '../repo/codes.js';
 import { findOutbox, listOutbox } from '../repo/outbox.js';
 import { findPhotoById } from '../repo/photos.js';
-import { findBlogById, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
-import { listSubscribers } from '../repo/subscribers.js';
-import {
-  CheckEmail,
-  ClaimDone,
-  ClaimPrompt,
-  ExpiredLink,
-  Landing,
-  LoginForm,
-  Mailbox,
-  MailView,
-  MyBlogPage,
-  RegisterForm,
-  VerificationPage,
-  u,
-} from '../views/owner.js';
+import { findBlogById } from '../repo/blogs.js';
+import { ClaimDone, ClaimPrompt, EmailConfirmed, ExpiredLink, Mailbox, MailView, u } from '../views/owner.js';
 
-const registerSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(60, 'Name is too long'),
-  email: z.string().trim().toLowerCase().email('That email does not look right').max(200),
-  handle: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(HANDLE, 'Handle: 2–31 characters, a–z, 0–9 and dashes, starting with a letter or digit')
-    .refine((h) => !RESERVED_HANDLES.has(h), 'That handle is reserved'),
-});
-
-const emailSchema = z.string().trim().toLowerCase().email().max(200);
-
-
+/** The web does no management: the app owns all of it (§4.9). These are the pages an emailed link opens. */
 export function ownerRoutes(env: Env): Hono {
   const app = new Hono();
   const dev = env.config.nodeEnv !== 'production';
-  const hostOf = (handle: string) => blogUrlFor(env.config, handle).replace(/^https?:\/\//, '');
+  const hostOf = (handle: string) => blogUrl(env.config, handle).replace(/^https?:\/\//, '');
 
-  const owner = (c: Context): Promise<BlogRow | null> => currentOwner(c, env);
+  // Nothing to land on: the app does the managing and the landing page owns the apex.
+  app.get('/', (c) => c.redirect(apexUrl(env.config), 302));
 
-  app.get('/', (c) => c.html(<Landing />));
-
-  app.get('/register', (c) => c.html(<RegisterForm baseDomain={env.config.baseDomain} />));
-
-  app.post('/register', async (c) => {
-    const form = await c.req.parseBody();
-    const values = { name: String(form.name ?? ''), email: String(form.email ?? ''), handle: String(form.handle ?? '') };
-    const reject = (message: string, status: 400 | 409) =>
-      c.html(<RegisterForm baseDomain={env.config.baseDomain} values={values} error={message} />, status);
-
-    const parsed = registerSchema.safeParse(values);
-    if (!parsed.success) return reject(parsed.error.issues[0].message, 400);
-
-    const made = register(env, parsed.data);
-    if (!made.ok) {
-      return made.taken === 'handle'
-        ? reject('That handle is taken', 409)
-        : reject('That email already has a little camera. Sign in instead.', 409);
-    }
-    return c.html(<CheckEmail dev={dev} />);
+  app.get('/verify-email', (c) => {
+    const blog = confirmEmail(env, c.req.query('t'));
+    return blog ? c.html(<EmailConfirmed blogUrl={blogUrl(env.config, blog.handle)} />) : c.html(<ExpiredLink />, 410);
   });
 
   // Shown before anything is granted, because the link lands in a mail client that may have prefetched it.
@@ -97,95 +46,6 @@ export function ownerRoutes(env: Env): Hono {
     return claimed
       ? c.html(<ClaimDone blogName={hostOf(claimed.blog.handle)} />)
       : c.html(<ExpiredLink />, 410);
-  });
-
-  app.get('/verify-email', async (c) =>
-    (await signInWithToken(c, env, c.req.query('t'), 'email_verify'))
-      ? c.redirect(u('/me'), 303)
-      : c.html(<ExpiredLink />, 410),
-  );
-
-  // The emailed link is registered before the form so a `?t=` request never falls through to an empty page.
-  app.get('/login', async (c, next) => {
-    const token = c.req.query('t');
-    if (!token) return next();
-    return (await signInWithToken(c, env, token, 'owner_login')) ? c.redirect(u('/me'), 303) : c.html(<ExpiredLink />, 410);
-  });
-
-  app.get('/login', (c) => c.html(<LoginForm />));
-
-  app.post('/login', async (c) => {
-    const email = emailSchema.safeParse((await c.req.parseBody()).email);
-    if (email.success) sendSignInLink(env, email.data);
-    return c.html(<CheckEmail dev={dev} />);
-  });
-
-  app.post('/logout', (c) => {
-    clearOwnerCookie(c, env);
-    return c.redirect(u(), 303);
-  });
-
-  app.get('/me', async (c) => {
-    const blog = await owner(c);
-    if (!blog) return c.redirect(u('/login'), 303);
-    const camera = findCameraByBlog(env.db, blog.id);
-    if (camera) {
-      return c.html(
-        <MyBlogPage
-          blog={blog}
-          blogUrl={blogUrl(env.config, blog.handle)}
-          shortCode={camera.short_code}
-          subscribers={listSubscribers(env.db, blog.id)}
-        />,
-      );
-    }
-    const code = insertCode(env.db, randomCode(6), blog.id, env.now());
-    return c.html(
-      <VerificationPage
-        code={code.code}
-        svg={await verificationQrSvg(code.code)}
-        email={blog.email}
-        apexUrl={apexUrl(env.config)}
-        blogUrl={blogUrl(env.config, blog.handle)}
-      />,
-    );
-  });
-
-  app.get('/me/status', async (c) => {
-    const blog = await owner(c);
-    if (!blog) return c.json({ error: 'unauthorized' }, 401);
-    const camera = findCameraByBlog(env.db, blog.id);
-    return c.json({ bound: !!camera, url: camera ? blogUrl(env.config, blog.handle) : null });
-  });
-
-  app.post('/me/request-avatar', async (c) => {
-    const blog = await owner(c);
-    if (!blog) return c.redirect(u('/login'), 303);
-    setAvatarRequested(env.db, blog.id, env.now());
-    return c.redirect(u('/me'), 303);
-  });
-
-  app.post('/me/subscribers', async (c) => {
-    const blog = await owner(c);
-    if (!blog) return c.redirect(u('/login'), 303);
-    const form = await c.req.parseBody();
-    const email = emailSchema.safeParse(form.email);
-    if (email.success) {
-      const name = String(form.name ?? '').trim().slice(0, 60) || null;
-      subscribers.add(env, blog, email.data, name);
-    }
-    return c.redirect(u('/me'), 303);
-  });
-
-  app.post('/me/subscribers/:id/:action{approve|block}', async (c) => {
-    const blog = await owner(c);
-    if (!blog) return c.redirect(u('/login'), 303);
-    const subscriber = subscribers.find(env, blog, Number(c.req.param('id')));
-    if (subscriber) {
-      if (c.req.param('action') === 'approve') subscribers.approve(env, subscriber);
-      else subscribers.block(env, subscriber);
-    }
-    return c.redirect(u('/me'), 303);
   });
 
   if (dev) {
@@ -215,7 +75,7 @@ export function ownerRoutes(env: Env): Hono {
           to={mail.to_email}
           status={mail.status}
           text={linked}
-          html={mail.html_body.replace('cid:photo', `/dev/mailbox/${mail.id}/photo.png`)}
+          html={mail.html_body.replace('cid:photo', `${u(`/dev/mailbox/${mail.id}`)}/photo.png`)}
         />,
       );
     });

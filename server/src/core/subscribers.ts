@@ -1,7 +1,6 @@
 import { blogUrl } from '../config.js';
 import type { Env } from '../env.js';
 import { freshLinkMail, newSubscriberMail, welcomeMail } from '../emails/index.js';
-import { appUrl } from '../config.js';
 import { queueEmail } from '../lib/email.js';
 import { setSubscriberCookie } from '../lib/session.js';
 import { createToken, verifyToken } from '../lib/tokens.js';
@@ -82,7 +81,7 @@ export function join(env: Env, blog: BlogRow, email: string): JoinOutcome {
   const existing = findSubscriberByEmail(env.db, blog.id, email);
   if (existing) return existing.status === 'approved' ? 'already' : 'pending';
   createSubscriber(env.db, { blogId: blog.id, email, name: null, status: 'pending', addedBy: 'self', now: env.now() });
-  queueEmail(env, blog.email, newSubscriberMail({ ownerName: blog.name, email, meUrl: appUrl(env.config, '/me') }));
+  queueEmail(env, blog.email, newSubscriberMail({ ownerName: blog.name, email }));
   return 'sent';
 }
 

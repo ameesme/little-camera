@@ -4,14 +4,14 @@ import type { Viewer } from '../core/blogs.js';
 import type { CommentView } from '../repo/comments.js';
 import type { PhotoRow } from '../repo/photos.js';
 import type { BlogRow } from '../repo/blogs.js';
-import { Page, Simple } from './layout.js';
+import { Page, Stage } from './layout.js';
 
 // A real apostrophe, because JSX escapes the ASCII one to &#39;. CSS does the uppercasing.
 export function blogTitle(name: string): string {
   return `${name}’s little camera`;
 }
 
-const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer; meUrl: string }> = ({ name, battery, viewer, meUrl }) => (
+const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer }> = ({ name, battery, viewer }) => (
   <header>
     <a href="/">
       <img src="/avatar.png" width="44" height="44" alt="Profile picture" />
@@ -32,10 +32,6 @@ const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer; meU
     {viewer.kind === 'anonymous' ? (
       <a class="btn" id="subbtn" href="#join" aria-expanded="false">
         Subscribe
-      </a>
-    ) : viewer.kind === 'owner' ? (
-      <a class="btn" href={meUrl}>
-        Me
       </a>
     ) : (
       <span class="btn" aria-pressed="true">
@@ -64,8 +60,8 @@ export interface ArticleData {
 }
 
 const Article: FC<{ a: ArticleData; viewer: Viewer }> = ({ a, viewer }) => {
-  const canComment = viewer.kind !== 'anonymous';
-  const needsName = viewer.kind === 'subscriber' && !viewer.name;
+  const canComment = viewer.kind === 'subscriber';
+  const needsName = canComment && !viewer.name;
   return (
     <article id={`p-${a.photo.public_id}`}>
       <div class="meta">
@@ -157,7 +153,6 @@ const DESCRIPTION = 'Photos from a little camera. New ones arrive on their own.'
 export interface BlogPage {
   blog: BlogRow;
   battery: number | null;
-  meUrl: string;
   avatarUrl: string;
   blogRoot: string;
   articles: ArticleData[];
@@ -184,10 +179,10 @@ const Shell: FC<{ page: BlogPage; children?: unknown }> = ({ page, children }) =
   </Page>
 );
 
-/** What the owner and approved subscribers see: the whole feed, one page at a time. */
+/** What an approved subscriber sees: the whole feed, one page at a time. */
 export const Feed: FC<BlogPage & { viewer: Viewer; moreHref: string | null }> = (p) => (
   <Shell page={p}>
-    <BlogHeader name={p.blog.name} battery={p.battery} viewer={p.viewer} meUrl={p.meUrl} />
+    <BlogHeader name={p.blog.name} battery={p.battery} viewer={p.viewer} />
     {p.notice ? <Notice text={p.notice} /> : null}
     <main id="feed">
       {p.articles.length === 0 ? <div class="teaser">No pictures yet</div> : null}
@@ -205,7 +200,7 @@ export const Teaser: FC<BlogPage & { hiddenCount: number }> = (p) => {
   const anonymous: Viewer = { kind: 'anonymous' };
   return (
     <Shell page={p}>
-      <BlogHeader name={p.blog.name} battery={p.battery} viewer={anonymous} meUrl={p.meUrl} />
+      <BlogHeader name={p.blog.name} battery={p.battery} viewer={anonymous} />
       {p.notice ? <Notice text={p.notice} /> : null}
       <SubscribeRow open={!p.notice} />
       <main id="feed">
@@ -226,14 +221,20 @@ function hiddenLine(hasPictures: boolean, hidden: number): string {
 }
 
 export const ExpiredLink: FC<{ email: string }> = ({ email }) => (
-  <Simple title="This link has expired" heading="This link has expired">
+  <Stage
+    title="This link has expired"
+    heading="This link has expired"
+    actions={<button class="big" type="submit" form="fresh">Send me a fresh link</button>}
+  >
     <p>Links work for 48 hours. Ask for a fresh one and it is in your inbox in a moment.</p>
-    <form method="post" action="/request-link" class="row">
-      <label class="field">
-        <span>Email</span>
-        <input type="email" name="email" value={email} required autocomplete="email" />
-      </label>
-      <button class="btn" type="submit">Send me a fresh link</button>
+    <form id="fresh" method="post" action="/request-link">
+      <input class="ask" type="email" name="email" value={email} placeholder="you@email.com" aria-label="Email address" required autocomplete="email" />
     </form>
-  </Simple>
+  </Stage>
+);
+
+export const FreshLinkSent: FC = () => (
+  <Stage title="Check your email" heading="Check your email">
+    <p>If that address is on the list, a fresh link is on its way.</p>
+  </Stage>
 );

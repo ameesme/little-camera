@@ -65,33 +65,37 @@ export const CSS = `
   .more:disabled,.more.end{cursor:default}
   :focus-visible{outline:2px solid #000;outline-offset:2px}
 
-  /* additions for the non-blog pages, same tokens */
+  /* The pages an emailed link opens, set like a stage in the app: one question, one answer. */
+  .stage{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+  .stage .bar{border-bottom:var(--rule);padding:10px var(--pad);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+  .stage .mid{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:28px var(--pad);text-align:center}
+  .stage h1{font-size:30px;font-weight:700;letter-spacing:-1px;line-height:1.08;margin:0}
+  .stage p{font-size:19px;line-height:1.35;margin:0}
+  .stage code,.stage b{font-weight:700}
+  .stage .act{display:flex;flex-direction:column;gap:10px;padding:0 var(--pad) 18px}
+  .stage form{display:contents}
+  .big{display:flex;align-items:center;justify-content:center;width:100%;min-height:54px;border:var(--rule);
+       background:var(--ink);color:var(--paper);font-family:inherit;font-size:11px;font-weight:700;
+       letter-spacing:.1em;text-transform:uppercase;text-decoration:none;cursor:pointer}
+  .big:active{background:var(--paper);color:var(--ink)}
+  .big.quiet{background:var(--paper);color:var(--ink)}
+  /* The one question a page asks, set at the size of the answer rather than of a form field. */
+  .ask{width:100%;font-family:inherit;font-size:26px;font-weight:700;letter-spacing:-.5px;text-align:center;
+       border:0;border-bottom:2px solid var(--ink);border-radius:0;background:none;padding:6px 0}
+  .ask::placeholder{font-size:inherit;opacity:.3}
+
+  /* the dev mailbox, which is a tool rather than a page anyone sees */
   .page{padding:18px var(--pad) 40px}
   .page h1{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;margin:0 0 18px}
   .page p{margin:0 0 12px;font-size:15px}
   .page a{color:inherit}
   .page ul{margin:0 0 12px;padding:0 0 0 18px}
-  .field{display:block;margin:0 0 16px}
-  .field span{display:block;font-size:10px;letter-spacing:.11em;text-transform:uppercase;margin-bottom:2px}
-  .field input{width:100%;font-family:inherit;font-size:16px;border:0;border-bottom:var(--rule);border-radius:0;background:none;padding:4px 0}
-  .row{display:flex;gap:8px;align-items:flex-end}
-  .row .field{flex:1;margin:0}
-  .err{font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 14px;padding:8px 10px;border:var(--rule)}
   .notice{border-bottom:var(--rule);padding:10px var(--pad);font-size:10px;letter-spacing:.11em;text-transform:uppercase}
   .teaser{padding:24px var(--pad) 40px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;text-align:center}
   .list{margin:0 0 18px;padding:0;list-style:none;border-top:var(--rule)}
   .list li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:var(--rule);font-size:13.5px}
   .list li form{display:inline}
   .tag{font-size:10px;letter-spacing:.09em;text-transform:uppercase;margin-left:6px}
-  .stmt{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin:0;text-align:center}
-  .verify{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:14px;text-align:center}
-  .verify .qr{width:min(92vw,calc(100dvh - 210px));max-width:640px}
-  .verify .qr svg{display:block;width:100%;height:auto;shape-rendering:crispEdges}
-  .verify .code{font-size:11px;letter-spacing:.3em;margin:0}
-  .verify .small{font-size:12px;margin:8px 0 0}
-  .verify .small form{display:flex;gap:8px;justify-content:center;align-items:flex-end;margin-top:6px}
-  .verify .small input{width:9em;font-family:inherit;font-size:16px;letter-spacing:.2em;text-transform:uppercase;text-align:center;border:0;border-bottom:var(--rule);border-radius:0;background:none;padding:2px 0}
-  .verify .url{font-size:15px;word-break:break-all}
   .mail{font-size:13px}
   .mail pre{white-space:pre-wrap;border:var(--rule);padding:10px;font:12px/1.4 ui-monospace,Menlo,monospace}
   .mail iframe{width:100%;height:520px;border:var(--rule);background:#fff}
@@ -100,11 +104,9 @@ export const CSS = `
 export const Page: FC<{
   title: string;
   description?: string;
-  /** Wrap in the 440 px column (default). The QR page wants the whole viewport instead. */
-  wrap?: boolean;
   head?: Child;
   children?: Child;
-}> = ({ title, description, wrap = true, head, children }) => (
+}> = ({ title, description, head, children }) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
@@ -116,11 +118,25 @@ export const Page: FC<{
       {head}
       <style>{raw(CSS)}</style>
     </head>
-    <body>{wrap ? <div class="wrap">{children}</div> : children}</body>
+    <body><div class="wrap">{children}</div></body>
   </html>
 );
 
-/** A bare page with an uppercase heading and some paragraphs. */
+/** What the app's stages look like on the web: a caption bar, the question in the middle, the answers at the foot. */
+export const Stage: FC<{ title: string; heading: string; children?: Child; actions?: Child }> = ({ title, heading, children, actions }) => (
+  <Page title={title}>
+    <div class="stage">
+      <div class="bar">Little camera</div>
+      <div class="mid">
+        <h1>{heading}</h1>
+        {children}
+      </div>
+      {actions ? <div class="act">{actions}</div> : null}
+    </div>
+  </Page>
+);
+
+/** A bare page with an uppercase heading and some paragraphs: the dev mailbox, nothing a person sees. */
 export const Simple: FC<{ title: string; heading?: string; children?: Child }> = ({ title, heading, children }) => (
   <Page title={title}>
     <div class="page">

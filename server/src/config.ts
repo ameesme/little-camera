@@ -53,7 +53,7 @@ export function apexUrl(config: Config): string {
   return `${config.publicScheme}://${config.baseDomain}`;
 }
 
-/** `https://lttl.cam/app/me` — a page of this server. Every emailed link goes through here. */
+/** `https://lttl.cam/app/claim` — a page of this server. Every emailed link goes through here. */
 export function appUrl(config: Config, path = ''): string {
   return `${apexUrl(config)}${APP_PREFIX}${path}`;
 }
@@ -61,9 +61,4 @@ export function appUrl(config: Config, path = ''): string {
 /** `https://lttl.cam/api/firmware/...` — an API URL to hand to a client. */
 export function apiUrl(config: Config, path = ''): string {
   return `${apexUrl(config)}${API_PREFIX}${path}`;
-}
-
-/** Host name without port, for the cookie Domain attribute. */
-export function apexHost(config: Config): string {
-  return config.baseDomain.split(':')[0];
 }
