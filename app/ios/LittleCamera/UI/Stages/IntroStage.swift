@@ -19,7 +19,8 @@ struct IntroStage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 24)
+            // Capped, so the slack falls below the lockup rather than around it.
+            Spacer(minLength: 16).frame(maxHeight: 40)
             Wordmark()
             Device(mood: current.mood, turn: turns)
                 .padding(.top, 20)
