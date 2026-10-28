@@ -1,12 +1,14 @@
 # lttl.cam
 
-The teaser page: one self-contained `index.html`, no build, no dependencies, firmware screens inlined as base64. `DEPLOYMENT.md` covers how it is served.
+The teaser page: `index.html` plus `camera-element.js`, no build, no dependencies, firmware screens inlined as base64. `DEPLOYMENT.md` covers how it is served.
+
+`camera-element.js` is the device on its own, as a `<little-camera>` custom element: the shader, the screens and `scene()`/`spin()`/`celebrate()`. The iOS app loads the same file (`app/ios/LittleCamera/Resources/device.html`), which is the whole reason it is a file and not an inline script. It stays a classic script, not a module, because the page's own script runs at parse time and needs the element defined before it.
 
 The device on it is a **placeholder** at the real dimensions: 57.6 × 34.56 mm of glass plus 3 mm of bezel all round gives a 63.6 × 40.6 × 7 mm body. It is raymarched in WebGL and dithered with the firmware's own Bayer matrix, so the page renders it the way the camera renders the world. Every proportion is derived from that rectangle, so `--w`, `--h`, `--d` and `--r` are enough to change it, and the whole device gets replaced when the industrial design lands. If WebGL fails to start, a CSS device still in the markup takes over.
 
 ## Remaking the assets
 
-The screens are real frames from the firmware's preview tool (`sleep`, `sleep --breath`, `viewfinder --src`, `gallery --pbm`, over `packages/pbm/fixtures/`). Render at 400×240 and replace the matching base64 string in `SCREENS`:
+The screens are real frames from the firmware's preview tool (`sleep`, `sleep --breath`, `viewfinder --src`, `gallery --pbm`, over `packages/pbm/fixtures/`). Render at 400×240 and replace the matching base64 string in `SCREENS` in `camera-element.js`. The four sleeping faces (`sleep`, `fine`, `glum`, `sad`, each with its `A`/`B` breath frame) follow `docs/mood.md`, and a scene key ending in `A` or `B` is what makes the element breathe:
 
 ```
 cd firmware/tools/preview && make

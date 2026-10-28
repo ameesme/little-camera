@@ -7,11 +7,11 @@
 | Vercel project | `lttl-cam`, scope `mees-projects-2bb0cea8` (Hobby) |
 | Production branch | `main` |
 | Domain | `lttl.cam` itself, no subdomains |
-| Payload | 204 KB, one HTML file |
+| Payload | 204 KB of HTML plus 52 KB of JavaScript |
 
 ## There is no build
 
-`site/index.html` is hand-written and has no dependencies, no env vars and no fetches: the four firmware screens are inlined as base64 PNGs and the device is raymarched in WebGL in an inline `<script>`. `site/` is not a pnpm workspace member, which is why `vercel.json` empties both the install and the build command — otherwise Vercel installs and builds the whole monorepo.
+`site/index.html` is hand-written and has no dependencies, no env vars and no fetches: the firmware screens are inlined as base64 PNGs and the device is raymarched in WebGL by `camera-element.js`, the one file the page loads. `site/` is not a pnpm workspace member, which is why `vercel.json` empties both the install and the build command — otherwise Vercel installs and builds the whole monorepo.
 
 Config lives in `vercel.json` and `.vercelignore` at the repo root, so a Git-triggered build and a CLI one agree. `vercel.json` sets `outputDirectory: "site"`, `cleanUrls`, a year of immutable caching on `/fonts/*` and `nosniff` + `strict-origin-when-cross-origin` on everything. `.vercelignore` keeps the firmware, hardware, app, server, packages, docs and every `.md` out of the upload.
 
