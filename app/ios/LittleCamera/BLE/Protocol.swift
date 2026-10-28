@@ -63,10 +63,8 @@ extension Data {
 // MARK: - Info (§3.1)
 
 struct CameraInfo: Equatable {
-    /// Version 1, and the prefix every later version keeps.
-    static let byteCount = 25
-    /// Version 2 adds the firmware version and the update state (§3.1).
-    static let byteCountV2 = 32
+    static let byteCount = 48
+    static let version = 3
 
     let version: UInt8
     let mac: [UInt8]
@@ -77,17 +75,30 @@ struct CameraInfo: Equatable {
     let uptimeMs: UInt32
     let epoch: UInt32
     let flags: UInt8
-    /// `nil` from a camera whose Info predates version 2.
-    let firmware: String?
+    let firmware: String
     let updateState: UpdateState
     /// Bytes the camera's spare firmware slot can take; 0 when it cannot update itself.
     let updateSpace: UInt32
+    let batteryMv: UInt16
+    /// The camera's own reading of its curve. Never recomputed here (§3.1).
+    let batteryPercent: UInt8
+    let usedBytes: UInt32
+    let totalBytes: UInt32
+    let happiness: UInt8
+    let moodElapsedS: UInt32
 
     var timeValid: Bool { flags & 0x01 != 0 }
     var storageOK: Bool { flags & 0x02 != 0 }
     var busy: Bool { flags & 0x04 != 0 }
     /// Running an update that has not confirmed itself yet (§3.7). It will, or it will roll back.
     var onTrial: Bool { flags & 0x08 != 0 }
+    var onUsb: Bool { flags & 0x10 != 0 }
+    var charging: Bool { flags & 0x20 != 0 }
+
+    /// The four faces the camera draws, split exactly where `Chirp::band` splits them.
+    var face: Face { Face(rawValue: happiness >> 6) ?? .content }
+    var freeBytes: UInt32 { totalBytes > usedBytes ? totalBytes - usedBytes : 0 }
+    var usedFraction: Double { totalBytes > 0 ? Double(usedBytes) / Double(totalBytes) : 0 }
 
     /// 12 lowercase hex characters, the same bytes as the Bluetooth MAC (§1).
     var cameraId: String { Data(mac).hexString }
@@ -96,13 +107,13 @@ struct CameraInfo: Equatable {
 
     /// Whether this camera can be sent an image of `size` bytes at all.
     func canTake(imageOf size: Int) -> Bool {
-        firmware != nil && updateSpace >= UInt32(size)
+        updateSpace >= UInt32(size)
     }
 
     init(data: Data) throws {
         guard data.count >= CameraInfo.byteCount else { throw ProtocolError.shortData("Info") }
         let v = data.lcByte(0)
-        guard v >= 1 else { throw ProtocolError.badVersion(v) }
+        guard v == UInt8(CameraInfo.version) else { throw ProtocolError.badVersion(v) }
         version = v
         mac = (1...6).map { data.lcByte($0) }
         photoCount = data.lcU16(7)
@@ -112,17 +123,24 @@ struct CameraInfo: Equatable {
         uptimeMs = data.lcU32(15)
         epoch = data.lcU32(19)
         flags = data.lcByte(23)
-        // By length, not version: §3.1 says a reader takes what it knows and ignores the rest.
-        if v >= 2 && data.count >= CameraInfo.byteCountV2 {
-            firmware = "\(data.lcByte(24)).\(data.lcByte(25)).\(data.lcByte(26))"
-            updateState = UpdateState(rawValue: data.lcByte(27)) ?? .idle
-            updateSpace = data.lcU32(28)
-        } else {
-            firmware = nil
-            updateState = .idle
-            updateSpace = 0
-        }
+        firmware = "\(data.lcByte(24)).\(data.lcByte(25)).\(data.lcByte(26))"
+        updateState = UpdateState(rawValue: data.lcByte(27)) ?? .idle
+        updateSpace = data.lcU32(28)
+        batteryMv = data.lcU16(32)
+        batteryPercent = min(100, data.lcByte(34))
+        usedBytes = data.lcU32(35)
+        totalBytes = data.lcU32(39)
+        happiness = data.lcByte(43)
+        moodElapsedS = data.lcU32(44)
     }
+}
+
+/// How the camera feels about how long it has been since the last photo (docs/mood.md).
+enum Face: UInt8, Equatable {
+    case sad = 0
+    case glum = 1
+    case fine = 2
+    case content = 3
 }
 
 /// Where a firmware update session stands, on the camera (§3.7).

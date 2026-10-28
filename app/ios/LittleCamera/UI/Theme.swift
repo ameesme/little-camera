@@ -15,6 +15,8 @@ enum Theme {
 
     static let caption = font(11, bold: true)
     static let body = font(14)
+    /// What an instruction page says under its title, which is the only text on the page.
+    static let lead = font(19)
     static let small = font(12)
 }
 
@@ -69,10 +71,20 @@ struct BlackButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let inverted = configuration.isPressed || !isEnabled
         return configuration.label
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 54)
             .foregroundStyle(inverted ? Theme.ink : Theme.paper)
             .background(inverted ? Theme.paper : Theme.ink)
+            .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
+    }
+}
+
+/// The second choice on a screen: the same size, outlined rather than filled.
+struct QuietButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .foregroundStyle(Theme.ink)
+            .background(configuration.isPressed ? Theme.ink.opacity(0.08) : Theme.paper)
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
     }
 }
@@ -156,5 +168,19 @@ struct Thumbnail: View {
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
             .frame(width: 80)
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
+    }
+}
+
+/// Shown wherever the app can do nothing until the person does something.
+struct Waiting: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(Theme.ink)
+            Caption(text)
+        }
     }
 }

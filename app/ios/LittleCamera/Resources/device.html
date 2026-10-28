@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Camera</title>
+<style>
+  html, body { margin:0; height:100%; background:transparent; overflow:hidden;
+               -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  little-camera { position:fixed; inset:0; }
+</style>
+<little-camera id="cam" span="0.95"></little-camera>
+<script src="camera-element.js"></script>
+<script>
+  // Swift talks to the element through window.lc (UI/Device/DeviceView.swift).
+  const cam = document.getElementById('cam');
+  window.lc = {
+    scene: (key) => cam.scene(key),
+    spin: (degrees) => cam.spin(degrees),
+    celebrate: () => cam.celebrate(),
+    breathing: (on) => { cam.breathing = !!on; },
+    reset: () => cam.reset(),
+  };
+</script>

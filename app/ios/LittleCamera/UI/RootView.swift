@@ -1,15 +1,24 @@
 import SwiftUI
 
-/// One stage at a time. Setup and linking own the whole screen; after that the screens take over.
+/// One stage at a time, and the tabs once there is a blog to show.
 struct RootView: View {
     let model: AppModel
+    @State private var splash = true
 
     var body: some View {
-        Group {
-            switch model.stage {
-            case .setup: SetupStage(model: model)
-            case .linking: LinkStage(model: model)
-            case .ready: ReadyStage(model: model)
+        ZStack {
+            Group {
+                switch model.stage {
+                case .setup: SetupStage(model: model)
+                case .firmware: FirmwareStage(model: model)
+                case .claim: ClaimStage(model: model)
+                case .onboarding: OnboardStage(model: model)
+                case .ready: MainTabs(model: model)
+                }
+            }
+            if splash {
+                Splash()
+                    .transition(.opacity)
             }
         }
         .font(Theme.body)
@@ -18,27 +27,74 @@ struct RootView: View {
         .background(Theme.paper.ignoresSafeArea())
         // Black on white, always: dark mode would invert the whole idea.
         .preferredColorScheme(.light)
+        .task {
+            try? await Task.sleep(for: .seconds(1.8))
+            withAnimation(.easeInOut(duration: 0.45)) { splash = false }
+        }
     }
 }
 
-/// The bar every stage wears: what the app is, and the camera's short code for linking on the web.
-struct StageHeader: View {
-    let title: String
-    let code: String?
+/// The camera turning once on an empty page, which is the whole launch screen.
+struct Splash: View {
+    @State private var turn = 0
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Caption(title)
-                Spacer()
-                if let code {
-                    Text(code)
-                        .font(Theme.font(14, bold: true))
-                        .kerning(2)
-                }
-            }
-            .card()
-            Rule()
+            Spacer()
+            Device(celebrate: turn)
+            Wordmark()
+                .padding(.top, 8)
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Ground())
+        .onAppear { turn = 1 }
+    }
+}
+
+/// `little camera`, set tight and heavy, the way the landing page sets it.
+struct Wordmark: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: -6) {
+            Text("little")
+            Text("camera")
+        }
+        .font(Theme.font(38, bold: true))
+        .kerning(-1.5)
+        .accessibilityElement()
+        .accessibilityLabel("Little Camera")
+    }
+}
+
+/// A stage that leads with the camera itself, floating, the way the landing page shows it.
+/// The camera and what it says sit together in the middle; what it asks for sits at the bottom.
+struct DeviceStage<Content: View, Actions: View>: View {
+    let title: String
+    var mood: DeviceMood = .asleep
+    var celebrate: Int = 0
+    @ViewBuilder var content: () -> Content
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            Device(mood: mood, celebrate: celebrate)
+            VStack(spacing: 12) {
+                Text(title)
+                    .font(Theme.font(30, bold: true))
+                    .kerning(-1)
+                    .fixedSize(horizontal: false, vertical: true)
+                content()
+            }
+            .font(Theme.lead)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Theme.pad)
+            .padding(.top, 28)
+            Spacer(minLength: 24)
+            VStack(spacing: 10) { actions() }
+                .card()
+        }
+        .background(Ground())
     }
 }

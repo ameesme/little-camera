@@ -58,6 +58,13 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.lastSyncAt) }
     }
 
+    /// Everything this phone knew about the camera it was paired with. The secret is in the keychain, not here.
+    func forgetCamera() {
+        for key in [Key.cameraId, Key.pairedPeripheralId, Key.uploadedIndices, Key.uploadedHashes, Key.uploadedCount, Key.lastSyncAt] {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     func recordUpload(index: Int, hash: String) {
         var indices = uploadedIndices
         if !indices.contains(index) {

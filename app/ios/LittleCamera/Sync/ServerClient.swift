@@ -3,18 +3,44 @@ import CryptoKit
 
 // HTTP camera API (§4). snake_case on the wire, camelCase here, via the key strategies set below.
 
-struct BoundProfile: Codable, Equatable {
+struct BoundBlog: Codable, Equatable {
     let handle: String
     let name: String
     let url: String
     let photoCount: Int?
-    let battery: Int?
+}
+
+/// How far the phone has got with being let in (§4.9).
+enum ClaimState: String, Codable, Equatable {
+    case unbound
+    case pending
+    case approved
+}
+
+struct FeedComment: Codable, Equatable, Identifiable {
+    let id: Int
+    let name: String
+    let body: String
+}
+
+struct FeedPhoto: Codable, Equatable, Identifiable {
+    let id: String
+    let url: String
+    let kind: String
+    let capturedAt: Int
+    let uploadedAt: Int
+    let comments: [FeedComment]
+}
+
+struct FeedPage: Codable, Equatable {
+    let photos: [FeedPhoto]
+    let next: String?
 }
 
 struct HelloResponse: Codable {
     let cameraId: String
     let shortCode: String
-    let bound: BoundProfile?
+    let bound: BoundBlog?
     let serverTime: Int
 }
 
@@ -22,7 +48,7 @@ struct PhotoResponse: Codable {
     let id: String
     let status: String
     let kind: String
-    let bound: BoundProfile?
+    let bound: BoundBlog?
 }
 
 struct AvatarState: Codable, Equatable {
@@ -60,10 +86,10 @@ struct FirmwareState: Codable, Equatable {
 struct StatusResponse: Codable, Equatable {
     let cameraId: String
     let shortCode: String
-    let bound: BoundProfile?
+    let bound: BoundBlog?
     let avatar: AvatarState
-    /// Absent from a server older than firmware updates.
     let firmware: FirmwareState?
+    let claim: ClaimState
     let subscribers: [Subscriber]
     let serverTime: Int
 }
@@ -232,6 +258,93 @@ final class ServerClient {
         try await post("subscribers/\(id)/block")
     }
 
+    // MARK: Telemetry and being let in (§4.8, §4.9)
+
+    /// Relays what Info said, so the blog and the app show the camera's own numbers.
+    func sendTelemetry(_ info: CameraInfo) async throws {
+        struct Body: Encodable {
+            let batteryPercent: Int
+            let batteryMv: Int
+            let charging: Bool
+            let usedBytes: Int
+            let totalBytes: Int
+            let happiness: Int
+            let moodElapsedS: Int
+        }
+        var req = try request("POST", "telemetry")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode(Body(
+            batteryPercent: Int(info.batteryPercent),
+            batteryMv: Int(info.batteryMv),
+            charging: info.charging,
+            usedBytes: Int(info.usedBytes),
+            totalBytes: Int(info.totalBytes),
+            happiness: Int(info.happiness),
+            moodElapsedS: Int(info.moodElapsedS)
+        ))
+        let (code, data) = try await send(req)
+        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+    }
+
+    struct MadeBlog: Codable {
+        let handle: String
+        let url: String
+    }
+
+    /// A blog for this camera. It still has to photograph the QR code to be bound to it (§5).
+    func createBlog(name: String, email: String, handle: String) async throws -> MadeBlog {
+        struct Body: Encodable {
+            let name: String
+            let email: String
+            let handle: String
+        }
+        var req = try request("POST", "blog")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode(Body(name: name, email: email, handle: handle))
+        let (code, data) = try await send(req)
+        return try decode(MadeBlog.self, code: code, data: data)
+    }
+
+    /// Asks the owner, by email, to let this phone in. `email` is needed only while the camera has no blog.
+    func requestClaim(email: String?) async throws {
+        var req = try request("POST", "claim")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let email {
+            struct Body: Encodable { let email: String }
+            req.httpBody = try encoder.encode(Body(email: email))
+        } else {
+            req.httpBody = Data("{}".utf8)
+        }
+        let (code, data) = try await send(req)
+        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+    }
+
+    struct Verification: Codable {
+        let code: String
+        let expiresAt: Int
+    }
+
+    /// The code the phone puts on its own screen for the camera to photograph (§5).
+    func verificationCode() async throws -> Verification {
+        var req = try request("POST", "verification-code")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{}".utf8)
+        let (code, data) = try await send(req)
+        return try decode(Verification.self, code: code, data: data)
+    }
+
+    func feed(before: String?) async throws -> FeedPage {
+        let req = try request("GET", "feed", query: before.map { ["before": $0] } ?? [:])
+        let (code, data) = try await send(req)
+        return try decode(FeedPage.self, code: code, data: data)
+    }
+
+    func removeSubscriber(id: Int) async throws {
+        let req = try request("DELETE", "subscribers/\(id)")
+        let (code, data) = try await send(req)
+        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+    }
+
     /// Returns `requested_at`. The next photo captured after it becomes the avatar.
     func requestAvatar() async throws -> Int {
         struct Reply: Decodable {
@@ -254,8 +367,18 @@ final class ServerClient {
         guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
     }
 
-    private func request(_ method: String, _ path: String, authenticated: Bool = true) throws -> URLRequest {
-        var req = URLRequest(url: baseURL.appendingPathComponent("api/camera/" + path))
+    private func request(_ method: String, _ path: String, query: [String: String] = [:], authenticated: Bool = true) throws -> URLRequest {
+        let base = baseURL.appendingPathComponent("api/camera/" + path)
+        var url = base
+        if !query.isEmpty {
+            guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+                throw ServerError.badURL(base.absoluteString)
+            }
+            comps.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            guard let built = comps.url else { throw ServerError.badURL(base.absoluteString) }
+            url = built
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if authenticated {

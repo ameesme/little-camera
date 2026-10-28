@@ -87,6 +87,18 @@ final class CameraLink: NSObject, @unchecked Sendable {
         }
     }
 
+    /// Drops the connection and forgets which camera this was, so scanning starts over.
+    func forget() {
+        queue.async {
+            self.pairedId = nil
+            if let p = self.peripheral { self.central?.cancelPeripheralConnection(p) }
+            self.peripheral = nil
+            self.characteristics = [:]
+            self.found = [:]
+            self.scan()
+        }
+    }
+
     var isReady: Bool {
         queue.sync {
             peripheral?.state == .connected && characteristics[LC.dataUUID]?.isNotifying == true

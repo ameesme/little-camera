@@ -1,17 +1,25 @@
 # Little Camera — iOS bridge
 
-This app pulls photos off the camera over BLE and uploads them to the server, authenticating as the camera itself, and carries new firmware the other way. It never signs anyone in: registering, linking and approving subscribers all happen on the web. Wire format and the sync algorithm are `../../docs/protocol.md` §3.5 and §3.7, who-does-what is `../../docs/flows.md`.
+This app pulls photos off the camera over BLE and uploads them to the server, authenticating as the camera itself, and carries new firmware the other way. It also owns the blog now: making one, signing into one, reading its feed and its subscribers. The one thing it cannot do is prove a blog belongs to the person holding the camera — only that blog's inbox can, which is what the `claim` stage is for (`../../docs/protocol.md` §4.9). Wire format and the sync algorithm are §3.5 and §3.7, who-does-what is `../../docs/flows.md`.
 
-SwiftUI + CoreBluetooth + CryptoKit, iOS 17, Swift 5.9, no packages.
+SwiftUI + CoreBluetooth + CryptoKit, iOS 26, Swift 6, no packages.
 
 ```
 brew install xcodegen          # once
 cd app/ios && xcodegen generate && open LittleCamera.xcodeproj
 ```
 
-Set your team under Signing & Capabilities, since the spec leaves `DEVELOPMENT_TEAM` empty, and run on a **physical iPhone** because the simulator has no Bluetooth.
+Set your team under Signing & Capabilities, since the spec leaves `DEVELOPMENT_TEAM` empty, and run on a **physical iPhone** for anything involving the camera, because the simulator has no Bluetooth. The server is `https://lttl.cam` and is not configurable yet.
 
-On first run, replace the prefilled `https://lttl.cam` with your own domain if you are running your own; only the domain goes in, the app appends `/api/...` itself. Press the camera's shutter so it wakes and shows up as `lc-XXXX`, tap `USE THIS CAMERA`, then type the six digits off the camera's screen into iOS's passkey prompt. iOS keeps the bond, the secret goes to the Keychain, and neither is asked for again.
+Press the camera's button so it wakes, tap `CONNECT`, then type the six digits off the camera's screen into iOS's passkey prompt. iOS keeps the bond, the secret goes to the Keychain, and neither is asked for again.
+
+Every stage renders in the simulator without a camera, which is how the screenshots are taken:
+
+```
+xcrun simctl launch booted me.amees.littlecamera -demo onboarding
+```
+
+`-demo <setup|firmware|claim|onboarding|ready>` seeds `Demo.swift` with a plausible camera, blog and feed and drops the app straight into that stage.
 
 ## Layout
 
@@ -25,11 +33,15 @@ BLE/      CameraLink      one camera, one connection, all of it on a private que
 Sync/     SyncEngine      §3.5: SET_TIME, LIST, GET each with resume, upload, ACK
           FirmwareUpdater §3.7: chunks inside the camera's window, with rewind
           ServerClient    the HTTP camera API
-UI/       Stages/         setup → linking → ready, one at a time
-          Screens/        camera, firmware, people, log
+UI/       Stages/         setup → firmware → claim or onboarding → ready
+          Screens/        the two tabs, BlogTab and CameraTab
+          Device/         the camera itself, a WKWebView around site/camera-element.js
+          Ground          the landing page's dithered vignette, as a cached CGImage
 ```
 
-The app is **staged**, not one long page. `AppModel.stage` decides which of three takes the screen: `setup` until a camera is picked, `linking` until the server ties it to a blog, then `ready`. Inside `ready` the bar at the bottom switches between four screens, so nothing shows information belonging to another job.
+The app is **staged**, not one long page. `AppModel.stage` decides which of five takes the screen: `setup` until a camera is picked, `firmware` while there is an update worth offering, then either `claim` (the camera already posts to a blog, so the owner's inbox has to let this phone in) or `onboarding` (no blog yet: make one or sign into one, photograph the code, take the picture that heads it), and finally `ready`, which is the two tabs.
+
+The camera on screen is the same object as the one on lttl.cam: `UI/Device/DeviceView.swift` is a `WKWebView` loading `Resources/device.html`, which loads `site/camera-element.js` straight out of the site directory — one file, no copy, listed in `project.yml`. Swift talks to it through `window.lc`, and the face it shows is the camera's own mood off Info (`docs/mood.md`), never something the app decided.
 
 Every call to the server goes through one `perform` in `Blog`, so there is exactly one place where a failure becomes a line on screen.
 
@@ -41,18 +53,11 @@ Two kinds of flow control run at once and conflating them is the easy mistake: `
 
 ## Known unknowns
 
-It typechecks clean — no errors, no warnings — against the iOS simulator SDK:
-
-```
-SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-swiftc -typecheck -sdk "$SDK" -target arm64-apple-ios17.0-simulator -swift-version 5 \
-  $(find LittleCamera -name '*.swift')
-```
-
-That is the compiler agreeing with the code, not the app working. **It has never been built into an app or run**, so nothing below has been seen happen:
+It builds and every stage has been looked at in the simulator. **Nothing below has been seen happen on a real camera**, because the simulator has no Bluetooth:
 
 - **Background wake latency.** The app keeps a connect pending forever, so iOS completes it when the camera advertises and relaunches the app to do it. How fast that is for a killed app is undocumented, and the camera's 30 s advertising window is the whole budget.
 - **MTU.** The camera asks for 512 and iOS grants 185 or 251. Logged, but nothing depends on it.
+- **Everything over BLE.** Pairing, Info v3, sync, the avatar and the firmware push have only ever run against the simulator's absence of a radio.
 - **Keychain accessibility.** The secret is `AfterFirstUnlock` so a background sync after a reboot can read it. Untested.
 - **Update throughput.** A 1.5 MB image at iOS's write-without-response rate should be a minute or two, but the camera writes flash from its main loop and the real ceiling is probably there. A log full of rewinds means the camera's window is too big for its loop, not the other way round.
 - **Whether iOS keeps a write-without-response stream alive in the background** for a whole image. The update runs inside the same ~30 s `beginBackgroundTask` window as a sync, which is enough for photos and probably not for firmware, so expect to keep the app open for this one.

@@ -112,7 +112,7 @@ final class FirmwareUpdater {
     }
 
     private func push(release: FirmwareRelease, info: CameraInfo) async throws {
-        guard link.canUpdate, info.firmware != nil else { throw UpdateError.cameraCannotUpdate }
+        guard link.canUpdate else { throw UpdateError.cameraCannotUpdate }
         guard info.canTake(imageOf: release.size) else { throw UpdateError.cameraCannotUpdate }
         guard !info.busy else { throw UpdateError.cameraBusy }
 

@@ -16,6 +16,10 @@ final class FirmwareUpdate {
         self.log = log
     }
 
+    func seedDemo(release: FirmwareRelease) {
+        self.release = release
+    }
+
     func attach(link: CameraLink) {
         let updater = FirmwareUpdater(link: link, server: server, log: log)
         updater.onPhase = { [weak self] phase in self?.phase = phase }
@@ -49,9 +53,9 @@ final class FirmwareUpdate {
     /// Worth offering only when the camera can take it: new enough to say what it runs, with room in its spare slot.
     func isAvailable(for camera: CameraSession) -> Bool {
         guard let updater, !updater.isRunning, let release else { return false }
-        guard let info = camera.info, let installed = info.firmware, info.canTake(imageOf: release.size) else { return false }
+        guard let info = camera.info, info.canTake(imageOf: release.size) else { return false }
         guard camera.isReady, camera.canUpdateFirmware, !camera.isSyncing else { return false }
-        return release.version != installed
+        return release.version != info.firmware
     }
 
     /// Against the version the camera itself reported, not the one the server last heard about.

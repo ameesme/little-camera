@@ -6,11 +6,18 @@ final class AppModel {
     enum Stage {
         /// No camera chosen yet: pick the server and the camera.
         case setup
-        /// Paired with a camera the server has not tied to a blog yet.
-        case linking
-        /// Everything is set up; the screens take over.
+        /// Paired, and the camera is behind the firmware the server has published.
+        case firmware
+        /// The camera has a blog already, so the owner has to prove the blog is theirs.
+        case claim
+        /// No blog on this camera: make one, or sign in to one and bind it.
+        case onboarding
+        /// Everything is set up; the tabs take over.
         case ready
     }
+
+    /// Set once the owner has waved the firmware offer away, so it does not block them twice.
+    private var firmwareDeferred = false
 
     let camera: CameraSession
     let blog: Blog
@@ -34,11 +41,36 @@ final class AppModel {
         if let id = settings.cameraId, let secret = Keychain.secret(for: id) {
             server.credentials = ServerClient.Credentials(cameraId: id, secretHex: secret.hexString)
         }
+        if let forced = Demo.stage {
+            camera.seedDemo(info: Demo.info)
+            blog.seedDemo(
+                status: Demo.status(claim: forced == .claim ? .pending : .approved, bound: forced != .onboarding),
+                photos: forced == .ready ? Demo.photos : []
+            )
+            firmware.seedDemo(release: Demo.release)
+        }
     }
 
     var stage: Stage {
+        if let forced = Demo.stage { return forced }
         if !camera.isPaired { return .setup }
-        return blog.isLinked ? .ready : .linking
+        if !firmwareDeferred && firmware.isAvailable(for: camera) { return .firmware }
+        switch blog.claim {
+        case .approved: return .ready
+        case .pending: return .claim
+        case .unbound, .none: return .onboarding
+        }
+    }
+
+    func deferFirmware() {
+        firmwareDeferred = true
+    }
+
+    /// Logging out and disconnecting are the same act: this phone forgets the camera and the blog at once.
+    func disconnect() {
+        firmwareDeferred = false
+        blog.forget()
+        camera.forget()
     }
 
     func start() {
@@ -51,20 +83,12 @@ final class AppModel {
 
     func refresh() {
         blog.refresh()
+        camera.reportTelemetry()
         firmware.refresh(installed: camera.info?.firmware, published: blog.publishedFirmware)
     }
 
-    func useCamera(_ found: CameraSession.Found, serverURL: String) {
-        setServerURL(serverURL)
+    func useCamera(_ found: CameraSession.Found) {
         camera.use(found)
-    }
-
-    func setServerURL(_ string: String) {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        settings.serverBaseURL = trimmed
-        serverURL = trimmed
-        server.baseURL = AppModel.url(from: trimmed)
     }
 
     private static func url(from string: String) -> URL {

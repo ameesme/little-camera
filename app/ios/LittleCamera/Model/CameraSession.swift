@@ -103,6 +103,39 @@ final class CameraSession {
         link?.use(peripheralId: camera.id)
     }
 
+    /// Relays what Info said to the server (§4.8), so the blog and the app show the camera's own numbers.
+    func reportTelemetry() {
+        guard let info, server.credentials != nil else { return }
+        Task { @MainActor in
+            do { try await server.sendTelemetry(info) } catch { log.add("telemetry: \(error.localizedDescription)") }
+        }
+    }
+
+    func seedDemo(info: CameraInfo) {
+        self.info = info
+        cameraId = info.cameraId
+        name = info.deviceName
+        isPaired = true
+        state = .connected(info.deviceName)
+    }
+
+    /// This phone lets the camera go: the pairing, the secret and everything read off it.
+    func forget() {
+        if let cameraId { Keychain.delete(for: cameraId) }
+        settings.forgetCamera()
+        isPaired = false
+        info = nil
+        name = nil
+        cameraId = nil
+        thumbnails = []
+        lastSyncAt = nil
+        uploadedCount = 0
+        error = nil
+        state = .scanning
+        found = []
+        link?.forget()
+    }
+
     /// The owner pressing SYNC NOW. A sleeping camera has no radio, so there is nothing to do but ask them to wake it.
     func syncNow() {
         guard isReady else {
@@ -173,8 +206,7 @@ final class CameraSession {
             settings.cameraId = info.cameraId
             name = info.deviceName
             onAwake?()
-            log.add("Info: \(info.photoCount) photos, \(info.unsyncedCount) unsynced, boot \(info.boot)"
-                    + (info.firmware.map { ", fw \($0)" } ?? ""))
+            log.add("Info: \(info.photoCount) photos, \(info.unsyncedCount) unsynced, boot \(info.boot), fw \(info.firmware)")
             if info.onTrial { log.add("camera is running a firmware update on trial") }
 
             let secret = try await secret(for: info.cameraId, link: link)
