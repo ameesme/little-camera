@@ -95,6 +95,7 @@ private struct PhotoPost: View {
             }
         }
         .card()
+        .background(Theme.paper)
         .contextMenu {
             Button { save() } label: { Label("Save to photos", systemImage: "square.and.arrow.down") }
             Button(role: .destructive) { confirmingDelete = true } label: {
