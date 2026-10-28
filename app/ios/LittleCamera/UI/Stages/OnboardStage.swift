@@ -184,7 +184,7 @@ struct OnboardStage: View {
                 .padding(.horizontal, Theme.pad)
                 .padding(.top, 28)
             Waiting(text: "Waiting for the picture")
-                .padding(.top, 12)
+                .padding(.top, 36)
             Spacer(minLength: 0)
             Button { model.refresh() } label: { Caption("Check again") }
                 .buttonStyle(BlackButton())
