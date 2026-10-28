@@ -364,13 +364,14 @@ The owner's own blog as data, newest first. `403 unclaimed` until §4.9 is throu
 
 ```json
 {
-  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png", "kind": "photo" | "avatar", "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…" } ] } ],
+  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png", "kind": "photo" | "avatar", "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…", "created_at": 1757789200 } ] } ],
   "next": "1757789100.0" | null
 }
 ```
 
 Twenty a page. Pass `next` back as `?before=` for the next one.
 
+- `POST /feed/:id/comments` `{ "body": "…" }` → `201 { "name": "Mees" }`. The owner's own comment, under the blog's name: a claimed camera's blog is the owner's (§4.9), so the phone needs nothing further.
 - `DELETE /feed/:id` → `200 { "ok": true }`. Takes the `id` out of `photos[]`. Not reversible: the row, its comments and the stored PBM go. `404 not_found` if the photo is not on this camera's blog.
 
 ### 4.8 `POST /telemetry`

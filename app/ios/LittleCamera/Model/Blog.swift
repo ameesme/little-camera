@@ -122,6 +122,13 @@ final class Blog {
         perform { [self] in await loadFeed(reset: false) }
     }
 
+    func comment(on photo: FeedPhoto, body: String) {
+        perform { [self] in
+            try await server.comment(photoId: photo.id, body: body)
+            await loadFeed(reset: true)
+        }
+    }
+
     /// Gone from the list before the server has answered: the picture is the owner's to drop.
     func delete(_ photo: FeedPhoto) {
         photos.removeAll { $0.id == photo.id }

@@ -165,7 +165,7 @@ export function feed(env: Env, blog: BlogRow, limit: number, before?: { uploaded
     kind: p.kind,
     captured_at: p.captured_at,
     uploaded_at: p.uploaded_at,
-    comments: (comments.get(p.id) ?? []).map((cm) => ({ id: cm.id, name: cm.name, body: cm.body })),
+    comments: (comments.get(p.id) ?? []).map((cm) => ({ id: cm.id, name: cm.name, body: cm.body, created_at: cm.created_at })),
   }));
 }
 

@@ -105,13 +105,15 @@ enum Demo {
         Bundle.main.url(forResource: name, withExtension: "png")?.absoluteString ?? ""
     }
 
-    static let photos: [FeedPhoto] = [
+    private static var ago: Int { Int(Date().timeIntervalSince1970) }
+
+    static var photos: [FeedPhoto] { [
         FeedPhoto(id: "5jk7ferd11ap", url: bundled("demo-1"), kind: "photo", capturedAt: 1_761_594_000, uploadedAt: 1_761_594_100,
-                  comments: [FeedComment(id: 1, name: "Sanne", body: "that is the dog, surely"),
-                             FeedComment(id: 2, name: "Mees", body: "it is the dog")]),
+                  comments: [FeedComment(id: 1, name: "Sanne", body: "that is the dog, surely", createdAt: ago - 7200),
+                             FeedComment(id: 2, name: "Mees", body: "it is the dog", createdAt: ago - 1500)]),
         FeedPhoto(id: "9mq2xd7bk0zz", url: bundled("demo-2"), kind: "photo", capturedAt: 1_761_500_000, uploadedAt: 1_761_500_200,
                   comments: []),
         FeedPhoto(id: "a1b2c3d4e5f6", url: bundled("demo-3"), kind: "photo", capturedAt: 1_761_400_000, uploadedAt: 1_761_400_050,
-                  comments: [FeedComment(id: 3, name: "Lotte", body: "hello")]),
-    ]
+                  comments: [FeedComment(id: 3, name: "Lotte", body: "hello", createdAt: 1_761_400_900)]),
+    ] }
 }

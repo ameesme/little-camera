@@ -21,6 +21,7 @@ struct FeedComment: Codable, Equatable, Identifiable {
     let id: Int
     let name: String
     let body: String
+    let createdAt: Int
 }
 
 struct FeedPhoto: Codable, Equatable, Identifiable {
@@ -345,6 +346,14 @@ final class ServerClient {
         let req = try request("GET", "feed", query: before.map { ["before": $0] } ?? [:])
         let (code, data) = try await send(req)
         return try decode(FeedPage.self, code: code, data: data)
+    }
+
+    func comment(photoId: String, body: String) async throws {
+        var req = try request("POST", "feed/\(photoId)/comments")
+        req.httpBody = try JSONEncoder().encode(["body": body])
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        let (code, data) = try await send(req)
+        guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
     }
 
     func deletePhoto(id: String) async throws {

@@ -76,6 +76,7 @@ private struct PhotoPost: View {
     let photo: FeedPhoto
     let blog: Blog
     @State private var confirmingDelete = false
+    @State private var draft = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -90,9 +91,10 @@ private struct PhotoPost: View {
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
             Caption(Date(timeIntervalSince1970: TimeInterval(photo.capturedAt)).formatted(date: .abbreviated, time: .shortened))
             ForEach(photo.comments) { comment in
-                Text("**\(comment.name)** \(comment.body)")
-                    .font(Theme.small)
+                Text("**\(comment.name)** \(comment.body)").font(Theme.small)
+                    + Text("  \(when(comment.createdAt))").font(Theme.font(11))
             }
+            say
         }
         .card()
         .background(Theme.paper)
@@ -107,6 +109,40 @@ private struct PhotoPost: View {
         } message: {
             Text("It goes off the blog for everyone, with whatever was said under it.")
         }
+    }
+
+    /// The owner says something under their own picture; it goes up under the blog's name.
+    private var say: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            TextField("Say something", text: $draft, axis: .vertical)
+                .font(Theme.small)
+                .textFieldStyle(.plain)
+                .tint(Theme.ink)
+                .submitLabel(.send)
+                .onSubmit(post)
+            if !draft.trimmed.isEmpty {
+                Button(action: post) { Caption("Post") }
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func post() {
+        let said = draft.trimmed
+        guard !said.isEmpty else { return }
+        draft = ""
+        blog.comment(on: photo, body: said)
+    }
+
+    /// Recent enough to count in hours reads better than a date nobody has to look up.
+    private func when(_ at: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(at))
+        guard date.timeIntervalSinceNow > -7 * 86400 else {
+            return date.formatted(.dateTime.day().month(.abbreviated))
+        }
+        let since = RelativeDateTimeFormatter()
+        since.unitsStyle = .abbreviated
+        return since.localizedString(for: date, relativeTo: .now)
     }
 
     /// The server's PNG, not a redraw of it: the dither is the picture (AGENTS.md).

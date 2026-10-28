@@ -5,7 +5,7 @@ import { blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
 import { boundInfo, claimState, letPhoneIn, relayTelemetry, requestClaim, sayHello } from '../core/cameras.js';
 import { register } from '../core/blogs.js';
-import { MAX_PHOTO_BYTES, PhotoRejected, feed, removePhoto, uploadPhoto } from '../core/photos.js';
+import { MAX_COMMENT, MAX_PHOTO_BYTES, PhotoRejected, comment, feed, removePhoto, uploadPhoto } from '../core/photos.js';
 import { VERSION, firmwareState } from '../core/firmware.js';
 import type { Env } from '../env.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, type CameraVars } from '../middleware/cameraAuth.js';
@@ -19,6 +19,10 @@ const helloSchema = z.object({
   camera_id: z.string().regex(CAMERA_ID),
   secret: z.string().regex(SECRET_HEX),
   firmware: z.string().regex(VERSION).optional(),
+});
+
+const commentSchema = z.object({
+  body: z.string().trim().min(1).max(MAX_COMMENT),
 });
 
 const telemetrySchema = z.object({
@@ -215,6 +219,21 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
       photos: page,
       next: photos.length > FEED_PAGE && last ? `${last.uploaded_at}.0` : null,
     });
+  });
+
+  app.post('/feed/:id/comments', async (c) => {
+    const blog = blogOf(c);
+    if (!blog) return c.json(UNBOUND, 409);
+    const camera = c.get('camera');
+    if (claimState(camera) !== 'approved') return c.json(error('unclaimed', 'The owner has not let this phone in'), 403);
+    const photo = findPhotoByPublicId(env.db, c.req.param('id'));
+    if (!photo || photo.blog_id !== blog.id) return c.json(error('not_found', 'No such photo'), 404);
+    const parsed = commentSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json(error('bad_request', 'Expected { body }'), 400);
+    // The phone proves the camera, and a claimed camera's blog is the owner's own (§4.9).
+    const posted = comment(env, blog, photo, { kind: 'owner' }, { body: parsed.data.body.trim(), name: '' });
+    if (!posted.ok) return c.json(error('bad_request', 'Nothing to say'), 400);
+    return c.json({ name: posted.name }, 201);
   });
 
   app.delete('/feed/:id', (c) => {

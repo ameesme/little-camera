@@ -14,6 +14,7 @@ export interface CommentView {
   photo_id: number;
   name: string;
   body: string;
+  created_at: number;
 }
 
 export function insertComment(
@@ -33,15 +34,22 @@ export function commentsForPhotos(db: Db, photoIds: number[], ownerName: string)
   const marks = photoIds.map(() => '?').join(',');
   const rows = db
     .prepare(
-      `SELECT c.id, c.photo_id, c.body, s.name AS sub_name, c.subscriber_id
+      `SELECT c.id, c.photo_id, c.body, c.created_at, s.name AS sub_name, c.subscriber_id
        FROM comments c LEFT JOIN subscribers s ON s.id = c.subscriber_id
        WHERE c.photo_id IN (${marks}) ORDER BY c.id`,
     )
-    .all(...photoIds) as { id: number; photo_id: number; body: string; sub_name: string | null; subscriber_id: number | null }[];
+    .all(...photoIds) as {
+    id: number;
+    photo_id: number;
+    body: string;
+    created_at: number;
+    sub_name: string | null;
+    subscriber_id: number | null;
+  }[];
   for (const r of rows) {
     const name = r.subscriber_id === null ? ownerName : (r.sub_name ?? 'Someone');
     const list = out.get(r.photo_id) ?? [];
-    list.push({ id: r.id, photo_id: r.photo_id, name, body: r.body });
+    list.push({ id: r.id, photo_id: r.photo_id, name, body: r.body, created_at: r.created_at });
     out.set(r.photo_id, list);
   }
   return out;

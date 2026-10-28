@@ -456,6 +456,24 @@ describe('GET /api/camera/feed', () => {
     expect((await cameraGet(w, '/feed')).status).toBe(409);
   });
 
+  it('the owner comments under the blog name, with a timestamp the feed carries', async () => {
+    const blog = await approvedWorld();
+    const cat = await upload(w, fixture('cat'), 1);
+    w.clock.t += 120;
+
+    expect((await cameraPost(w, `/feed/${cat.body.id}/comments`, { body: '   ' })).status).toBe(400);
+    const posted = await cameraPost(w, `/feed/${cat.body.id}/comments`, { body: 'it is the cat' });
+    expect(posted.status).toBe(201);
+    expect(posted.body).toEqual({ name: blog.name });
+
+    const r = await cameraGet(w, '/feed');
+    expect(r.body.photos[0].comments).toEqual([
+      { id: 1, name: blog.name, body: 'it is the cat', created_at: w.clock.t },
+    ]);
+
+    expect((await cameraPost(w, '/feed/nosuchphoto12/comments', { body: 'hi' })).status).toBe(404);
+  });
+
   it('deletes one picture with its comments and its file, and only off its own blog', async () => {
     await approvedWorld();
     const cat = await upload(w, fixture('cat'), 1);
@@ -468,7 +486,7 @@ describe('GET /api/camera/feed', () => {
     expect((await cameraDelete(w, `/feed/${cat.body.id}`)).body).toEqual({ ok: true });
     expect(existsSync(path)).toBe(false);
     expect(findPhotoByPublicId(w.env.db, cat.body.id)).toBeNull();
-    expect(commentsForPhotos(w.env.db, [1]).size).toBe(0);
+    expect(commentsForPhotos(w.env.db, [1], "Mees").size).toBe(0);
 
     const left = await cameraGet(w, '/feed');
     expect(left.body.photos.map((p: { id: string }) => p.id)).toEqual([cup.body.id]);
