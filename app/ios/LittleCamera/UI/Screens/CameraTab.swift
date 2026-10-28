@@ -79,7 +79,6 @@ struct CameraTab: View {
                 }
             }
             .refreshable { model.refresh() }
-            .navigationTitle("Camera")
             .navigationBarTitleDisplayMode(.inline)
             .confirmationDialog("Disconnect little camera?", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
                 Button("Disconnect and log out", role: .destructive) { model.disconnect() }

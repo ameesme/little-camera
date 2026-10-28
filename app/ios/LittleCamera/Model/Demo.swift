@@ -12,7 +12,7 @@ enum Demo {
         case "firmware": return .firmware
         case "claim", "asked": return .claim
         case "onboarding", "create", "handle", "signin", "sent", "bind", "avatar": return .onboarding
-        case "ready": return .ready
+        case "ready", "empty": return .ready
         default: return nil
         }
     }

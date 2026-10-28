@@ -3,64 +3,74 @@ import SwiftUI
 /// What the blog holds: the pictures with what people said under them, who reads it, and the way out.
 struct BlogTab: View {
     let model: AppModel
-    @State private var showing: Sheet?
+    @State private var showingPeople = false
     @State private var newEmail = ""
     @State private var newName = ""
-
-    private enum Sheet: String, Identifiable {
-        case people
-        case share
-        case log
-        var id: String { rawValue }
-    }
 
     private var blog: Blog { model.blog }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if blog.photos.isEmpty {
-                        Text("No pictures yet. Take one and press send.")
-                            .font(Theme.lead)
-                            .card()
-                    }
-                    ForEach(blog.photos) { photo in
-                        PhotoPost(photo: photo)
-                        Rule()
-                    }
-                    if blog.nextPage != nil {
-                        Button { blog.loadMore() } label: { Caption("Older") }
-                            .buttonStyle(BlackButton())
-                            .card()
-                    }
+            Group {
+                if blog.photos.isEmpty {
+                    empty
+                } else {
+                    feed
                 }
             }
-            .refreshable { model.refresh() }
-            .navigationTitle(blog.bound?.handle ?? "Blog")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("People\(blog.waiting.isEmpty ? "" : " (\(blog.waiting.count) waiting)")") { showing = .people }
-                        Button("Share link") { showing = .share }
-                        Button("Activity") { showing = .log }
-                        Divider()
-                        // One act, two names: this phone lets go of the camera and the blog together.
-                        Button("Log out and disconnect", role: .destructive) { model.disconnect() }
-                    } label: {
-                        Image(systemName: "ellipsis")
+                    Button { showingPeople = true } label: {
+                        Label(blog.waiting.isEmpty ? "People" : "\(blog.waiting.count) waiting",
+                              systemImage: blog.waiting.isEmpty ? "person.2" : "person.2.badge.plus")
+                    }
+                }
+                if let url = blog.bound.flatMap({ URL(string: $0.url) }) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
                     }
                 }
             }
-            .sheet(item: $showing) { sheet in
-                switch sheet {
-                case .people: people
-                case .share: share
-                case .log: LogSheet(log: model.log)
+            .sheet(isPresented: $showingPeople) { people }
+        }
+    }
+
+    private var feed: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(blog.photos) { photo in
+                    PhotoPost(photo: photo)
+                    Rule()
+                }
+                if blog.nextPage != nil {
+                    Button { blog.loadMore() } label: { Caption("Older") }
+                        .buttonStyle(BlackButton())
+                        .card()
                 }
             }
         }
+        .refreshable { model.refresh() }
+    }
+
+    /// A blog with nothing on it is the camera waiting to be pressed, not an error.
+    private var empty: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Device(mood: .viewfinder)
+            Text("Nothing here yet")
+                .font(Theme.font(30, bold: true))
+                .kerning(-1)
+                .padding(.top, 28)
+            Text("Press the button on little camera and the picture lands here.")
+                .font(Theme.lead)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Theme.pad)
+                .padding(.top, 10)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Ground())
     }
 
     private var people: some View {
@@ -96,27 +106,6 @@ struct BlogTab: View {
                 .card()
             }
             .navigationTitle("People")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-
-    private var share: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Anyone with this address can ask to follow. You decide who gets in.")
-                    .font(Theme.small)
-                Text(blog.bound?.url.withoutScheme ?? "")
-                    .font(Theme.font(17, bold: true))
-                if let url = blog.bound.flatMap({ URL(string: $0.url) }) {
-                    ShareLink(item: url) {
-                        Caption("Share it")
-                    }
-                    .buttonStyle(BlackButton())
-                }
-                Spacer()
-            }
-            .card()
-            .navigationTitle("Share")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -179,16 +168,3 @@ private struct SubscriberRow: View {
     }
 }
 
-private struct LogSheet: View {
-    let log: SyncLog
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                LogScreen(log: log)
-            }
-            .navigationTitle("Activity")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-}

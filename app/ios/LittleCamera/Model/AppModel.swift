@@ -57,7 +57,7 @@ final class AppModel {
             camera.seedDemo(info: Demo.info)
             blog.seedDemo(
                 status: Demo.status(claim: forced == .claim ? .pending : .approved, bound: Demo.step == .avatar || (Demo.step == nil && forced != .onboarding)),
-                photos: forced == .ready ? Demo.photos : [],
+                photos: forced == .ready && Demo.name != "empty" ? Demo.photos : [],
                 code: Demo.code,
                 asked: Demo.asked
             )
