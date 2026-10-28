@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { randomCode } from '@little-camera/pbm';
 import { blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
 import { boundInfo, claimState, letPhoneIn, relayTelemetry, requestClaim, sayHello } from '../core/cameras.js';
@@ -11,6 +12,7 @@ import { CAMERA_ID, SECRET_HEX, cameraAuth, type CameraVars } from '../middlewar
 import { countFeedPhotos } from '../repo/photos.js';
 import { findBlogById, findBlogByEmail, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
 import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
+import { insertCode } from '../repo/codes.js';
 import { listSubscribers } from '../repo/subscribers.js';
 
 const helloSchema = z.object({
@@ -178,6 +180,17 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
     const blog = findBlogByEmail(env.db, parsed.data.email);
     if (blog) requestClaim(env, camera, blog);
     return c.json({ state: 'pending' });
+  });
+
+  // The phone shows the code on its own screen and the camera photographs it, so the
+  // phone needs the code the web page would otherwise have drawn.
+  app.post('/verification-code', (c) => {
+    const camera = c.get('camera');
+    const blogId = camera.blog_id ?? camera.claim_blog_id;
+    if (blogId === null) return c.json(error('no_blog', 'Make a blog or sign in first'), 409);
+    if (camera.blog_id !== null) return c.json(error('already_bound', 'This camera already posts to a blog'), 409);
+    const code = insertCode(env.db, randomCode(6), blogId, env.now());
+    return c.json({ code: code.code, expires_at: code.expires_at }, 201);
   });
 
   app.get('/feed', (c) => {

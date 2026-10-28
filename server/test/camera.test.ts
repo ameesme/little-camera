@@ -467,3 +467,19 @@ describe('DELETE /api/camera/subscribers/:id', () => {
     expect((await cameraDelete(w, '/subscribers/1')).status).toBe(404);
   });
 });
+
+describe('POST /api/camera/verification-code', () => {
+  it('hands the phone a code once it has a blog, and refuses once the camera is bound', async () => {
+    await hello(w);
+    expect((await cameraPost(w, '/verification-code', {})).status).toBe(409);
+
+    await cameraPost(w, '/blog', { name: 'Mees', email: 'mees@example.com', handle: 'mees' });
+    const made = await cameraPost(w, '/verification-code', {});
+    expect(made.status).toBe(201);
+    expect(made.body.code).toMatch(/^[A-Z2-9]{6}$/);
+    expect(made.body.expires_at - w.clock.t).toBe(15 * 60);
+
+    bindCamera(w.env.db, CAM.id, findBlogByHandle(w.env.db, 'mees')!.id, w.clock.t);
+    expect((await cameraPost(w, '/verification-code', {})).status).toBe(409);
+  });
+});
