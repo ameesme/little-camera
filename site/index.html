@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>little camera — a 1-bit microblog pocket camera</title>
-<meta name="description" content="0.07 megapixel • 1-bit color • 28-day battery • beeps • photo microblog included">
+<meta name="description" content="0.07 megapixel • 1-bit color • 28-day battery • beeps • little blog included">
 <link rel="canonical" href="https://lttl.cam/">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#dddddd">
@@ -17,7 +17,7 @@
      dither, same glitched headline. -->
 <meta property="og:site_name" content="lttl.cam">
 <meta property="og:title" content="little camera — a 1-bit microblog pocket camera">
-<meta property="og:description" content="0.07 megapixel • 1-bit color • 28-day battery • beeps • photo microblog included">
+<meta property="og:description" content="0.07 megapixel • 1-bit color • 28-day battery • beeps • little blog included">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://lttl.cam/">
 <meta property="og:locale" content="en">
@@ -28,7 +28,7 @@
 <meta property="og:image:alt" content="a small dithered camera beside the words a little camera is coming.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="little camera — a 1-bit microblog pocket camera">
-<meta name="twitter:description" content="0.07 megapixel • 1-bit color • 28-day battery • beeps • photo microblog included">
+<meta name="twitter:description" content="0.07 megapixel • 1-bit color • 28-day battery • beeps • little blog included">
 <meta name="twitter:image" content="https://lttl.cam/media/og.png">
 <meta name="twitter:image:alt" content="a small dithered camera beside the words a little camera is coming.">
 <!-- The headline is fitted by measuring the font that actually resolved, so a
@@ -356,8 +356,13 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 
 /* The dithered render. When WebGL comes up it takes over and the CSS device
    below is hidden; if it doesn't, the CSS device stays and nothing is lost. */
-.gl{position:absolute; inset:0; width:100%; height:100%; display:block;
+.gl{position:absolute; inset:0; display:block;
     image-rendering:pixelated; image-rendering:crisp-edges}
+/* A phone is twice as tall as it is wide and needs room the camera did not.
+   The canvas takes it from the slack the sheet is centred in, rather than from
+   the stage: growing the stage reflows the page and the composition loses its
+   head on a short window. */
+.stage.phone .gl{top:calc(var(--w) * -0.19); bottom:calc(var(--w) * -0.09)}
 .stage:not(.gl-on) .gl{display:none}
 .gl-on .rig,.gl-on .cast{display:none}
 
@@ -373,7 +378,11 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
 .burst{position:absolute; width:var(--burst); height:var(--burst);
        right:calc(var(--w) * 0.07 - var(--burst) / 2);
        top:calc(var(--w) * 0.05 - var(--burst) / 2);
-       display:grid; place-items:center; pointer-events:none}
+       display:grid; place-items:center; pointer-events:none;
+       transition:opacity 300ms ease}
+/* The sticker is pinned to the camera's top right corner, and the phone has
+   no corner there to sit on. */
+.stage.phone .burst{opacity:0}
 /* The points are rounded by stroking the star in its own fill with a round
    join, rather than by a path of arcs: one number to tune, and the tips keep
    the same radius however many points there are. The stroke grows the shape by
@@ -441,7 +450,7 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
       </video>
       <h1><span>a little</span><span>camera</span><span>is coming.</span></h1>
     </div>
-    <p class="by"><span>0.07 megapixel • 1-bit color • 28-day battery • beeps • photo microblog included</span></p>
+    <p class="by"><span>0.07 megapixel • 1-bit color • 28-day battery • beeps • little blog included</span></p>
   </div>
 
   <div class="stage">
@@ -488,7 +497,7 @@ h1 span{display:block; width:fit-content; white-space:nowrap}
       </div>
     </div>
     <div class="cast"></div>
-    <little-camera class="gl" id="gl" span="0.94"></little-camera>
+    <little-camera class="gl" id="gl" span="0.94" phone-span="0.96" strip="media/blog-strip.png"></little-camera>
     <!-- Last in the stage, so it paints over the render without needing a
          z-index (and a stacking context) of its own. -->
     <div class="burst">
@@ -568,6 +577,7 @@ const still = matchMedia('(prefers-reduced-motion: reduce)');
 
 const SPIN_MS = 1250;   // one full turn
 const SWAP_MS = 620;    // halfway, with its back to us: nobody sees the cut
+const PHONE_MS = 5200;  // two flicks of the blog before it turns back
 const BREATH_MS = 1000; // the firmware breathes on its 5s tick; a frame a second reads better here
 const FIRST_MS = 2000;  // the first turn comes quickly, so the page shows what it does
 
@@ -678,8 +688,10 @@ function paintShade(){
   // Only the strip under the box, not the whole viewport: the shadow never
   // reaches further than SHADE_REACH, and this keeps the per-pixel pass to a
   // few thousand pixels instead of a few hundred thousand.
-  const pad = SHADE_REACH;
-  const w = Math.max(1, Math.ceil(b.width) + pad * 2), h = Math.max(1, pad + 1);
+  // Held inside the page's own margin: a decoration hanging past it is what
+  // the document scrolls for, and two stray pixels are a pair of scrollbars.
+  const pad = Math.min(SHADE_REACH, Math.floor(parseFloat(getComputedStyle(document.body).paddingBottom)));
+  const w = Math.max(1, Math.ceil(b.width) + pad * 2), h = Math.max(1, pad);
   if (cv.width !== w || cv.height !== h){
     cv.width = w; cv.height = h;
     cv.style.width = w + 'px'; cv.style.height = h + 'px';
@@ -726,6 +738,18 @@ function setScreen(key){
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let spinTo = 0;
 
+// Every turn comes out as the other thing. The canvas has to grow for the
+// phone, and it does that at the edge-on frame, which is the one with nothing
+// to show. Without WebGL there is no phone, only the CSS box turning.
+function turn(){
+  if (!glReady){
+    document.getElementById('box').style.setProperty('--spin', (spinTo += 360) + 'deg');
+    return;
+  }
+  const at = cam.morph();
+  if (at) setTimeout(() => stage.classList.toggle('phone', cam.phone), at);
+}
+
 async function run(){
   let i = 0, first = true;
   for (;;){
@@ -748,15 +772,20 @@ async function run(){
 
     if (still.matches){ setScreen(next); continue; }
 
-    if (glReady){
-      cam.spin();
-    } else {
-      document.getElementById('box').style.setProperty('--spin', spinTo + 360 + 'deg');
-      spinTo += 360;
+    if (!glReady){
+      turn();
+      await wait(SWAP_MS);
+      setScreen(next);
+      await wait(SPIN_MS - SWAP_MS);
+      continue;
     }
-    await wait(SWAP_MS);
+
+    turn();
+    await wait(SPIN_MS + PHONE_MS);
+    // Swapped behind the phone's back, so it comes out wearing the next face.
     setScreen(next);
-    await wait(SPIN_MS - SWAP_MS);
+    turn();
+    await wait(SPIN_MS);
   }
 }
 
