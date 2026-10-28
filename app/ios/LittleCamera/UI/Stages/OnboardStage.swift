@@ -196,7 +196,9 @@ struct OnboardStage: View {
     }
 
     private var cardName: String {
-        model.blog.made?.handle ?? model.blog.bound?.handle ?? handle.trimmed
+        let typed = name.trimmed
+        if !typed.isEmpty { return typed }
+        return model.blog.made?.handle ?? model.blog.bound?.handle ?? handle.trimmed
     }
 }
 
@@ -205,6 +207,12 @@ struct OnboardStage: View {
 private struct ScanCard: View {
     let code: String?
     let name: String
+
+    /// Lower case, the way the wordmark is set.
+    private var label: String {
+        let owner = name.isEmpty ? "your" : "\(name.lowercased())\u{2019}s"
+        return "this is \(owner)\nlittle camera"
+    }
 
     var body: some View {
         HStack(spacing: 20) {
@@ -215,13 +223,12 @@ private struct ScanCard: View {
                     Dither().aspectRatio(1, contentMode: .fit)
                 }
             }
-            if !name.isEmpty {
-                Text(name)
-                    .font(Theme.font(26, bold: true))
-                    .kerning(-0.5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-            }
+            Text(label)
+                .font(Theme.font(26, bold: true))
+                .kerning(-0.8)
+                .lineSpacing(-4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
         }
         .padding(20)
         .frame(maxWidth: .infinity)
