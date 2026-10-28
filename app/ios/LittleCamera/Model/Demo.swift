@@ -12,7 +12,7 @@ enum Demo {
         case "firmware": return .firmware
         case "claim", "asked": return .claim
         case "onboarding", "create", "handle", "signin", "sent", "bind", "avatar": return .onboarding
-        case "ready", "empty": return .ready
+        case "ready", "empty", "camera", "people", "nobody": return .ready
         default: return nil
         }
     }
@@ -35,6 +35,8 @@ enum Demo {
     }
 
     static var pairing: Bool { name == "pairing" }
+    static var onCameraTab: Bool { name == "camera" }
+    static var showingPeople: Bool { name == "people" || name == "nobody" }
 
     static var asked: Bool { name == "asked" || name == "sent" }
 
@@ -89,7 +91,7 @@ enum Demo {
             avatar: AvatarState(requestedAt: nil, hasAvatar: hasAvatar),
             firmware: FirmwareState(installed: "0.2.0", latest: release, updateAvailable: true),
             claim: claim,
-            subscribers: [
+            subscribers: name == "nobody" ? [] : [
                 Subscriber(id: 1, email: "sanne@example.com", name: "Sanne", status: "approved", addedBy: "owner"),
                 Subscriber(id: 2, email: "joost@example.com", name: nil, status: "pending", addedBy: "self"),
                 Subscriber(id: 3, email: "lotte@example.com", name: "Lotte", status: "approved", addedBy: "self"),

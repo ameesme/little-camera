@@ -137,13 +137,6 @@ final class Blog {
         }
     }
 
-    func block(_ subscriber: Subscriber) {
-        perform { [self] in
-            try await server.block(id: subscriber.id)
-            refresh()
-        }
-    }
-
     func remove(_ subscriber: Subscriber) {
         perform { [self] in
             try await server.removeSubscriber(id: subscriber.id)

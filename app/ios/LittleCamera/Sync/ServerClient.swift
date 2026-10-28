@@ -253,9 +253,6 @@ final class ServerClient {
         try await post("subscribers/\(id)/approve")
     }
 
-    func block(id: Int) async throws {
-        try await post("subscribers/\(id)/block")
-    }
 
     // MARK: Telemetry and being let in (§4.8, §4.9)
 

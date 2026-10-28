@@ -82,6 +82,18 @@ struct BlackButton: ButtonStyle {
     }
 }
 
+/// A button inside a row, where a full-width one would be absurd.
+struct SmallButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .foregroundStyle(configuration.isPressed ? Theme.ink : Theme.paper)
+            .background(configuration.isPressed ? Theme.paper : Theme.ink)
+            .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
+    }
+}
+
 /// The second choice on a screen: the same size, outlined rather than filled.
 struct QuietButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -128,7 +140,8 @@ struct StatRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Caption(label)
+            Text(label)
+                .font(Theme.body)
             Spacer(minLength: 8)
             Text(value)
                 .font(Theme.body)
