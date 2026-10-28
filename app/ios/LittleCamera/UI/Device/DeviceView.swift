@@ -79,9 +79,10 @@ struct DeviceView: UIViewRepresentable {
         func flush(_ web: WKWebView) {
             guard loaded, let pending else { return }
             guard sent == nil || sent! != pending else { return }
-            web.evaluateJavaScript("window.lc.scene('\(pending.mood.rawValue)')")
             if sent?.turn != pending.turn && pending.turn > 0 {
-                web.evaluateJavaScript("window.lc.spin()")
+                web.evaluateJavaScript("window.lc.turnTo('\(pending.mood.rawValue)')")
+            } else {
+                web.evaluateJavaScript("window.lc.scene('\(pending.mood.rawValue)')")
             }
             sent = pending
         }

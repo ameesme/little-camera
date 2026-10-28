@@ -15,22 +15,23 @@ struct IntroStage: View {
         (.saving, "Only the people you let in ever see it."),
     ]
 
-    private var current: (mood: DeviceMood, line: String) { Self.beats[beat] }
+    /// The line follows the panel rather than leading it: both land as the camera comes round.
+    @State private var caption = 0
 
     var body: some View {
         VStack(spacing: 0) {
             // The wordmark sits at the top of the page; the camera keeps the middle.
             Wordmark()
-                .padding(.top, 8)
+                .padding(.top, 52)
             Spacer(minLength: 20)
-            Device(mood: current.mood, turn: turns)
-            Text(current.line)
+            Device(mood: Self.beats[beat].mood, turn: turns)
+            Text(Self.beats[caption].line)
                 .font(Theme.lead)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, Theme.pad)
                 .padding(.top, 24)
-                .id(beat)
+                .id(caption)
                 .transition(.opacity)
                 .opacity(settled ? 1 : 0)
                 .offset(y: settled ? 0 : 14)
@@ -47,8 +48,11 @@ struct IntroStage: View {
             withAnimation(.easeOut(duration: 0.6)) { settled = true }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3.2))
+                beat = (beat + 1) % Self.beats.count
                 turns += 1
-                withAnimation(.easeInOut(duration: 0.3)) { beat = (beat + 1) % Self.beats.count }
+                // Half a turn, which is where camera-element.js swaps the panel.
+                try? await Task.sleep(for: .milliseconds(495))
+                withAnimation(.easeInOut(duration: 0.3)) { caption = beat }
             }
         }
     }

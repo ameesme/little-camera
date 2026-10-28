@@ -264,7 +264,7 @@ class LittleCamera extends HTMLElement {
   #scene = 'sleepA';
   #spinFrom = 0; #spinTo = 0; #spinAt = -1e9;
   #dragYaw = 0; #dragging = false; #dragX = 0;
-  #breathAt = 0; #breathOut = false;
+  #breathAt = 0; #breathOut = false; #swapAt = 0;
   #frame = 0;
 
   /// What the ink and the paper are. Read off CSS so the page owns the palette.
@@ -312,6 +312,7 @@ class LittleCamera extends HTMLElement {
   #resize = null;
 
   disconnectedCallback() {
+    clearTimeout(this.#swapAt);
     cancelAnimationFrame(this.#frame);
     if (this.#resize) removeEventListener('resize', this.#resize);
   }
@@ -335,6 +336,14 @@ class LittleCamera extends HTMLElement {
     this.#spinFrom = this.#spinTo;
     this.#spinTo = degrees === undefined ? this.#spinTo + 360 : degrees;
     this.#spinAt = performance.now();
+  }
+
+  /// Turn, and change the panel halfway round, while its back is to you. Swapping the
+  /// screen before the turn starts gives the new one away.
+  turnTo(key) {
+    this.spin();
+    clearTimeout(this.#swapAt);
+    this.#swapAt = setTimeout(() => this.scene(key), SPIN_MS * 0.45);
   }
 
   /// The one the app plays when a camera is finally bound to a blog.
