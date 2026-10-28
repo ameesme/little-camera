@@ -30,13 +30,6 @@ struct PeopleScreen: View {
                     } header: {
                         Caption("Reading along")
                     }
-                } else if !blog.waiting.isEmpty {
-                    Section {
-                        Text("Nobody is reading along yet.")
-                            .font(Theme.body)
-                    } header: {
-                        Caption("Reading along")
-                    }
                 }
             }
             .listStyle(.plain)
