@@ -58,7 +58,7 @@ struct OnboardStage: View {
     @ViewBuilder private var content: some View {
         switch step {
         case .choose:
-            Text("Get started with a new blog or continue one you already have")
+            Text("Get started with a new blog\nor continue one you already have")
         case .create:
             Field(placeholder: "Your name", text: $name)
             Field(placeholder: "you@example.com", text: $email, keyboard: .emailAddress)
