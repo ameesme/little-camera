@@ -12,7 +12,7 @@ struct ClaimStage: View {
                     .font(Theme.font(20, bold: true))
             }
             Text(model.blog.askedToBeLetIn
-                 ? "Check that blog's inbox. The link works for an hour."
+                 ? "Check that little blog's inbox. The link works for an hour."
                  : "Only the owner's inbox can let this phone in.")
             if model.blog.askedToBeLetIn {
                 Waiting(text: "Waiting for you")

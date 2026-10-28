@@ -14,6 +14,7 @@ enum DeviceMood: String {
     case send = "send"
     case images = "images"
     case camera = "camera"
+    case sparkles = "sparkles"
 
     /// The camera's own face, so the app never invents a mood of its own (docs/mood.md).
     init(_ face: Face) {

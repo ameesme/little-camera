@@ -64,7 +64,7 @@ struct CameraTab: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         Caption("This phone")
-                        Text("Forgets little camera and the blog on this phone. Both stay where they are.")
+                        Text("Forgets little camera and the little blog on this phone. Both stay where they are.")
                             .font(Theme.small)
                         Button(role: .destructive) { confirmingDisconnect = true } label: {
                             Caption("Disconnect and log out")

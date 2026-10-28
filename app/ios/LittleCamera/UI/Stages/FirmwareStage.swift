@@ -8,21 +8,21 @@ struct FirmwareStage: View {
     private var charged: Bool { model.firmware.isChargedEnough(model.camera) }
 
     var body: some View {
-        DeviceStage(title: charged ? "Hold on a minute" : "Charge it first", mood: .send) {
+        DeviceStage(title: charged ? "Hold on a minute" : "Charge it first", mood: .sparkles) {
             if charged {
                 Text("Your little camera is getting up to date.")
                 ProgressRule(fraction: model.firmware.fraction)
-                Waiting(text: model.firmware.line(installed: model.camera.info?.firmware))
+                    .padding(.top, 4)
+                Text(model.firmware.line(installed: model.camera.info?.firmware))
+                    .font(Theme.body)
             } else {
-                Text("Plug it in and this happens on its own.")
-                Caption("\(model.camera.info?.batteryPercent ?? 0) % LEFT")
+                Text("There is \(model.camera.info?.batteryPercent ?? 0) % left. Plug it in and this happens on its own.")
             }
         } actions: {
-            Button { model.deferFirmware() } label: { Caption(charged ? "Not now" : "Skip it") }
-                .buttonStyle(QuietButton())
-        }
-        .task(id: charged) {
-            if charged { model.firmware.send(to: model.camera) }
+            if !model.firmware.isRunning {
+                Button { model.deferFirmware() } label: { Caption(charged ? "Not now" : "Skip it") }
+                    .buttonStyle(QuietButton())
+            }
         }
     }
 }

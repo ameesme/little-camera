@@ -8,7 +8,7 @@ enum Demo {
     static var stage: AppModel.Stage? {
         switch name {
         case "intro": return .intro
-        case "setup", "found": return .setup
+        case "setup", "found", "pairing": return .setup
         case "firmware": return .firmware
         case "claim", "asked": return .claim
         case "onboarding", "create", "handle", "signin", "sent", "bind", "avatar": return .onboarding
@@ -31,8 +31,10 @@ enum Demo {
     }
 
     static var found: CameraSession.Found? {
-        name == "found" ? CameraSession.Found(id: UUID(), name: "lc-8f21") : nil
+        name == "found" || name == "pairing" ? CameraSession.Found(id: UUID(), name: "lc-8f21") : nil
     }
+
+    static var pairing: Bool { name == "pairing" }
 
     static var asked: Bool { name == "asked" || name == "sent" }
 

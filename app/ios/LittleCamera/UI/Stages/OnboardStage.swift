@@ -67,10 +67,10 @@ struct OnboardStage: View {
 
     private var title: String {
         switch step {
-        case .choose: return "Start a blog"
+        case .choose: return "Start a little blog"
         case .name: return "Pick a name"
         case .email: return "Add your email"
-        case .handle: return "Claim your blog"
+        case .handle: return "Claim your little blog"
         case .signIn: return "Sign in"
         case .sent: return "Open the email"
         case .bind: return ""
@@ -91,7 +91,7 @@ struct OnboardStage: View {
     @ViewBuilder private var content: some View {
         switch step {
         case .choose:
-            Text("Get started with a new blog\nor continue one you already have")
+            Text("Get started with a new little blog\nor continue one you already have.")
         case .name:
             Text("It goes under every picture you send.")
             Field(placeholder: "Your name", text: $name, autofocus: true)
@@ -122,7 +122,7 @@ struct OnboardStage: View {
             if model.blog.awaitingAvatar {
                 Waiting(text: "Waiting for the picture")
             } else {
-                Text("A picture to head the blog.")
+                Text("A picture to head your little blog.")
             }
         }
     }
@@ -130,7 +130,7 @@ struct OnboardStage: View {
     @ViewBuilder private var buttons: some View {
         switch step {
         case .choose:
-            Button { step = .name } label: { Caption("Make a blog") }
+            Button { step = .name } label: { Caption("Make a little blog") }
                 .buttonStyle(BlackButton())
             Button { step = .signIn } label: { Caption("I already have one") }
                 .buttonStyle(QuietButton())
@@ -175,7 +175,7 @@ struct OnboardStage: View {
     private var bindScreen: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            Text("Point little camera at this")
+            Text("Scan with little camera")
                 .font(Theme.font(30, bold: true))
                 .kerning(-1)
                 .frame(maxWidth: .infinity)
@@ -183,8 +183,8 @@ struct OnboardStage: View {
             ScanCard(code: model.blog.verificationCode, name: cardName)
                 .padding(.horizontal, Theme.pad)
                 .padding(.top, 28)
-            Waiting(text: "Waiting for little camera")
-                .padding(.top, 28)
+            Waiting(text: "Waiting for the picture")
+                .padding(.top, 12)
             Spacer(minLength: 0)
             Button { model.refresh() } label: { Caption("Check again") }
                 .buttonStyle(BlackButton())
@@ -254,20 +254,34 @@ private struct AddressField: View {
                 Text(suffix)
                     .font(Theme.font(26))
                     .kerning(-0.5)
-                mark
-                    .frame(width: 26)
             }
             .frame(maxWidth: .infinity)
             Theme.ink.frame(height: 2)
+            verdict
+                .frame(height: 28)
         }
     }
 
-    @ViewBuilder private var mark: some View {
+    @ViewBuilder private var verdict: some View {
         switch availability {
-        case .unknown: Color.clear
-        case .checking: ProgressView().controlSize(.small).tint(Theme.ink)
-        case .free: Image(systemName: "checkmark").font(.system(size: 20, weight: .bold))
-        case .taken: Image(systemName: "xmark").font(.system(size: 20, weight: .bold))
+        case .unknown:
+            Color.clear
+        case .checking:
+            HStack(spacing: 10) {
+                Spinner()
+                Text("Checking").font(Theme.body)
+            }
+        case .free:
+            mark("checkmark", "Available")
+        case .taken:
+            mark("xmark", "Taken")
+        }
+    }
+
+    private func mark(_ symbol: String, _ label: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .bold))
+            Text(label).font(Theme.body)
         }
     }
 }

@@ -66,19 +66,19 @@ final class CameraSession {
     var line: String {
         switch state {
         case .off: return bluetoothLine
-        case .scanning, .connecting: return "LOOKING FOR CAMERA"
-        case .pairing: return "PAIRING — TYPE THE CODE ON THE CAMERA"
-        case .connected(let name): return "CONNECTED · \(name)"
-        case .syncing(let done, let total): return "SYNCING \(done)/\(total)"
+        case .scanning, .connecting: return "Looking for your little camera"
+        case .pairing: return "Type the number on its screen"
+        case .connected(let name): return "Connected to \(name)"
+        case .syncing(let done, let total): return "Sending pictures, \(done) of \(total)"
         }
     }
 
     private var bluetoothLine: String {
         switch bluetooth {
-        case .poweredOff: return "BLUETOOTH IS OFF"
-        case .unauthorized: return "BLUETOOTH NOT ALLOWED FOR THIS APP"
-        case .unsupported: return "NO BLUETOOTH ON THIS DEVICE"
-        default: return "STARTING BLUETOOTH"
+        case .poweredOff: return "Bluetooth is off."
+        case .unauthorized: return "This app is not allowed to use Bluetooth."
+        case .unsupported: return "This phone has no Bluetooth."
+        default: return "Starting Bluetooth."
         }
     }
 
@@ -110,9 +110,9 @@ final class CameraSession {
         }
     }
 
-    func seedFound(_ camera: Found) {
+    func seedFound(_ camera: Found, pairing: Bool = false) {
         found = [camera]
-        state = .scanning
+        state = pairing ? .pairing : .scanning
     }
 
     func seedDemo(info: CameraInfo) {

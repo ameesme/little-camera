@@ -188,12 +188,38 @@ struct Waiting: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.regular)
-                .tint(Theme.ink)
+        HStack(spacing: 7) {
+            Spinner()
             Text(text)
                 .font(Theme.lead)
         }
+        .padding(.top, 16)
+    }
+}
+
+/// Eight blocks round a square, three lit at a time. The system spinner is a grey wheel,
+/// and there is no grey here.
+struct Spinner: View {
+    private static let ring = [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
+    private static let block: CGFloat = 6
+    private static let gap: CGFloat = 2
+    private static let beat = 0.11
+
+    var body: some View {
+        let side = Spinner.block * 3 + Spinner.gap * 2
+        TimelineView(.periodic(from: .now, by: Spinner.beat)) { timeline in
+            let step = Int(timeline.date.timeIntervalSinceReferenceDate / Spinner.beat) % 8
+            Canvas { context, _ in
+                for (index, cell) in Spinner.ring.enumerated() where (step - index + 8) % 8 < 3 {
+                    let x = CGFloat(cell.0) * (Spinner.block + Spinner.gap)
+                    let y = CGFloat(cell.1) * (Spinner.block + Spinner.gap)
+                    let square = CGRect(x: x, y: y, width: Spinner.block, height: Spinner.block)
+                    context.fill(Path(square), with: .color(Theme.ink))
+                }
+            }
+            .frame(width: side, height: side)
+        }
+        .frame(width: side, height: side)
+        .accessibilityHidden(true)
     }
 }

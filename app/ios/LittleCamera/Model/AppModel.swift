@@ -55,7 +55,7 @@ final class AppModel {
                 code: Demo.code,
                 asked: Demo.asked
             )
-            if let found = Demo.found { camera.seedFound(found) }
+            if let found = Demo.found { camera.seedFound(found, pairing: Demo.pairing) }
             firmware.seedDemo(release: Demo.release)
         }
     }
