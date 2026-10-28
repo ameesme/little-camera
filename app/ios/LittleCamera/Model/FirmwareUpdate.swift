@@ -50,6 +50,16 @@ final class FirmwareUpdate {
         }
     }
 
+    /// Flash is written from the camera's main loop and a brownout halfway leaves it on the old
+    /// image, which is survivable but wastes the whole transfer. A third of a battery is more than
+    /// the push needs; below that it is worth waiting for a cable rather than asking twice.
+    static let batteryFloor: UInt8 = 33
+
+    func isChargedEnough(_ camera: CameraSession) -> Bool {
+        guard let info = camera.info else { return false }
+        return info.charging || info.onUsb || info.batteryPercent >= FirmwareUpdate.batteryFloor
+    }
+
     /// Worth offering only when the camera can take it: new enough to say what it runs, with room in its spare slot.
     func isAvailable(for camera: CameraSession) -> Bool {
         guard let updater, !updater.isRunning, let release else { return false }

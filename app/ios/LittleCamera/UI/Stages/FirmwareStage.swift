@@ -1,30 +1,28 @@
 import SwiftUI
 
-/// Offered once, right after pairing. Skippable: a camera that works is more use than one that is current.
+/// Nothing to decide: a camera with charge in it updates itself while the phone is next to it.
+/// A flat one is asked about, because losing the radio halfway is the one way this goes wrong.
 struct FirmwareStage: View {
     let model: AppModel
 
+    private var charged: Bool { model.firmware.isChargedEnough(model.camera) }
+
     var body: some View {
-        DeviceStage(title: "New firmware", mood: .send) {
-            if let release = model.firmware.release {
-                Caption("\(model.camera.info?.firmware ?? "?") → \(release.version)")
-                if let notes = release.notes, !notes.isEmpty {
-                    Text(notes)
-                }
-                Text("Takes a minute. Keep the phone close to it.")
-                    .font(Theme.small)
-            }
-            if model.firmware.isRunning {
+        DeviceStage(title: charged ? "Time to freshen up" : "Charge it first", mood: .send) {
+            if charged {
+                Text("Your little camera is getting up to date.")
                 ProgressRule(fraction: model.firmware.fraction)
-                Caption(model.firmware.line(installed: model.camera.info?.firmware))
+                Waiting(text: model.firmware.line(installed: model.camera.info?.firmware))
+            } else {
+                Text("Plug it in and this happens on its own.")
+                Caption("\(model.camera.info?.batteryPercent ?? 0) % LEFT")
             }
         } actions: {
-            if !model.firmware.isRunning {
-                Button { model.firmware.send(to: model.camera) } label: { Caption("Install it") }
-                    .buttonStyle(BlackButton())
-                Button { model.deferFirmware() } label: { Caption("Later") }
-                    .buttonStyle(QuietButton())
-            }
+            Button { model.deferFirmware() } label: { Caption(charged ? "Not now" : "Skip it") }
+                .buttonStyle(QuietButton())
+        }
+        .task(id: charged) {
+            if charged { model.firmware.send(to: model.camera) }
         }
     }
 }

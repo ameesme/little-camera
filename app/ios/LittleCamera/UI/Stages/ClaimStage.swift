@@ -22,13 +22,13 @@ struct ClaimStage: View {
             }
         } actions: {
             if model.blog.askedToBeLetIn {
-                Button { model.refresh() } label: { Caption("I opened it") }
+                Button { model.refresh() } label: { Caption("Check again") }
                     .buttonStyle(BlackButton())
             } else {
                 Button { model.blog.askToBeLetIn() } label: { Caption("Email me the link") }
                     .buttonStyle(BlackButton())
             }
-            Button { model.disconnect() } label: { Caption("Use a different camera") }
+            Button { model.disconnect() } label: { Caption("Use a different one") }
                 .buttonStyle(QuietButton())
         }
     }

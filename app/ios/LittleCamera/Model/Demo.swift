@@ -36,6 +36,10 @@ enum Demo {
 
     static var asked: Bool { name == "asked" || name == "sent" }
 
+    static var made: ServerClient.MadeBlog? {
+        step == .bind ? ServerClient.MadeBlog(handle: "mees", url: "https://mees.lttl.cam") : nil
+    }
+
     static let code = "4821-9903-7715"
 
     private static func value(for flag: String) -> String? {

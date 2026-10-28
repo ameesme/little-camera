@@ -64,7 +64,7 @@ struct CameraTab: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         Caption("This phone")
-                        Text("Forgets the camera and the blog on this phone. Both stay where they are.")
+                        Text("Forgets little camera and the blog on this phone. Both stay where they are.")
                             .font(Theme.small)
                         Button(role: .destructive) { confirmingDisconnect = true } label: {
                             Caption("Disconnect and log out")
@@ -81,7 +81,7 @@ struct CameraTab: View {
             .refreshable { model.refresh() }
             .navigationTitle("Camera")
             .navigationBarTitleDisplayMode(.inline)
-            .confirmationDialog("Disconnect this camera?", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
+            .confirmationDialog("Disconnect little camera?", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
                 Button("Disconnect and log out", role: .destructive) { model.disconnect() }
             } message: {
                 Text("You will have to photograph the code again to come back.")

@@ -93,7 +93,7 @@ struct QuietButton: ButtonStyle {
     }
 }
 
-/// Underlined text input, like the blog's forms, at the 16 pt that stops iOS zooming on focus.
+/// The one question a screen asks, set at the size of the answer rather than of a form field.
 struct Field: View {
     let placeholder: String
     @Binding var text: String
@@ -105,15 +105,18 @@ struct Field: View {
     var body: some View {
         VStack(spacing: 4) {
             TextField(placeholder, text: $text)
-                .font(Theme.font(16))
+                .font(Theme.font(26, bold: true))
+                .kerning(-0.5)
+                .multilineTextAlignment(.center)
                 .focused($focused)
                 .task { focused = autofocus }
+                .padding(.vertical, 6)
                 .textFieldStyle(.plain)
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .tint(Theme.ink)
-            Rule()
+            Theme.ink.frame(height: 2)
         }
     }
 }

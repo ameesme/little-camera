@@ -144,7 +144,7 @@ final class CameraSession {
     /// The owner pressing SYNC NOW. A sleeping camera has no radio, so there is nothing to do but ask them to wake it.
     func syncNow() {
         guard isReady else {
-            error = "Camera is asleep. Press its shutter and try again."
+            error = "Little camera is asleep. Press its button and try again."
             log.add("camera not connected; press its shutter to wake it")
             return
         }

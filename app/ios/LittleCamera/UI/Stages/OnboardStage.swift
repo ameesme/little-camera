@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// No blog on this camera yet. Make one or sign in to one, let the camera photograph
+/// No blog on this camera yet. Make one or sign in to one, let little camera photograph
 /// the code on this screen, then let it take the picture that heads the blog.
 struct OnboardStage: View {
     let model: AppModel
@@ -30,7 +30,8 @@ struct OnboardStage: View {
                 DeviceStage(
                     title: title,
                     mood: mood,
-                    turn: model.blog.isLinked ? 1 : 0
+                    turn: model.blog.isLinked ? 1 : 0,
+                    back: back
                 ) {
                     content
                     if let error = model.blog.error {
@@ -67,6 +68,16 @@ struct OnboardStage: View {
         case .signIn, .sent: return "Sign in"
         case .bind: return ""
         case .avatar: return "One of you"
+        }
+    }
+
+    private var back: (() -> Void)? {
+        switch step {
+        case .choose, .avatar: return nil
+        case .name, .signIn, .sent: return { step = .choose }
+        case .email: return { step = .name }
+        case .handle: return { step = .email }
+        case .bind: return nil
         }
     }
 
@@ -109,77 +120,114 @@ struct OnboardStage: View {
             Button { step = .signIn } label: { Caption("I already have one") }
                 .buttonStyle(QuietButton())
         case .name:
-            next(to: .email, enabled: !name.trimmed.isEmpty)
-            back(to: .choose)
+            primary("Next", enabled: !name.trimmed.isEmpty) { step = .email }
         case .email:
-            next(to: .handle, enabled: email.trimmed.contains("@"))
-            back(to: .name)
+            primary("Next", enabled: email.trimmed.contains("@")) { step = .handle }
         case .handle:
-            Button { model.blog.createBlog(name: name, email: email, handle: handle) } label: {
-                Caption("Make it")
+            primary("Make it", enabled: !handle.trimmed.isEmpty) {
+                model.blog.createBlog(name: name, email: email, handle: handle)
             }
-            .buttonStyle(BlackButton())
-            .disabled(handle.trimmed.isEmpty)
-            back(to: .email)
         case .signIn:
-            Button { model.blog.signIn(email: email); step = .sent } label: { Caption("Email me a link") }
-                .buttonStyle(BlackButton())
-                .disabled(email.trimmed.isEmpty)
-            back(to: .choose)
+            primary("Email me a link", enabled: email.trimmed.contains("@")) {
+                model.blog.signIn(email: email)
+                step = .sent
+            }
         case .sent:
-            Button { model.refresh(); step = .bind } label: { Caption("I opened it") }
-                .buttonStyle(BlackButton())
+            primary("Check again") { model.refresh(); step = .bind }
         case .bind:
             EmptyView()
         case .avatar:
-            if !model.blog.awaitingAvatar {
-                Button { model.blog.requestAvatar() } label: { Caption("Take it with the camera") }
-                    .buttonStyle(BlackButton())
+            if model.blog.awaitingAvatar {
+                primary("Done") { model.skipAvatar() }
+            } else {
+                primary("Take it with little camera") { model.blog.requestAvatar() }
             }
-            Button { model.refresh() } label: { Caption(model.blog.awaitingAvatar ? "Done" : "Skip") }
-                .buttonStyle(QuietButton())
         }
     }
 
-    private func next(to target: Step, enabled: Bool) -> some View {
-        Button { step = target } label: { Caption("Next") }
+    private func primary(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Caption(label) }
             .buttonStyle(BlackButton())
             .disabled(!enabled)
     }
 
-    private func back(to target: Step) -> some View {
-        Button { step = target } label: { Caption("Back") }
-            .buttonStyle(QuietButton())
-    }
-
-    /// The code fills the screen, because the camera has to read it off this glass.
+    /// The code as little camera has to see it: a card inside its own 4:3 frame, held up to it.
     private var bindScreen: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            Text("Point the camera at this")
+            Text("Point little camera at this")
                 .font(Theme.font(30, bold: true))
                 .kerning(-1)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, Theme.pad)
-            if let code = model.blog.verificationCode {
-                QRView(code: code)
-                    .padding(.horizontal, Theme.pad)
-                    .padding(.top, 24)
-            } else {
-                Dither().aspectRatio(1, contentMode: .fit).padding(.horizontal, Theme.pad)
-            }
-            Text("Holding the camera is the proof. Nothing is typed.")
+            ScanCard(code: model.blog.verificationCode, name: cardName)
+                .padding(.horizontal, Theme.pad)
+                .padding(.top, 28)
+            Text("Holding little camera is the proof. Nothing is typed.")
                 .font(Theme.lead)
-                .padding(.top, 20)
-            Waiting(text: "Waiting for the camera")
+                .padding(.horizontal, Theme.pad)
+                .padding(.top, 24)
+            Waiting(text: "Waiting for little camera")
                 .padding(.top, 10)
             Spacer(minLength: 0)
             Button { model.refresh() } label: { Caption("Check again") }
-                .buttonStyle(QuietButton())
+                .buttonStyle(BlackButton())
                 .card()
         }
         .multilineTextAlignment(.center)
         .background(Theme.paper.ignoresSafeArea())
         .task { model.blog.fetchVerificationCode() }
+    }
+
+    private var cardName: String {
+        model.blog.made?.handle ?? model.blog.bound?.handle ?? handle.trimmed
+    }
+}
+
+/// A 4:3 card, the shape of what little camera sees, with the corners marked so it is
+/// obvious where to aim. The name under the code says which blog is being joined.
+private struct ScanCard: View {
+    let code: String?
+    let name: String
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Group {
+                if let code {
+                    QRView(code: code)
+                } else {
+                    Dither().aspectRatio(1, contentMode: .fit)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            if !name.isEmpty {
+                Text(name)
+                    .font(Theme.font(19, bold: true))
+                    .kerning(-0.3)
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity)
+        .aspectRatio(4.0 / 3.0, contentMode: .fit)
+        .overlay(Corners().stroke(Theme.ink, lineWidth: 2))
+    }
+}
+
+/// Four crop marks, the way a viewfinder draws them.
+private struct Corners: Shape {
+    var length: CGFloat = 26
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for x in [rect.minX, rect.maxX] {
+            for y in [rect.minY, rect.maxY] {
+                let dx: CGFloat = x == rect.minX ? length : -length
+                let dy: CGFloat = y == rect.minY ? length : -length
+                path.move(to: CGPoint(x: x + dx, y: y))
+                path.addLine(to: CGPoint(x: x, y: y))
+                path.addLine(to: CGPoint(x: x, y: y + dy))
+            }
+        }
+        return path
     }
 }

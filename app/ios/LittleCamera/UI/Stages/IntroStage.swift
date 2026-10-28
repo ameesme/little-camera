@@ -8,7 +8,7 @@ struct IntroStage: View {
 
     private static let beats: [(mood: DeviceMood, line: String)] = [
         (.asleep, "One button. No feed, no likes, no scrolling."),
-        (.viewfinder, "Point it and press. That is the whole camera."),
+        (.viewfinder, "Point it and press. That is all it does."),
         (.gallery, "Every picture lands on a blog that is yours."),
         (.saving, "Only the people you let in ever see it."),
     ]

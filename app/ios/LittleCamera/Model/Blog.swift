@@ -134,6 +134,7 @@ final class Blog {
         self.photos = photos
         verificationCode = code
         askedToBeLetIn = asked
+        made = Demo.made
         awaitingAvatar = Demo.name == "avatar"
     }
 

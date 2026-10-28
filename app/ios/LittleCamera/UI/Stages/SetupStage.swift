@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// First launch: which camera is yours. Pairing itself happens on the first connection.
+/// First launch: find the camera. One camera is no choice at all, so it connects on its own;
+/// a room with two of them is the only time this asks.
 struct SetupStage: View {
     let model: AppModel
 
@@ -8,24 +9,25 @@ struct SetupStage: View {
 
     var body: some View {
         DeviceStage(
-            title: found.isEmpty ? "Wake your camera" : "There it is",
+            title: found.isEmpty ? "Wake little camera" : "There it is",
             mood: .viewfinder,
             turn: found.isEmpty ? 0 : 1,
             lit: !found.isEmpty
         ) {
-            Text(found.isEmpty ? "Press the button to wake it up" : "Ready when you are.")
+            Text(found.isEmpty ? "Press the button to wake it up" : "Hold still.")
             if model.camera.bluetooth != .poweredOn {
                 Caption(model.camera.line)
-            } else if found.isEmpty {
-                Waiting(text: "Listening for it")
+            } else {
+                Waiting(text: found.isEmpty ? "Listening for it" : "Connecting")
             }
         } actions: {
-            ForEach(found) { camera in
-                Button { model.useCamera(camera) } label: {
-                    Caption(found.count > 1 ? camera.name : "Connect")
-                }
-                .buttonStyle(BlackButton())
+            ForEach(found.count > 1 ? found : []) { camera in
+                Button { model.useCamera(camera) } label: { Caption(camera.name) }
+                    .buttonStyle(BlackButton())
             }
+        }
+        .task(id: found.count) {
+            if found.count == 1, let only = found.first { model.useCamera(only) }
         }
     }
 }

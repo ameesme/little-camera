@@ -21,7 +21,7 @@ struct FirmwareScreen: View {
             Rule()
             if firmware.isAvailable(for: model.camera), let release = firmware.release {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Keep the app open and the camera close. A failure costs only time.")
+                    Text("Keep the app open and little camera close. A failure costs only time.")
                         .font(Theme.small)
                     StatRow(label: "Image", value: "\(release.size / 1024) KB")
                     Button {

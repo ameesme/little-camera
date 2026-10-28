@@ -74,11 +74,25 @@ struct DeviceStage<Content: View, Actions: View>: View {
     var mood: DeviceMood = .asleep
     var turn: Int = 0
     var lit: Bool = true
+    /// A way back out of a step, which belongs in the corner rather than under the primary action.
+    var back: (() -> Void)?
     @ViewBuilder var content: () -> Content
     @ViewBuilder var actions: () -> Actions
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack {
+                if let back {
+                    Button(action: back) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .semibold))
+                            .accessibilityLabel("Back")
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 30)
+            .padding(.horizontal, Theme.pad)
             Spacer(minLength: 24)
             Device(mood: mood, turn: turn, lit: lit)
             VStack(spacing: 12) {
