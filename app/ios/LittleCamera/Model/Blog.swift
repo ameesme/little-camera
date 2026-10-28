@@ -12,6 +12,16 @@ final class Blog {
     private(set) var askedToBeLetIn = false
     private(set) var made: ServerClient.MadeBlog?
     private(set) var verificationCode: String?
+    /// Set when the server refused the blog for a reason a screen can act on, rather than only report.
+    private(set) var takenEmail = false
+    private(set) var availability: Availability = .unknown
+
+    enum Availability {
+        case unknown
+        case checking
+        case free
+        case taken
+    }
 
     private let server: ServerClient
 
@@ -42,9 +52,15 @@ final class Blog {
     // MARK: Being let in (§4.9)
 
     func createBlog(name: String, email: String, handle: String) {
+        takenEmail = false
         perform { [self] in
-            made = try await server.createBlog(name: name.trimmed, email: email.trimmed, handle: handle.trimmed)
-            refresh()
+            do {
+                made = try await server.createBlog(name: name.trimmed, email: email.trimmed, handle: handle.trimmed)
+                refresh()
+            } catch ServerError.http(_, _, "email_taken") {
+                // Not an error so much as a wrong turn: that address already has a blog to sign into.
+                takenEmail = true
+            }
         }
     }
 
@@ -62,6 +78,20 @@ final class Blog {
             try await server.requestClaim(email: email.trimmed)
             askedToBeLetIn = true
         }
+    }
+
+    func checkHandle(_ handle: String) async {
+        guard Demo.stage == nil else { return }
+        guard Handle.isValid(handle) else {
+            availability = handle.isEmpty ? .unknown : .taken
+            return
+        }
+        availability = .checking
+        guard let free = try? await server.isHandleFree(handle) else {
+            availability = .unknown
+            return
+        }
+        availability = free ? .free : .taken
     }
 
     /// Asked for once the blog exists; the camera photographs it off this screen.
@@ -135,10 +165,12 @@ final class Blog {
         verificationCode = code
         askedToBeLetIn = asked
         made = Demo.made
+        availability = Demo.typedHandle.isEmpty ? .unknown : .free
         awaitingAvatar = Demo.name == "avatar"
     }
 
     func forget() {
+        takenEmail = false
         status = nil
         photos = []
         nextPage = nil
@@ -164,4 +196,20 @@ final class Blog {
 
 extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+/// The web address a blog lives at. Mirrors `server/src/lib/handles.ts`, because asking the
+/// server on every keystroke to decide whether a character is allowed is a round trip for nothing.
+enum Handle {
+    static let reserved: Set<String> = ["www", "api", "dev", "mail", "admin", "app"]
+
+    /// Lowercase, letters, digits and hyphens. Typing anything else simply does not land.
+    static func filter(_ input: String) -> String {
+        String(input.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }.prefix(31))
+    }
+
+    static func isValid(_ handle: String) -> Bool {
+        guard (2...31).contains(handle.count), let first = handle.first, first != "-" else { return false }
+        return !reserved.contains(handle)
+    }
 }

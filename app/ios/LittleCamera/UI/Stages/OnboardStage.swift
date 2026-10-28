@@ -18,9 +18,9 @@ struct OnboardStage: View {
     }
 
     @State private var step: Step = Demo.step ?? .choose
-    @State private var name = ""
+    @State private var name = Demo.typedName
     @State private var email = ""
-    @State private var handle = ""
+    @State private var handle = Demo.typedHandle
 
     var body: some View {
         Group {
@@ -48,6 +48,12 @@ struct OnboardStage: View {
         .onChange(of: model.blog.made?.handle) { _, made in
             if made != nil { step = .bind }
         }
+        .onChange(of: model.blog.takenEmail) { _, taken in
+            if taken { step = .signIn }
+        }
+        .onChange(of: step) { _, now in
+            if now == .handle, handle.isEmpty { handle = Handle.filter(name) }
+        }
     }
 
     private var mood: DeviceMood {
@@ -61,13 +67,14 @@ struct OnboardStage: View {
 
     private var title: String {
         switch step {
-        case .choose: return "Ready to blog?"
-        case .name: return "What should we call you?"
-        case .email: return "Your email"
-        case .handle: return "Pick an address"
-        case .signIn, .sent: return "Sign in"
+        case .choose: return "Start a blog"
+        case .name: return "Pick a name"
+        case .email: return "Add your email"
+        case .handle: return "Claim your blog"
+        case .signIn: return "Sign in"
+        case .sent: return "Open the email"
         case .bind: return ""
-        case .avatar: return "One of you"
+        case .avatar: return "Take one of you"
         }
     }
 
@@ -92,22 +99,30 @@ struct OnboardStage: View {
             Text("The only way back in, so make it one you read.")
             Field(placeholder: "you@example.com", text: $email, keyboard: .emailAddress, autofocus: true)
         case .handle:
-            Text("\(handle.isEmpty ? "yours" : handle).\(model.serverURL.withoutScheme)")
-            Field(placeholder: "yours", text: $handle, autofocus: true)
+            AddressField(
+                handle: handleBinding,
+                suffix: ".\(model.serverURL.withoutScheme)",
+                availability: model.blog.availability
+            )
+            .task(id: handle) {
+                try? await Task.sleep(for: .milliseconds(400))
+                await model.blog.checkHandle(handle)
+            }
         case .signIn:
-            Text("The address your blog is registered to.")
+            Text(model.blog.takenEmail
+                 ? "That address already has a blog. This is the way back into it."
+                 : "The address your blog is registered to.")
             Field(placeholder: "you@example.com", text: $email, keyboard: .emailAddress, autofocus: true)
         case .sent:
-            Text("Check your email. The link works for an hour.")
+            Text("The link works for an hour.")
             Waiting(text: "Waiting for you")
         case .bind:
             EmptyView()
         case .avatar:
-            Text(model.blog.awaitingAvatar
-                 ? "Take one and press send."
-                 : "Linked. Now a picture to head the blog.")
             if model.blog.awaitingAvatar {
                 Waiting(text: "Waiting for the picture")
+            } else {
+                Text("A picture to head the blog.")
             }
         }
     }
@@ -124,7 +139,7 @@ struct OnboardStage: View {
         case .email:
             primary("Next", enabled: email.trimmed.contains("@")) { step = .handle }
         case .handle:
-            primary("Make it", enabled: !handle.trimmed.isEmpty) {
+            primary("Make it", enabled: model.blog.availability == .free) {
                 model.blog.createBlog(name: name, email: email, handle: handle)
             }
         case .signIn:
@@ -145,6 +160,11 @@ struct OnboardStage: View {
         }
     }
 
+    /// Anything the address cannot contain never arrives, so there is nothing to tell anyone off about.
+    private var handleBinding: Binding<String> {
+        Binding(get: { handle }, set: { handle = Handle.filter($0) })
+    }
+
     private func primary(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) { Caption(label) }
             .buttonStyle(BlackButton())
@@ -163,12 +183,8 @@ struct OnboardStage: View {
             ScanCard(code: model.blog.verificationCode, name: cardName)
                 .padding(.horizontal, Theme.pad)
                 .padding(.top, 28)
-            Text("Holding little camera is the proof. Nothing is typed.")
-                .font(Theme.lead)
-                .padding(.horizontal, Theme.pad)
-                .padding(.top, 24)
             Waiting(text: "Waiting for little camera")
-                .padding(.top, 10)
+                .padding(.top, 28)
             Spacer(minLength: 0)
             Button { model.refresh() } label: { Caption("Check again") }
                 .buttonStyle(BlackButton())
@@ -191,7 +207,7 @@ private struct ScanCard: View {
     let name: String
 
     var body: some View {
-        VStack(spacing: 14) {
+        HStack(spacing: 20) {
             Group {
                 if let code {
                     QRView(code: code)
@@ -199,17 +215,60 @@ private struct ScanCard: View {
                     Dither().aspectRatio(1, contentMode: .fit)
                 }
             }
-            .frame(maxHeight: .infinity)
             if !name.isEmpty {
                 Text(name)
-                    .font(Theme.font(19, bold: true))
-                    .kerning(-0.3)
+                    .font(Theme.font(26, bold: true))
+                    .kerning(-0.5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
             }
         }
-        .padding(22)
+        .padding(20)
         .frame(maxWidth: .infinity)
         .aspectRatio(4.0 / 3.0, contentMode: .fit)
         .overlay(Corners().stroke(Theme.ink, lineWidth: 2))
+    }
+}
+
+/// The address, typed in place: what is typed and what is fixed on one line, with the
+/// answer to "is it free" beside it rather than after the fact.
+private struct AddressField: View {
+    @Binding var handle: String
+    let suffix: String
+    let availability: Blog.Availability
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 0) {
+                TextField("you", text: $handle)
+                    .font(Theme.font(26, bold: true))
+                    .kerning(-0.5)
+                    .fixedSize()
+                    .textFieldStyle(.plain)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .tint(Theme.ink)
+                    .focused($focused)
+                    .task { focused = true }
+                Text(suffix)
+                    .font(Theme.font(26))
+                    .kerning(-0.5)
+                mark
+                    .frame(width: 26)
+            }
+            .frame(maxWidth: .infinity)
+            Theme.ink.frame(height: 2)
+        }
+    }
+
+    @ViewBuilder private var mark: some View {
+        switch availability {
+        case .unknown: Color.clear
+        case .checking: ProgressView().controlSize(.small).tint(Theme.ink)
+        case .free: Image(systemName: "checkmark").font(.system(size: 20, weight: .bold))
+        case .taken: Image(systemName: "xmark").font(.system(size: 20, weight: .bold))
+        }
     }
 }
 

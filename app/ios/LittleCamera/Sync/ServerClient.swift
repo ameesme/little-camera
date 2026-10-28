@@ -100,7 +100,8 @@ struct ErrorBody: Codable {
 enum ServerError: LocalizedError {
     case notConfigured
     case badURL(String)
-    case http(Int, String)
+    /// The server's own `{ error, message }`: the code is what a screen branches on, the message is what it shows.
+    case http(Int, String, code: String = "")
     case notHTTP
     case firmwareMismatch(String)
 
@@ -108,7 +109,7 @@ enum ServerError: LocalizedError {
         switch self {
         case .notConfigured: return "no camera credentials yet"
         case .badURL(let s): return "bad server URL: \(s)"
-        case .http(let code, let message): return "server \(code): \(message)"
+        case .http(_, let message, _): return message
         case .notHTTP: return "not an HTTP response"
         case .firmwareMismatch(let what): return "downloaded firmware does not match the release: \(what)"
         }
@@ -223,7 +224,7 @@ final class ServerClient {
             let body = try? decoder.decode(PhotoResponse.self, from: data)
             return UploadOutcome(statusCode: code, response: body)
         default:
-            throw ServerError.http(code, errorMessage(data))
+            throw failure(code: code, data: data)
         }
     }
 
@@ -281,7 +282,7 @@ final class ServerClient {
             moodElapsedS: Int(info.moodElapsedS)
         ))
         let (code, data) = try await send(req)
-        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+        guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
     }
 
     struct MadeBlog: Codable {
@@ -314,12 +315,24 @@ final class ServerClient {
             req.httpBody = Data("{}".utf8)
         }
         let (code, data) = try await send(req)
-        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+        guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
     }
 
     struct Verification: Codable {
         let code: String
         let expiresAt: Int
+    }
+
+    struct HandleCheck: Codable {
+        let handle: String
+        let available: Bool
+    }
+
+    /// Asked while the owner is still typing, so a taken address never comes back as a refusal.
+    func isHandleFree(_ handle: String) async throws -> Bool {
+        let req = try request("GET", "handle", query: ["handle": handle])
+        let (code, data) = try await send(req)
+        return try decode(HandleCheck.self, code: code, data: data).available
     }
 
     /// The code the phone puts on its own screen for the camera to photograph (§5).
@@ -340,7 +353,7 @@ final class ServerClient {
     func removeSubscriber(id: Int) async throws {
         let req = try request("DELETE", "subscribers/\(id)")
         let (code, data) = try await send(req)
-        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+        guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
     }
 
     /// Returns `requested_at`. The next photo captured after it becomes the avatar.
@@ -362,7 +375,7 @@ final class ServerClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = Data("{}".utf8)
         let (code, data) = try await send(req)
-        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+        guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
     }
 
     private func request(_ method: String, _ path: String, query: [String: String] = [:], authenticated: Bool = true) throws -> URLRequest {
@@ -393,14 +406,15 @@ final class ServerClient {
     }
 
     private func decode<T: Decodable>(_ type: T.Type, code: Int, data: Data) throws -> T {
-        guard (200..<300).contains(code) else { throw ServerError.http(code, errorMessage(data)) }
+        guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
         return try decoder.decode(type, from: data)
     }
 
-    private func errorMessage(_ data: Data) -> String {
-        if let body = try? decoder.decode(ErrorBody.self, from: data) {
-            return body.message ?? body.error
+    private func failure(code: Int, data: Data) -> ServerError {
+        guard let body = try? decoder.decode(ErrorBody.self, from: data) else {
+            return .http(code, String(decoding: data.prefix(120), as: UTF8.self))
         }
-        return String(decoding: data.prefix(120), as: UTF8.self)
+        return .http(code, body.message ?? body.error, code: body.error)
     }
+
 }

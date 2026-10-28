@@ -188,11 +188,12 @@ struct Waiting: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             ProgressView()
-                .controlSize(.small)
+                .controlSize(.regular)
                 .tint(Theme.ink)
-            Caption(text)
+            Text(text)
+                .font(Theme.lead)
         }
     }
 }

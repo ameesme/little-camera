@@ -36,6 +36,10 @@ enum Demo {
 
     static var asked: Bool { name == "asked" || name == "sent" }
 
+    /// What the owner would have typed by the time each screen shows up.
+    static var typedName: String { stage == nil ? "" : "Mees" }
+    static var typedHandle: String { step == .handle ? "mees" : "" }
+
     static var made: ServerClient.MadeBlog? {
         step == .bind ? ServerClient.MadeBlog(handle: "mees", url: "https://mees.lttl.cam") : nil
     }

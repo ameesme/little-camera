@@ -250,6 +250,19 @@ describe('subscribers via the camera API', () => {
   });
 });
 
+describe('GET /api/camera/handle', () => {
+  it('answers while the owner types: taken, reserved and malformed are all unavailable', async () => {
+    await hello(w);
+    makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    expect((await cameraGet(w, '/handle?handle=mees')).body).toEqual({ handle: 'mees', available: false });
+    expect((await cameraGet(w, '/handle?handle=MEES')).body).toEqual({ handle: 'mees', available: false });
+    expect((await cameraGet(w, '/handle?handle=www')).body.available).toBe(false);
+    expect((await cameraGet(w, '/handle?handle=a')).body.available).toBe(false);
+    expect((await cameraGet(w, '/handle?handle=-nope')).body.available).toBe(false);
+    expect((await cameraGet(w, '/handle?handle=sanne')).body).toEqual({ handle: 'sanne', available: true });
+  });
+});
+
 describe('POST /api/camera/telemetry', () => {
   const reading = {
     battery_percent: 44,

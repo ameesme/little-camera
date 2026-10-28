@@ -38,15 +38,15 @@ final class FirmwareUpdate {
 
     func line(installed: String?) -> String {
         switch phase {
-        case .downloading: return "DOWNLOADING NEW FIRMWARE"
-        case .sending(let sent, let total): return "SENDING \(sent * 100 / max(total, 1))% — KEEP THE PHONE CLOSE"
-        case .verifying: return "CAMERA IS CHECKING THE IMAGE"
-        case .restarting: return "CAMERA IS RESTARTING"
-        case .failed(let why): return "UPDATE FAILED — \(why.uppercased())"
+        case .downloading: return "Fetching the update"
+        case .sending(let sent, let total): return "Sending, \(sent * 100 / max(total, 1)) %"
+        case .verifying: return "Little camera is checking it"
+        case .restarting: return "Little camera is restarting"
+        case .failed(let why): return "It did not take: \(why)"
         case .idle:
-            guard let installed else { return "FIRMWARE — THIS CAMERA CANNOT SAY" }
-            guard let release, release.version != installed else { return "FIRMWARE \(installed) — UP TO DATE" }
-            return "FIRMWARE \(installed) → \(release.version) AVAILABLE"
+            guard let installed else { return "Firmware, version unknown" }
+            guard let release, release.version != installed else { return "Firmware \(installed), up to date" }
+            return "Firmware \(installed), \(release.version) is out"
         }
     }
 

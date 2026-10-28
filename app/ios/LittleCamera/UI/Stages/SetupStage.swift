@@ -9,12 +9,14 @@ struct SetupStage: View {
 
     var body: some View {
         DeviceStage(
-            title: found.isEmpty ? "Wake little camera" : "There it is",
+            title: found.isEmpty ? "Wake little camera" : "Hold still",
             mood: .viewfinder,
             turn: found.isEmpty ? 0 : 1,
             lit: !found.isEmpty
         ) {
-            Text(found.isEmpty ? "Press the button to wake it up" : "Hold still.")
+            if found.isEmpty {
+                Text("Press the button to wake it up")
+            }
             if model.camera.bluetooth != .poweredOn {
                 Caption(model.camera.line)
             } else {

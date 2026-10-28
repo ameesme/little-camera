@@ -8,7 +8,7 @@ struct FirmwareStage: View {
     private var charged: Bool { model.firmware.isChargedEnough(model.camera) }
 
     var body: some View {
-        DeviceStage(title: charged ? "Time to freshen up" : "Charge it first", mood: .send) {
+        DeviceStage(title: charged ? "Hold on a minute" : "Charge it first", mood: .send) {
             if charged {
                 Text("Your little camera is getting up to date.")
                 ProgressRule(fraction: model.firmware.fraction)

@@ -10,7 +10,7 @@ import { VERSION, firmwareState } from '../core/firmware.js';
 import type { Env } from '../env.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, type CameraVars } from '../middleware/cameraAuth.js';
 import { countFeedPhotos } from '../repo/photos.js';
-import { findBlogById, findBlogByEmail, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
+import { findBlogById, findBlogByEmail, findBlogByHandle, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
 import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
 import { insertCode } from '../repo/codes.js';
 import { listSubscribers } from '../repo/subscribers.js';
@@ -180,6 +180,13 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
     const blog = findBlogByEmail(env.db, parsed.data.email);
     if (blog) requestClaim(env, camera, blog);
     return c.json({ state: 'pending' });
+  });
+
+  // Answered while the owner is still typing, so a taken address is never a refusal after the fact.
+  app.get('/handle', (c) => {
+    const handle = (c.req.query('handle') ?? '').trim().toLowerCase();
+    const allowed = HANDLE.test(handle) && !RESERVED_HANDLES.has(handle);
+    return c.json({ handle, available: allowed && findBlogByHandle(env.db, handle) === null });
   });
 
   // The phone shows the code on its own screen and the camera photographs it, so the
