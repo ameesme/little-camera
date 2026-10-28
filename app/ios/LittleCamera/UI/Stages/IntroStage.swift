@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// The app's own landing page: the camera turning through the three things it does, and the way in.
+/// The app's own landing page: the camera turning through what it does, and the way in.
+/// It places itself, because the camera has to sit in the middle of the page and the
+/// wordmark has to halve the gap above it, and spacers only ever argue about that.
 struct IntroStage: View {
     let model: AppModel
     @State private var beat = 0
     @State private var turns = 0
     /// The camera arrives first and alone; everything that names it follows.
     @State private var settled = false
+    /// The line follows the panel rather than leading it: both land as the camera comes round.
+    @State private var caption = 0
 
     private static let beats: [(mood: DeviceMood, line: String)] = [
         (.asleep, "One button. No feed, no likes, no scrolling."),
@@ -15,35 +19,46 @@ struct IntroStage: View {
         (.saving, "Only the people you let in ever see it."),
     ]
 
-    /// The line follows the panel rather than leading it: both land as the camera comes round.
-    @State private var caption = 0
-
     var body: some View {
-        VStack(spacing: 0) {
-            // The camera keeps the middle; the wordmark centres in whatever is left above it.
-            Wordmark()
-                .opacity(settled ? 1 : 0)
-                .offset(y: settled ? 0 : -12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Device(mood: Self.beats[beat].mood, turn: turns)
-            Text(Self.beats[caption].line)
-                .font(Theme.lead)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, Theme.pad)
-                .padding(.top, 24)
-                .id(caption)
-                .transition(.opacity)
-                .opacity(settled ? 1 : 0)
-                .offset(y: settled ? 0 : 14)
-            // The same expanding share as the wordmark's, so the camera lands in the middle
-            // and the wordmark halves the gap above it.
-            Color.clear.frame(minHeight: 24, maxHeight: .infinity)
-            Button { model.getStarted() } label: { Caption("Get started") }
-                .buttonStyle(BlackButton())
-                .card()
-                .opacity(settled ? 1 : 0)
-                .offset(y: settled ? 0 : 20)
+        GeometryReader { geo in
+            let page = geo.size
+            let width = page.width * Device.share
+            let height = width / Device.aspect
+            // The shader leaves room for the shadow under the body, so the lit camera sits
+            // a twentieth of the canvas above its centre. Nudge the canvas down by that,
+            // and what the eye calls the camera lands on the middle of the page.
+            let lift = height * 0.05
+            let middle = page.height / 2 + lift
+            // The body starts about a seventh into the canvas, and the gap the eye measures
+            // is the one above the body, not above the canvas.
+            let top = middle - height / 2 + height * 0.15
+
+            ZStack {
+                Wordmark()
+                    .opacity(settled ? 1 : 0)
+                    .offset(y: settled ? 0 : -12)
+                    .position(x: page.width / 2, y: top / 2)
+
+                Device(mood: Self.beats[beat].mood, turn: turns, width: width)
+                    .position(x: page.width / 2, y: middle)
+
+                Text(Self.beats[caption].line)
+                    .font(Theme.lead)
+                    .multilineTextAlignment(.center)
+                    .frame(width: page.width - Theme.pad * 2)
+                    .id(caption)
+                    .transition(.opacity)
+                    .opacity(settled ? 1 : 0)
+                    .offset(y: settled ? 0 : 14)
+                    .position(x: page.width / 2, y: middle + height / 2 + 36)
+
+                Button { model.getStarted() } label: { Caption("Get started") }
+                    .buttonStyle(BlackButton())
+                    .frame(width: page.width - Theme.pad * 2)
+                    .opacity(settled ? 1 : 0)
+                    .offset(y: settled ? 0 : 20)
+                    .position(x: page.width / 2, y: page.height - 39)
+            }
         }
         .background(Ground())
         .task {
