@@ -47,6 +47,7 @@ struct BlogTab: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .refreshable { model.refresh() }
     }
 
@@ -76,7 +77,9 @@ private struct PhotoPost: View {
     let photo: FeedPhoto
     let blog: Blog
     @State private var confirmingDelete = false
+    @State private var saying = false
     @State private var draft = ""
+    @FocusState private var typing: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -101,14 +104,15 @@ private struct PhotoPost: View {
                         .fixedSize()
                 }
             }
-            say
+            if saying { say }
         }
         .card()
         .background(Theme.paper)
         .contextMenu {
+            Button { saying = true } label: { Label("Comment", systemImage: "text.bubble") }
             Button { save() } label: { Label("Save to photos", systemImage: "square.and.arrow.down") }
             Button(role: .destructive) { confirmingDelete = true } label: {
-                Label("Delete", systemImage: "trash")
+                Label { Text("Delete") } icon: { redTrash }
             }
         }
         .confirmationDialog("Delete this picture?", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -118,26 +122,39 @@ private struct PhotoPost: View {
         }
     }
 
+    /// The menu bakes the inherited black into its symbols, so the red has to be baked in first.
+    private var redTrash: Image {
+        let icon = UIImage(systemName: "trash")?.withTintColor(.systemRed, renderingMode: .alwaysOriginal)
+        return icon.map(Image.init(uiImage:)) ?? Image(systemName: "trash")
+    }
+
     /// The owner says something under their own picture; it goes up under the blog's name.
     private var say: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            TextField("Say something", text: $draft, axis: .vertical)
+        HStack(spacing: 10) {
+            TextField("Say something", text: $draft)
                 .font(Theme.small)
                 .textFieldStyle(.plain)
                 .tint(Theme.ink)
-                .submitLabel(.send)
-                .onSubmit(post)
-            if !draft.trimmed.isEmpty {
-                Button(action: post) { Caption("Post") }
-            }
+                .submitLabel(.done)
+                .focused($typing)
+                .onSubmit { typing = false }
+            Button(action: post) { Caption("Post") }
+                .buttonStyle(SmallButton(height: 28))
+                .disabled(draft.trimmed.isEmpty)
         }
-        .padding(.top, 2)
+        .padding(.top, 6)
+        .task { typing = true }
+        .onChange(of: typing) { _, now in
+            if !now && draft.trimmed.isEmpty { saying = false }
+        }
     }
 
     private func post() {
         let said = draft.trimmed
         guard !said.isEmpty else { return }
         draft = ""
+        typing = false
+        saying = false
         blog.comment(on: photo, body: said)
     }
 

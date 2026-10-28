@@ -84,10 +84,12 @@ struct BlackButton: ButtonStyle {
 
 /// A button inside a row, where a full-width one would be absurd.
 struct SmallButton: ButtonStyle {
+    var height: CGFloat = 38
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(.horizontal, 14)
-            .frame(height: 38)
+            .frame(height: height)
             .foregroundStyle(configuration.isPressed ? Theme.ink : Theme.paper)
             .background(configuration.isPressed ? Theme.paper : Theme.ink)
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
