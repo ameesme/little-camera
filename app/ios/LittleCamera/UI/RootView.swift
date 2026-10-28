@@ -17,7 +17,8 @@ struct RootView: View {
                 case .ready: MainTabs(model: model)
                 }
             }
-            if splash {
+            // The intro is the splash with its copy still to come, so it needs no cover.
+            if splash && model.stage != .intro {
                 Splash()
                     .transition(.opacity)
             }
@@ -30,7 +31,7 @@ struct RootView: View {
         .preferredColorScheme(.light)
         .task {
             try? await Task.sleep(for: .seconds(1.8))
-            withAnimation(.easeInOut(duration: 0.45)) { splash = false }
+            withAnimation(.easeInOut(duration: 0.7)) { splash = false }
         }
     }
 }

@@ -5,6 +5,8 @@ struct IntroStage: View {
     let model: AppModel
     @State private var beat = 0
     @State private var turns = 0
+    /// The first seconds are the launch screen: the wordmark and the camera, and nothing to do.
+    @State private var settled = false
 
     private static let beats: [(mood: DeviceMood, line: String)] = [
         (.asleep, "One button. No feed, no likes, no scrolling."),
@@ -29,13 +31,19 @@ struct IntroStage: View {
                 .padding(.top, 24)
                 .id(beat)
                 .transition(.opacity)
+                .opacity(settled ? 1 : 0)
+                .offset(y: settled ? 0 : 14)
             Spacer(minLength: 24)
             Button { model.getStarted() } label: { Caption("Get started") }
                 .buttonStyle(BlackButton())
                 .card()
+                .opacity(settled ? 1 : 0)
+                .offset(y: settled ? 0 : 20)
         }
         .background(Ground())
         .task {
+            try? await Task.sleep(for: .seconds(1.5))
+            withAnimation(.easeOut(duration: 0.6)) { settled = true }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3.2))
                 turns += 1
