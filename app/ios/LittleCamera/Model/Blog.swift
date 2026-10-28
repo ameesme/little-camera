@@ -122,6 +122,12 @@ final class Blog {
         perform { [self] in await loadFeed(reset: false) }
     }
 
+    /// Gone from the list before the server has answered: the picture is the owner's to drop.
+    func delete(_ photo: FeedPhoto) {
+        photos.removeAll { $0.id == photo.id }
+        perform { [self] in try await server.deletePhoto(id: photo.id) }
+    }
+
     func add(email: String, name: String?) {
         let name = name?.trimmed
         perform { [self] in

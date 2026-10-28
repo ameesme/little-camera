@@ -347,6 +347,12 @@ final class ServerClient {
         return try decode(FeedPage.self, code: code, data: data)
     }
 
+    func deletePhoto(id: String) async throws {
+        let req = try request("DELETE", "feed/\(id)")
+        let (code, data) = try await send(req)
+        guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
+    }
+
     func removeSubscriber(id: Int) async throws {
         let req = try request("DELETE", "subscribers/\(id)")
         let (code, data) = try await send(req)

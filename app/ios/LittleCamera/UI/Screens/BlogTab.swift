@@ -37,7 +37,7 @@ struct BlogTab: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(blog.photos) { photo in
-                    PhotoPost(photo: photo)
+                    PhotoPost(photo: photo, blog: blog)
                     Rule()
                 }
                 if blog.nextPage != nil {
@@ -74,6 +74,8 @@ struct BlogTab: View {
 /// One picture, at the dither's own scale, with whatever was said under it.
 private struct PhotoPost: View {
     let photo: FeedPhoto
+    let blog: Blog
+    @State private var confirmingDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -86,6 +88,17 @@ private struct PhotoPost: View {
                 Dither().aspectRatio(4.0 / 3.0, contentMode: .fit)
             }
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
+            .contextMenu {
+                Button { save() } label: { Label("Save to photos", systemImage: "square.and.arrow.down") }
+                Button(role: .destructive) { confirmingDelete = true } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+            .confirmationDialog("Delete this picture?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { blog.delete(photo) }
+            } message: {
+                Text("It goes off the blog for everyone, with whatever was said under it.")
+            }
 
             Caption(Date(timeIntervalSince1970: TimeInterval(photo.capturedAt)).formatted(date: .abbreviated, time: .shortened))
             ForEach(photo.comments) { comment in
@@ -94,5 +107,15 @@ private struct PhotoPost: View {
             }
         }
         .card()
+    }
+
+    /// The server's PNG, not a redraw of it: the dither is the picture (AGENTS.md).
+    private func save() {
+        guard let url = URL(string: photo.url) else { return }
+        Task {
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: data) else { return }
+            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        }
     }
 }

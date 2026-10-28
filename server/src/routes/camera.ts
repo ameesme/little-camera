@@ -5,11 +5,11 @@ import { blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
 import { boundInfo, claimState, letPhoneIn, relayTelemetry, requestClaim, sayHello } from '../core/cameras.js';
 import { register } from '../core/blogs.js';
-import { MAX_PHOTO_BYTES, PhotoRejected, feed, uploadPhoto } from '../core/photos.js';
+import { MAX_PHOTO_BYTES, PhotoRejected, feed, removePhoto, uploadPhoto } from '../core/photos.js';
 import { VERSION, firmwareState } from '../core/firmware.js';
 import type { Env } from '../env.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, type CameraVars } from '../middleware/cameraAuth.js';
-import { countFeedPhotos } from '../repo/photos.js';
+import { countFeedPhotos, findPhotoByPublicId } from '../repo/photos.js';
 import { findBlogById, findBlogByEmail, findBlogByHandle, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
 import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
 import { insertCode } from '../repo/codes.js';
@@ -215,6 +215,17 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
       photos: page,
       next: photos.length > FEED_PAGE && last ? `${last.uploaded_at}.0` : null,
     });
+  });
+
+  app.delete('/feed/:id', (c) => {
+    const blog = blogOf(c);
+    if (!blog) return c.json(UNBOUND, 409);
+    const camera = c.get('camera');
+    if (claimState(camera) !== 'approved') return c.json(error('unclaimed', 'The owner has not let this phone in'), 403);
+    const photo = findPhotoByPublicId(env.db, c.req.param('id'));
+    if (!photo || photo.blog_id !== blog.id) return c.json(error('not_found', 'No such photo'), 404);
+    removePhoto(env, photo);
+    return c.json({ ok: true });
   });
 
   app.delete('/subscribers/:id', (c) => {

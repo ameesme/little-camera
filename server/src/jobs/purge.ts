@@ -1,10 +1,9 @@
 // Hourly: expired tokens and codes, and photos from cameras nobody ever claimed, which are not ours to keep.
 
-import { rmSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Env } from '../env.js';
+import { removePhoto } from '../core/photos.js';
 import { deleteExpiredCodes } from '../repo/codes.js';
-import { deletePhoto, orphanPhotosBefore } from '../repo/photos.js';
+import { orphanPhotosBefore } from '../repo/photos.js';
 import { deleteExpiredTokens } from '../repo/tokens.js';
 
 const ORPHAN_DAYS = 7;
@@ -15,8 +14,7 @@ export function runPurge(env: Env): { tokens: number; codes: number; photos: num
   const codes = deleteExpiredCodes(env.db, now);
   let photos = 0;
   for (const photo of orphanPhotosBefore(env.db, now - ORPHAN_DAYS * 86400)) {
-    rmSync(join(env.config.dataDir, photo.path), { force: true });
-    deletePhoto(env.db, photo.id);
+    removePhoto(env, photo);
     photos++;
   }
   return { tokens, codes, photos };

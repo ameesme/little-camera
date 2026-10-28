@@ -58,6 +58,7 @@ targets:
         UIBackgroundModes:
           - bluetooth-central
         NSBluetoothAlwaysUsageDescription: Little Camera talks to your camera over Bluetooth to pull photos off it, also while the app is in the background.
+        NSPhotoLibraryAddUsageDescription: Saving a picture off the little blog puts it in your photos.
         # White launch screen, no storyboard. Paper is a white colour set in Assets.
         UILaunchScreen:
           UIColorName: Paper

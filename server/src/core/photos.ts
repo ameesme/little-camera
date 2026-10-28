@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parsePbm, type Pbm } from '@little-camera/pbm';
 import type { Env } from '../env.js';
@@ -13,6 +13,7 @@ import { findBlogById, setAvatarPhoto, type BlogRow } from '../repo/blogs.js';
 import { setSubscriberName } from '../repo/subscribers.js';
 import type { Viewer } from './blogs.js';
 import {
+  deletePhoto,
   feedPage,
   findPhotoByHash,
   insertPhoto,
@@ -148,6 +149,12 @@ export interface FeedPhoto {
 }
 
 /** The owner's own feed: what the blog shows, as data, newest first. */
+/// The file and the row go together, so nothing is left behind that the feed can no longer name.
+export function removePhoto(env: Env, photo: PhotoRow): void {
+  rmSync(join(env.config.dataDir, photo.path), { force: true });
+  deletePhoto(env.db, photo.id);
+}
+
 export function feed(env: Env, blog: BlogRow, limit: number, before?: { uploadedAt: number; id: number }): FeedPhoto[] {
   const photos = feedPage(env.db, blog.id, limit, before);
   const comments = commentsForPhotos(env.db, photos.map((p) => p.id), blog.name);

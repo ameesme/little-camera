@@ -6,7 +6,7 @@ import { findPhotoByPublicId } from '../src/repo/photos.js';
 import { listOutbox } from '../src/repo/outbox.js';
 import { letPhoneIn } from '../src/core/cameras.js';
 import { findBlogByHandle } from '../src/repo/blogs.js';
-import { insertComment } from '../src/repo/comments.js';
+import { commentsForPhotos, insertComment } from '../src/repo/comments.js';
 import { createSubscriber, listSubscribers } from '../src/repo/subscribers.js';
 import {
   CAM,
@@ -454,6 +454,27 @@ describe('GET /api/camera/feed', () => {
   it('refuses on an unbound camera', async () => {
     await hello(w);
     expect((await cameraGet(w, '/feed')).status).toBe(409);
+  });
+
+  it('deletes one picture with its comments and its file, and only off its own blog', async () => {
+    await approvedWorld();
+    const cat = await upload(w, fixture('cat'), 1);
+    w.clock.t += 60;
+    const cup = await upload(w, fixture('cup'), 2);
+    insertComment(w.env.db, { photoId: 1, subscriberId: null, body: 'Mine', now: w.clock.t });
+    const path = join(w.env.config.dataDir, findPhotoByPublicId(w.env.db, cat.body.id)!.path);
+    expect(existsSync(path)).toBe(true);
+
+    expect((await cameraDelete(w, `/feed/${cat.body.id}`)).body).toEqual({ ok: true });
+    expect(existsSync(path)).toBe(false);
+    expect(findPhotoByPublicId(w.env.db, cat.body.id)).toBeNull();
+    expect(commentsForPhotos(w.env.db, [1]).size).toBe(0);
+
+    const left = await cameraGet(w, '/feed');
+    expect(left.body.photos.map((p: { id: string }) => p.id)).toEqual([cup.body.id]);
+
+    expect((await cameraDelete(w, '/feed/nosuchphoto12')).status).toBe(404);
+    expect((await cameraDelete(w, `/feed/${cat.body.id}`)).status).toBe(404);
   });
 });
 

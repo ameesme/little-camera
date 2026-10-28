@@ -371,6 +371,8 @@ The owner's own blog as data, newest first. `403 unclaimed` until §4.9 is throu
 
 Twenty a page. Pass `next` back as `?before=` for the next one.
 
+- `DELETE /feed/:id` → `200 { "ok": true }`. Takes the `id` out of `photos[]`. Not reversible: the row, its comments and the stored PBM go. `404 not_found` if the photo is not on this camera's blog.
+
 ### 4.8 `POST /telemetry`
 
 What the phone read out of `Info` (§3.1), relayed so the blog and the app can show it:
