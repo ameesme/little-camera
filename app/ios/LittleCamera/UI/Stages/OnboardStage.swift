@@ -175,7 +175,7 @@ struct OnboardStage: View {
     private var bindScreen: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            Text("Scan with little camera")
+            Text("Take a photo with little camera")
                 .font(Theme.font(30, bold: true))
                 .kerning(-1)
                 .frame(maxWidth: .infinity)

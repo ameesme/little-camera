@@ -10,7 +10,7 @@ struct SetupStage: View {
     private var pairing: Bool { model.camera.state == .pairing }
 
     var body: some View {
-        DeviceStage(title: title, mood: .viewfinder, turn: found.isEmpty ? 0 : 1, lit: !found.isEmpty) {
+        DeviceStage(title: title, mood: pairing ? .passkey : .asleep, turn: found.isEmpty ? 0 : 1, lit: !found.isEmpty) {
             if found.isEmpty {
                 Text("Press the button to wake it up.")
             } else if pairing {
