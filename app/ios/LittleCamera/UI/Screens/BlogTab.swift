@@ -36,8 +36,8 @@ struct BlogTab: View {
     private var feed: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(blog.photos) { photo in
-                    PhotoPost(photo: photo, blog: blog)
+                ForEach(Array(blog.photos.enumerated()), id: \.element.id) { index, photo in
+                    PhotoPost(photo: photo, blog: blog, first: index == 0)
                     Rule()
                 }
                 if blog.nextPage != nil {
@@ -76,6 +76,7 @@ struct BlogTab: View {
 private struct PhotoPost: View {
     let photo: FeedPhoto
     let blog: Blog
+    var first = false
     @State private var confirmingDelete = false
     @State private var saying = false
     @State private var draft = ""
@@ -105,6 +106,10 @@ private struct PhotoPost: View {
                 }
             }
             if saying { say }
+        }
+        .task {
+            saying = first && Demo.commenting
+            confirmingDelete = first && Demo.deleting
         }
         .card()
         .background(Theme.paper)

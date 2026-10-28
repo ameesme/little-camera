@@ -4,7 +4,7 @@ import SwiftUI
 /// only thing on this screen that needs an answer. Swipe to be rid of anyone.
 struct PeopleScreen: View {
     let blog: Blog
-    @State private var adding = false
+    @State private var adding = Demo.addingPerson
 
     var body: some View {
         NavigationStack {

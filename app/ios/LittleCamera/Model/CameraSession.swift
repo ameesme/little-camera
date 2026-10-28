@@ -30,6 +30,7 @@ final class CameraSession {
     private(set) var uploadedCount: Int
     private(set) var thumbnails: [CGImage] = []
     private(set) var error: String?
+    @ObservationIgnored private var demoSyncing = false
 
     /// Raised once the camera has said hello, which is when the server is worth asking about.
     var onConnected: (@MainActor () -> Void)?
@@ -56,7 +57,7 @@ final class CameraSession {
 
     var isReady: Bool { link?.isReady ?? false }
     var canUpdateFirmware: Bool { link?.canUpdate ?? false }
-    var isSyncing: Bool { sync?.isRunning ?? false }
+    var isSyncing: Bool { demoSyncing || (sync?.isRunning ?? false) }
 
     var progress: Double {
         if case .syncing(let done, let total) = state, total > 0 { return Double(done) / Double(total) }
@@ -116,12 +117,15 @@ final class CameraSession {
     }
 
     func seedDemo(info: CameraInfo) {
-        bluetooth = .poweredOn
+        bluetooth = Demo.bluetoothOff ? .poweredOff : .poweredOn
         self.info = info
         cameraId = info.cameraId
         name = info.deviceName
         isPaired = true
-        state = .connected(info.deviceName)
+        demoSyncing = Demo.syncing
+        error = Demo.cameraError
+        state = Demo.bluetoothOff ? .off : demoSyncing ? .syncing(done: 5, total: 12) : .connected(info.deviceName)
+        lastSyncAt = Demo.lastSyncAt
     }
 
     /// This phone lets the camera go: the pairing, the secret and everything read off it.

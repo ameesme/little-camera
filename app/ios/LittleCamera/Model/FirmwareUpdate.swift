@@ -18,6 +18,7 @@ final class FirmwareUpdate {
 
     func seedDemo(release: FirmwareRelease) {
         self.release = release
+        if let phase = Demo.phase { self.phase = phase }
     }
 
     func attach(link: CameraLink) {

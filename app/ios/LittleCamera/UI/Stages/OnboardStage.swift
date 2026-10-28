@@ -19,7 +19,7 @@ struct OnboardStage: View {
 
     @State private var step: Step = Demo.step ?? .choose
     @State private var name = Demo.typedName
-    @State private var email = ""
+    @State private var email = Demo.typedEmail
     @State private var handle = Demo.typedHandle
 
     var body: some View {

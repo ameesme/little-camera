@@ -175,8 +175,10 @@ final class Blog {
         verificationCode = code
         askedToBeLetIn = asked
         made = Demo.made
-        availability = Demo.typedHandle.isEmpty ? .unknown : .free
-        awaitingAvatar = Demo.name == "avatar"
+        availability = Demo.availability
+        awaitingAvatar = Demo.name == "avatar-waiting"
+        takenEmail = Demo.takenEmail
+        error = Demo.blogError
     }
 
     func forget() {
