@@ -91,8 +91,15 @@ private struct PhotoPost: View {
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
             Caption(Date(timeIntervalSince1970: TimeInterval(photo.capturedAt)).formatted(date: .abbreviated, time: .shortened))
             ForEach(photo.comments) { comment in
-                Text("**\(comment.name)** \(comment.body)").font(Theme.small)
-                    + Text("  \(when(comment.createdAt))").font(Theme.font(11))
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("**\(comment.name)** \(comment.body)")
+                        .font(Theme.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(when(comment.createdAt))
+                        .font(Theme.font(11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
             }
             say
         }
