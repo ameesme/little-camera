@@ -97,7 +97,8 @@ void toggleVcom();  // Force a VCOM toggle now — used by the sleep keep-alive
 
 // UI state for sidebar
 void setBatteryPercent(int percent);  // 0-100
-void setCharging(bool charging);      // Drawn on the sleep face, which is where nobody can ask
+void setCharging(bool charging);
+void setUsb(bool usb);
 void setFaceBand(uint8_t band);       // 0-3 as Chirp::band: the face the viewfinder sidebar wears
 void setPhotoCount(int count);        // Photos on flash (not rendered yet)
 void setSignalLevel(UI::SignalLevel level);

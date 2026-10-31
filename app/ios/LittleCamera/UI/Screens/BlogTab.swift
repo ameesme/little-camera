@@ -5,6 +5,7 @@ struct BlogTab: View {
     let model: AppModel
     @State private var showingPeople = Demo.showingPeople
     @State private var entered = false
+    @State private var scrollOffset: CGFloat = 0
 
     private var blog: Blog { model.blog }
 
@@ -32,11 +33,45 @@ struct BlogTab: View {
             }
             .sheet(isPresented: $showingPeople) { PeopleScreen(blog: blog) }
         }
+        .overlay(alignment: .topLeading) {
+            blogHeader
+                .padding(.top, 4)
+                .padding(.leading, Theme.pad)
+                .opacity(Double(max(0, 1 - scrollOffset / 60)))
+        }
+    }
+
+    @ViewBuilder private var blogHeader: some View {
+        if let bound = blog.bound {
+            HStack(spacing: 10) {
+                AsyncImage(url: URL(string: "\(bound.url)/avatar.png")) { image in
+                    image.resizable().interpolation(.none)
+                } placeholder: {
+                    Dither()
+                }
+                .frame(width: 44, height: 44)
+                .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 6) {
+                    Caption("\(bound.name)'s little camera")
+                        .lineLimit(1)
+                    if let battery = model.camera.info?.batteryPercent {
+                        HStack(spacing: 4) {
+                            BatteryCell(fraction: Double(battery) / 100)
+                            Text("\(battery) %").font(Theme.font(11))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var feed: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                Spacer().frame(height: 16)
+                    .background(GeometryReader { geo in
+                        Color.clear.preference(key: ScrollOffsetKey.self, value: -geo.frame(in: .named("scroll")).minY)
+                    })
                 ForEach(Array(blog.photos.enumerated()), id: \.element.id) { index, photo in
                     VStack(alignment: .leading, spacing: 0) {
                         PhotoPost(photo: photo, blog: blog, first: index == 0)
@@ -51,9 +86,16 @@ struct BlogTab: View {
                     Button { blog.loadMore() } label: { Caption("Older") }
                         .buttonStyle(BlackButton())
                         .card()
+                } else if !blog.photos.isEmpty {
+                    Caption("That's all")
+                        .font(Theme.font(10))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
                 }
             }
         }
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ScrollOffsetKey.self) { scrollOffset = max(0, $0) }
         .scrollDismissesKeyboard(.interactively)
         .onAppear { entered = true }
         .refreshable { model.refresh() }
@@ -80,6 +122,24 @@ struct BlogTab: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Ground())
+    }
+}
+
+/// Battery icon: bordered body with dither fill and a nub on the right, matching the web blog header.
+private struct BatteryCell: View {
+    let fraction: Double
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Color.clear).frame(width: 40, height: 14)
+                Dither()
+                    .frame(width: max(0, min(1, fraction)) * 36, height: 10)
+                    .padding(2)
+            }
+            .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
+            Rectangle().fill(Theme.ink).frame(width: 3, height: 6)
+        }
     }
 }
 
@@ -193,4 +253,9 @@ private struct PhotoPost: View {
             UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
         }
     }
+}
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

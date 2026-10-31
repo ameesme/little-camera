@@ -76,12 +76,18 @@ struct CameraTab: View {
                     if info.unsyncedCount > 0 {
                         Text("\(info.unsyncedCount) still to come over").font(Theme.small)
                     }
-                    if !camera.isSyncing, info.photoCount > 0 {
-                        Button { confirmingResync = true } label: { Caption("Send everything again") }
-                            .buttonStyle(QuietButton())
-                    }
                 } header: {
-                    Caption("Memory")
+                    HStack {
+                        Caption("Memory")
+                        Spacer()
+                        if !camera.isSyncing, info.photoCount > 0 {
+                            Button { confirmingResync = true } label: {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .foregroundStyle(Theme.ink)
+                        }
+                    }
                 }
             }
 
@@ -107,8 +113,10 @@ struct CameraTab: View {
         .environment(\.defaultMinListRowHeight, 0)
         .defaultScrollAnchor(.top)
         .defaultScrollAnchor(.top, for: .sizeChanges)
+        .listSectionSeparator(.hidden)
         .listRowSeparatorTint(Theme.ink)
         .listRowBackground(Color.clear)
+        .listSectionSpacing(0)
     }
 
     private var lastSeen: String {

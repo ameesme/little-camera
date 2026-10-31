@@ -281,6 +281,7 @@ int main(int argc, char** argv) {
     } else if (!strcmp(scene, "sleep-charging")) {
         Display::setBatteryPercent(44);
         Display::setCharging(true);
+        Display::setUsb(true);
         Display::drawSleep((uint8_t)happiness, breath);
     } else if (!strcmp(scene, "sleep-low")) {
         Display::setBatteryPercent(9);

@@ -178,6 +178,7 @@ const uint8_t* photoBits() { return _photoBits; }
 // UI state
 static int _batteryPercent = 100;
 static bool _charging = false;
+static bool _usb = false;
 static Prompt _prompt = Prompt::None;
 static int _photoCount = 0;
 static UI::SignalLevel _signalLevel = UI::SignalLevel::Full;
@@ -684,6 +685,10 @@ void setCharging(bool charging) {
     _charging = charging;
 }
 
+void setUsb(bool usb) {
+    _usb = usb;
+}
+
 bool promptPending() {
     return _prompt != Prompt::None;
 }
@@ -1151,18 +1156,21 @@ constexpr int SLEEP_BADGE_SCALE = 2;
 constexpr int SLEEP_BADGE_SIZE = UI::ICON_SIZE * SLEEP_BADGE_SCALE;
 
 static bool sleepBadgeVisible() {
-    return _charging || _batteryPercent <= SLEEP_BATTERY_LOW_PCT;
+    return _usb || _batteryPercent <= SLEEP_BATTERY_LOW_PCT;
 }
 
-// Two frames, carried by the breath the face is already doing: charging fills
-// (bolt, then full), low blinks (outline, then the one bar it has left).
 static void drawSleepBadge(bool breathIn) {
     if (!sleepBadgeVisible()) return;
-    const uint8_t* icon = _charging ? (breathIn ? UI::getBatteryIcon(UI::BatteryLevel::Full) : UI::getChargingIcon())
-                                    : (breathIn ? UI::getBatteryIcon(UI::BatteryLevel::Empty)
-                                                : UI::getBatteryIcon(UI::BatteryLevel::Low));
-    drawIconScaled(icon, UI::ICON_SIZE, UI::ICON_SIZE, TOAST_MARGIN,
-                   HEIGHT - SLEEP_BADGE_SIZE - TOAST_MARGIN, true, SLEEP_BADGE_SCALE);
+    const int iconY = HEIGHT - SLEEP_BADGE_SIZE;
+    if (_usb) {
+        drawIconScaled(UI::getChargingIcon(), UI::ICON_SIZE, UI::ICON_SIZE,
+                       TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
+    } else {
+        const uint8_t* icon = breathIn ? UI::getBatteryIcon(UI::BatteryLevel::Empty)
+                                       : UI::getBatteryIcon(UI::BatteryLevel::Low);
+        drawIconScaled(icon, UI::ICON_SIZE, UI::ICON_SIZE,
+                       TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
+    }
 }
 
 void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* status) {
@@ -1192,7 +1200,7 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* stat
     // The voltage readout is a bench tool, so it goes under the badge rather
     // than where the badge is: console `log` is the one that matters.
     if (status) {
-        drawText(status, TOAST_MARGIN + (sleepBadgeVisible() ? SLEEP_BADGE_SIZE + 8 : 0),
+        drawText(status, TOAST_MARGIN + (sleepBadgeVisible() ? SLEEP_BADGE_SIZE + TOAST_MARGIN : 0),
                  HEIGHT - UI::fontHeight(TOAST_FONT) - TOAST_MARGIN, TOAST_FONT, true);
     }
 
@@ -1201,7 +1209,7 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* stat
     // the badge animates on the same beat, so its strip goes too.
     if (faceOnly) {
         flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
-        if (sleepBadgeVisible()) flushLines(HEIGHT - SLEEP_BADGE_SIZE - TOAST_MARGIN, HEIGHT - TOAST_MARGIN);
+        if (sleepBadgeVisible()) flushLines(HEIGHT - SLEEP_BADGE_SIZE, HEIGHT);
     } else {
         flushFramebuffer();
     }

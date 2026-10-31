@@ -381,10 +381,12 @@ static bool sampleBattery() {
     if (!sleepStatus[0] || chgChanged || drift >= BATTERY_DEADBAND_MV) {
         sleepStatusMv = mv;
         sleepStatusChg = chg;
-        Display::setBatteryPercent(Power::percent(mv, chg, digitalRead(PIN_VBUS) == HIGH));
+        bool usb = digitalRead(PIN_VBUS) == HIGH;
+        Display::setBatteryPercent(Power::percent(mv, chg, usb));
         Display::setCharging(chg);
-        snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV%s", (unsigned)(mv / 1000),
-                 (unsigned)(mv % 1000 / 10), chg ? " chg" : "");
+        Display::setUsb(usb);
+        snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV", (unsigned)(mv / 1000),
+                 (unsigned)(mv % 1000 / 10));
         moved = true;
     }
     logBattery(mv, chg, chgChanged);
@@ -406,7 +408,7 @@ static void showSleepFace(bool full) {
     // repaint it and a moved reading has to pay for a full frame.
     if (sampleBattery()) full = true;
 
-    Display::drawSleep(h, sleepBreathIn, !full, sleepStatus);
+    Display::drawSleep(h, sleepBreathIn, !full, onUsb() ? nullptr : sleepStatus);
     sleepFaceDrawnAt = millis();
 }
 
@@ -1333,12 +1335,14 @@ void loop() {
             // The face breathes: the other frame every BREATH_MS.
             if (millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
 
-            // Radio window over? A phone that is busy with us extends it; so
-            // does console traffic (above). Fresh millis(): asleepSince may
-            // have been set later in this very iteration than `now`.
+            // On USB power: stay awake indefinitely, keep the radio on.
+            if (onUsb()) {
+                asleepSince = millis();
+                break;
+            }
             if (millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
                 enterSleepMode();
-                return;  // After wake, restart loop fresh
+                return;
             }
             break;
         }
