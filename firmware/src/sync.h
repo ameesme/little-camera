@@ -11,12 +11,11 @@
 // note the time. loop() (main thread) does all the work and raises the
 // callbacks below, so main.cpp can draw toasts without a mutex in sight.
 //
-// Power: the radio runs while the camera is awake and for a while behind the
-// sleep face (main.cpp keeps advertising after the idle timeout). end() before
-// light sleep tears the whole stack down, begin() after wake rebuilds it
-// (~150ms, on a wake that already pays a few hundred for the camera).
-// activeRecently() is how main.cpp knows a phone is busy and that window
-// should stretch.
+// Power: the radio is off during the viewfinder (the camera's heaviest mode)
+// and comes up only when the sleep face goes up or the camera is on USB. end()
+// before light sleep tears the whole stack down, begin() rebuilds it (~150ms).
+// activeRecently() is how main.cpp knows a phone is busy and that the radio
+// window should stretch.
 namespace Sync {
 
 struct Event {

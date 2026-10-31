@@ -162,6 +162,7 @@ static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 // Camera::deinit() is not idempotent, so the driver's state is tracked too.
 static uint32_t asleepSince = 0;
 static bool cameraReady = false;
+static bool radioOn = false;
 // Pairing: where to go back to, when it started, and when it ended (0 = still
 // waiting on the phone).
 static Mode modeBeforePairing = Mode::Viewfinder;
@@ -275,15 +276,18 @@ static void moodOnClock(bool tzKnown, int16_t tzMin) {
 // Compose, log, then play. The play blocks for up to 300ms, so the line is on
 // the monitor before the sound. Audio::init first: this is also called straight
 // out of light sleep, where the pin has to be claimed again.
-static void playMoodChirp(uint8_t happiness, const char* why) {
-    Chirp::Rng rng(esp_random());
-    Chirp::Score s = Chirp::compose(happiness, rng);
-    char desc[64];
-    Chirp::describe(s, desc, sizeof(desc));
-    Serial.printf("%s: chirp happiness=%u/255 band=%u %s = %lums\n", why, happiness,
-                  Chirp::band(happiness), desc, (unsigned long)Chirp::totalMs(s));
+static void playMoodChirp(uint8_t happiness, const char* why, int count = 2) {
     Audio::init(PIN_BUZZ);
-    Audio::playChirp(s);
+    for (int i = 0; i < count; i++) {
+        if (i) delay(CHIRP_GAP_MS);
+        Chirp::Rng rng(esp_random());
+        Chirp::Score s = Chirp::compose(happiness, rng);
+        char desc[64];
+        Chirp::describe(s, desc, sizeof(desc));
+        Serial.printf("%s: chirp %d/%d happiness=%u/255 band=%u %s = %lums\n", why, i + 1, count,
+                      happiness, Chirp::band(happiness), desc, (unsigned long)Chirp::totalMs(s));
+        Audio::playChirp(s);
+    }
 }
 
 // Ask the mood what it owes and pay it if this is a good moment. The state
@@ -533,7 +537,6 @@ void setup() {
     // problem from everything else.
 #ifndef LC_NO_BLE
     Sync::setTelemetry(readTelemetry);
-    Sync::begin();
 #endif
 
     // Don't enter the loop until the shutter line is quiet
@@ -559,17 +562,18 @@ static bool heldToWake() {
 // collect photos before the chip really goes down (enterSleepMode). A photo
 // under review is discarded: walking away is not consent to keep it.
 static void enterAsleep() {
-    Serial.println("Asleep (radio on)");
     Display::clearToast();
     hintToastShowing = false;
     pendingToast = nullptr;
     savedFrame = nullptr;
     captureHeld = false;
     Audio::playMelody(Audio::Melody::DaDaTa);
+#ifndef LC_NO_BLE
+    if (!radioOn) { Sync::begin(); radioOn = true; }
+#endif
+    Serial.println("Asleep (radio on)");
     sleepBreathIn = false;
     showSleepFace(true);
-    // The sensor's work is done: tear the driver down as sleep does
-    // (docs/camera_standby.md covers what that does and doesn't save).
     cameraOff();
     asleepSince = millis();
     gestureActive = false;
@@ -582,9 +586,16 @@ static void enterAsleep() {
 // down on the way out and the viewfinder acts on press edges only, so the
 // hold does not shoot.
 static void wakeFromAsleep() {
-    Serial.println("Woke (radio was on)");
+#ifndef LC_NO_BLE
+    // Keep the radio if a phone is mid-session (it prompted this wake) or on USB
+    if (radioOn && !Sync::connected() && !onUsb()) {
+        Sync::end();
+        radioOn = false;
+    }
+#endif
+    Serial.println(radioOn ? "Woke (radio stays)" : "Woke");
     Audio::init(PIN_BUZZ);
-    Audio::playClick();  // Bit-banged, so it is heard even straight out of sleep
+    Audio::playClick();
     cameraOn();
     mode = Mode::Viewfinder;
     hintToastShowing = false;
@@ -788,10 +799,7 @@ static void handleSyncEvents() {
                 enterPairing(ev.value);
                 break;
             case Sync::Event::Chirp:
-                for (uint32_t i = 0; i < ev.value; i++) {
-                    if (i) delay(CHIRP_GAP_MS);
-                    playMoodChirp(moodHappiness(), "Asked");
-                }
+                playMoodChirp(moodHappiness(), "Asked", (int)ev.value);
                 break;
             case Sync::Event::Prompt:
                 enterPrompt((uint8_t)ev.value);
@@ -856,6 +864,7 @@ void enterSleepMode() {
     // — it reconnects when the camera advertises again after wake.
 #ifndef LC_NO_BLE
     Sync::end();
+    radioOn = false;
 #endif
 
     // Drops the camera rails via CAM_EN, so the sensor costs nothing while we
@@ -949,7 +958,7 @@ void enterSleepMode() {
     cameraOn();
 
 #ifndef LC_NO_BLE
-    Sync::begin();
+    if (onUsb()) { Sync::begin(); radioOn = true; }
 #endif
 
     // The shutter is still held (that is what woke us), and the viewfinder
@@ -1131,6 +1140,14 @@ void loop() {
 
     switch (mode) {
         case Mode::Viewfinder: {
+#ifndef LC_NO_BLE
+            if (onUsb() && !radioOn) {
+                Sync::begin(); radioOn = true;
+            } else if (!onUsb() && radioOn && !Sync::connected()) {
+                Sync::end(); radioOn = false;
+            }
+#endif
+
             // Show hint toast after 5s of inactivity
             if (!hintToastShowing && (now - lastActivityTime) >= HINT_TOAST_DELAY_MS) {
                 Display::showToast("press to shoot", Display::ToastHAlign::Right,

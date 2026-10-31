@@ -771,7 +771,7 @@ void loop() {
     pump();
     pumpUpdate();
 
-    if (millis() - _lastInfoRefresh >= INFO_REFRESH_MS) refreshInfo();
+    if (_connected && millis() - _lastInfoRefresh >= INFO_REFRESH_MS) refreshInfo();
 }
 
 bool nextEvent(Event* out) {
