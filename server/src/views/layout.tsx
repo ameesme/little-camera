@@ -89,7 +89,7 @@ export const CSS = `
   .page a{color:inherit}
   .page ul{margin:0 0 12px;padding:0 0 0 18px}
   .notice{border-bottom:var(--rule);padding:10px var(--pad);font-size:10px;letter-spacing:.11em;text-transform:uppercase}
-  .teaser{padding:24px var(--pad) 18px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;text-align:center}
+  .teaser{padding:24px var(--pad);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;text-align:center}
 
   /* The ask, where the pictures run out: that is the moment someone decides, not the header. */
   .join{border-top:var(--rule);border-bottom:var(--rule);padding:22px var(--pad) 24px;text-align:center;margin-bottom:28px}

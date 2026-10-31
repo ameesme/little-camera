@@ -45,7 +45,7 @@ const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer }> =
 const JoinBox: FC<{ name: string }> = ({ name }) => (
   <section class="join" id="join">
     <h2>Read {name}’s little camera</h2>
-    <p>Ask to be let in, or get a fresh link if you are already on the list.</p>
+    <p>If {name} lets you in, you will get an email.</p>
     <form method="post" action="/subscribe">
       <input id="email" name="email" type="email" placeholder="you@email.com" aria-label="Email address" required autocomplete="email" />
       <button class="btn" id="subgo" type="submit">
@@ -75,16 +75,18 @@ const Article: FC<{ a: ArticleData; viewer: Viewer }> = ({ a, viewer }) => {
         <span>{a.time}</span>
       </div>
       <img class="shot" width="320" height="240" alt="Photo" src={`/photos/${a.photo.public_id}.png`} />
-      <div class="comments">
-        <ul>
-          {a.comments.map((c) => (
-            <li>
-              <b>{c.name}</b>
-              <span>{c.body}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {viewer.kind !== 'anonymous' ? (
+        <div class="comments">
+          <ul>
+            {a.comments.map((c) => (
+              <li>
+                <b>{c.name}</b>
+                <span>{c.body}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {canComment ? (
         <form class="cmtform" method="post" action={`/p/${a.photo.public_id}/comments`}>
           {needsName ? <input name="name" placeholder="Your name" aria-label="Your name" maxlength={60} required /> : null}
@@ -118,10 +120,10 @@ const BLOG_SCRIPT = `
         body:JSON.stringify({email:email.value})})
         .then(function(r){return r.json()})
         .then(function(j){
-          row.querySelector('h2').textContent=j.state==='already'?'You are already in':'Thanks, ask sent';
+          row.querySelector('h2').textContent=j.state==='already'?'You are already in':'Ask sent';
           row.querySelector('p').textContent=j.state==='already'
             ?'Use the link from your email, or ask for a fresh one.'
-            :'The owner will let you in.';
+            :'If they let you in, you will get an email.';
           row.querySelector('form').remove();
         })
         .catch(function(){row.querySelector('form').submit();});
@@ -217,7 +219,7 @@ export const Teaser: FC<BlogPage & { hiddenCount: number }> = (p) => {
 
 function hiddenLine(hasPictures: boolean, hidden: number): string {
   if (!hasPictures) return 'No pictures yet';
-  if (hidden === 0) return 'More pictures for subscribers, soon';
+  if (hidden === 0) return 'More pictures for subscribers';
   return `${hidden} more ${hidden === 1 ? 'picture' : 'pictures'} for subscribers`;
 }
 

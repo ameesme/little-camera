@@ -46,7 +46,7 @@ ${img ? `<tr><td>${img}</td></tr>` : ''}
 ${art}
 <tr><td style="padding:14px">${body}${btn}</td></tr>
 </table>
-<p style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;margin:14px 0 0">Little camera</p>
+<p style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;margin:14px 0 0">This email was sent by little camera (lttl.cam), a project by amaranth studio.</p>
 ${footer}
 </td></tr></table></body></html>`;
 }

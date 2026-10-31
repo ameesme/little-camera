@@ -3,7 +3,7 @@ import Security
 
 /// A plain UserDefaults wrapper, deliberately not observable: AppModel mirrors whatever the UI needs.
 final class Settings {
-    static let defaultServerBaseURL = "http://192.168.50.42.nip.io:3000"
+    static let defaultServerBaseURL = "https://lttl.cam"
 
     private let defaults: UserDefaults
 

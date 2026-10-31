@@ -37,7 +37,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     firmwareDir: env.FIRMWARE_DIR ?? `${dataDir}/firmware`,
     sessionSecret,
     smtpUrl: env.SMTP_URL || null,
-    mailFrom: env.MAIL_FROM ?? 'Little Camera <camera@localhost>',
+    mailFrom: env.MAIL_FROM ?? 'little camera <camera@localhost>',
     nodeEnv,
     displayTz: env.DISPLAY_TZ ?? 'Europe/Amsterdam',
   };
