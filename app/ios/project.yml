@@ -51,7 +51,7 @@ targets:
     info:
       path: LittleCamera/Info.plist
       properties:
-        CFBundleDisplayName: Little Camera
+        CFBundleDisplayName: little camera
         CFBundleName: LittleCamera
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
