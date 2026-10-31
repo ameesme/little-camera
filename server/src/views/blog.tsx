@@ -120,9 +120,9 @@ const BLOG_SCRIPT = `
         body:JSON.stringify({email:email.value})})
         .then(function(r){return r.json()})
         .then(function(j){
-          row.querySelector('h2').textContent=j.state==='already'?'You are already in':'Ask sent';
+          row.querySelector('h2').textContent=j.state==='already'?'You got mail':'Ask sent';
           row.querySelector('p').textContent=j.state==='already'
-            ?'Use the link from your email, or ask for a fresh one.'
+            ?'Use the link from your email to log in.'
             :'If they let you in, you will get an email.';
           row.querySelector('form').remove();
         })
