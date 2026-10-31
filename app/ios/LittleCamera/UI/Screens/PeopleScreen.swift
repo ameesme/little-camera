@@ -34,7 +34,7 @@ struct PeopleScreen: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(Ground())
+            .background(Ground(topOnly: true))
             .environment(\.defaultMinListRowHeight, 56)
             .navigationTitle("People")
             .navigationBarTitleDisplayMode(.inline)
@@ -150,7 +150,7 @@ struct AddPersonScreen: View {
                 .card()
             }
             .multilineTextAlignment(.center)
-            .background(Ground())
+            .background(Ground(topOnly: true))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "chevron.left") }

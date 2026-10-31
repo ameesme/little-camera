@@ -5,12 +5,13 @@ import SwiftUI
 /// corners, thresholded against the same 4x4 Bayer matrix the firmware dithers with,
 /// so the dots land on the same lattice as everything else that is drawn here.
 struct Ground: View {
+    var topOnly = false
     private static let vignette = 0.30
     private static let inner = 0.70
 
     var body: some View {
         GeometryReader { geo in
-            Image(decorative: Ground.render(width: Int(geo.size.width), height: Int(geo.size.height)), scale: 1)
+            Image(decorative: Ground.render(width: Int(geo.size.width), height: Int(geo.size.height), topOnly: topOnly), scale: 1)
                 .resizable()
                 .interpolation(.none)
         }
@@ -29,15 +30,16 @@ struct Ground: View {
     /// pass on every frame would cost more than the whole rest of the app.
     nonisolated(unsafe) private static var cache: [String: CGImage] = [:]
 
-    static func render(width: Int, height: Int) -> CGImage {
+    static func render(width: Int, height: Int, topOnly: Bool = false) -> CGImage {
         let w = max(1, width), h = max(1, height)
-        let key = "\(w)x\(h)"
+        let key = "\(w)x\(h)\(topOnly ? "t" : "")"
         if let hit = cache[key] { return hit }
 
         var pixels = [UInt8](repeating: 255, count: w * h)
         let cx = Double(w) / 2, cy = Double(h) / 2
         let radius = 0.5 * (Double(w) * Double(w) + Double(h) * Double(h)).squareRoot()
-        for y in 0..<h {
+        let cutoff = topOnly ? h / 2 : h
+        for y in 0..<cutoff {
             for x in 0..<w {
                 let t = ((Double(x) - cx) * (Double(x) - cx) + (Double(y) - cy) * (Double(y) - cy)).squareRoot() / radius
                 let lum = 1 - vignette * min(1, max(0, (t - inner) / (1 - inner)))

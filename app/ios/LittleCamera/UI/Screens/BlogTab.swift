@@ -27,7 +27,9 @@ struct BlogTab: View {
                 }
                 if let url = blog.bound.flatMap({ URL(string: $0.url) }) {
                     ToolbarItem(placement: .topBarTrailing) {
-                        ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
+                        Button { UIApplication.shared.open(url) } label: {
+                            Label("Open in Safari", systemImage: "globe.europe.africa.fill")
+                        }
                     }
                 }
             }
@@ -37,7 +39,7 @@ struct BlogTab: View {
             blogHeader
                 .padding(.top, 4)
                 .padding(.leading, Theme.pad)
-                .opacity(Double(max(0, 1 - scrollOffset / 60)))
+                .opacity(Double(max(0, 1 - scrollOffset / 30)))
         }
     }
 
@@ -69,9 +71,6 @@ struct BlogTab: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 Spacer().frame(height: 16)
-                    .background(GeometryReader { geo in
-                        Color.clear.preference(key: ScrollOffsetKey.self, value: -geo.frame(in: .named("scroll")).minY)
-                    })
                 ForEach(Array(blog.photos.enumerated()), id: \.element.id) { index, photo in
                     VStack(alignment: .leading, spacing: 0) {
                         PhotoPost(photo: photo, blog: blog, first: index == 0)
@@ -94,14 +93,13 @@ struct BlogTab: View {
                 }
             }
         }
-        .coordinateSpace(name: "scroll")
-        .onPreferenceChange(ScrollOffsetKey.self) { scrollOffset = max(0, $0) }
+        .onScrollGeometryChange(for: CGFloat.self, of: { geo in geo.contentOffset.y + geo.contentInsets.top }, action: { _, new in scrollOffset = max(0, new) })
         .scrollDismissesKeyboard(.interactively)
         .onAppear { entered = true }
         .refreshable { model.refresh() }
         // The same ground every other screen stands on; a flat white page under the
         // pictures was the one place the app forgot it.
-        .background(Ground())
+        .background(Ground(topOnly: true))
     }
 
     /// A blog with nothing on it is the camera waiting to be pressed, not an error.
@@ -121,7 +119,7 @@ struct BlogTab: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Ground())
+        .background(Ground(topOnly: true))
     }
 }
 
@@ -255,7 +253,3 @@ private struct PhotoPost: View {
     }
 }
 
-private struct ScrollOffsetKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}

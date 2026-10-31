@@ -75,18 +75,16 @@ const Article: FC<{ a: ArticleData; viewer: Viewer }> = ({ a, viewer }) => {
         <span>{a.time}</span>
       </div>
       <img class="shot" width="320" height="240" alt="Photo" src={`/photos/${a.photo.public_id}.png`} />
-      {viewer.kind !== 'anonymous' ? (
-        <div class="comments">
-          <ul>
-            {a.comments.map((c) => (
-              <li>
-                <b>{c.name}</b>
-                <span>{c.body}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <div class="comments">
+        <ul>
+          {(viewer.kind !== 'anonymous' ? a.comments : a.comments.slice(0, 1)).map((c) => (
+            <li>
+              <b>{c.name}</b>
+              <span>{c.body}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
       {canComment ? (
         <form class="cmtform" method="post" action={`/p/${a.photo.public_id}/comments`}>
           {needsName ? <input name="name" placeholder="Your name" aria-label="Your name" maxlength={60} required /> : null}

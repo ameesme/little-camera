@@ -39,7 +39,7 @@ struct CameraTab: View {
 
                 numbers
             }
-            .background(Ground())
+            .background(Ground(topOnly: true))
             .navigationBarTitleDisplayMode(.inline)
             .confirmationDialog("Disconnect little camera?", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
                 Button("Disconnect and log out", role: .destructive) { model.disconnect() }
