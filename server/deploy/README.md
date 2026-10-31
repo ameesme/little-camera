@@ -14,7 +14,7 @@ https://mees.lttl.cam/       a blog
 `LANDING_DIR` defaults to `../../site`, which is the teaser in this repo. Today that same `site/` is on Vercel and `lttl.cam` points there, not at the VPS — see `site/DEPLOYMENT.md`. Nothing here is live yet, and these prefixes are what let the two swap later without touching a URL anyone has.
 
 1. Point DNS at the box: `A  lttl.cam  → IP` and `A  *.lttl.cam → IP`.
-2. `cp .env.example .env` and fill it in. The wildcard certificate needs the DNS-01 challenge, and the Caddy build here ships the Cloudflare module, so the only extra secret is a Cloudflare API token with `Zone:Read` + `DNS:Edit` on that zone. For another provider, edit `Dockerfile.caddy` and the `tls` blocks in `Caddyfile`.
+2. `cp .env.example .env` and fill it in. The wildcard certificate needs the DNS-01 challenge via Vercel DNS, so the only extra secret is a Vercel API token.
 3. `docker compose up -d --build`.
 4. Make the first blog from the app, or with `pnpm fake-camera`.
 

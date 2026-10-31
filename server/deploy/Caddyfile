@@ -5,7 +5,7 @@
 # Adding a path to `@app` hands away URL space the landing page owns, so mount new routes under /api or /app instead.
 {$DOMAIN} {
 	tls {
-		dns cloudflare {$CLOUDFLARE_API_TOKEN}
+		dns vercel {$VERCEL_API_TOKEN}
 	}
 	encode gzip
 
@@ -23,7 +23,7 @@
 # split here; the wildcard certificate covers them all.
 *.{$DOMAIN} {
 	tls {
-		dns cloudflare {$CLOUDFLARE_API_TOKEN}
+		dns vercel {$VERCEL_API_TOKEN}
 	}
 	encode gzip
 	reverse_proxy server:3000
