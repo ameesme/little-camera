@@ -44,7 +44,7 @@ const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer }> =
 /** The ask, under the one picture a visitor gets: the same form does joining and asking for a fresh link. */
 const JoinBox: FC<{ name: string }> = ({ name }) => (
   <section class="join" id="join">
-    <h2>Read {name}’s little camera</h2>
+    <h2>View {name}&#8217;s little camera</h2>
     <p>If {name} lets you in, you will get an email.</p>
     <form method="post" action="/subscribe">
       <input id="email" name="email" type="email" placeholder="you@email.com" aria-label="Email address" required autocomplete="email" />
@@ -120,7 +120,7 @@ const BLOG_SCRIPT = `
         body:JSON.stringify({email:email.value})})
         .then(function(r){return r.json()})
         .then(function(j){
-          var name=row.querySelector('h2').textContent.replace('Read ','').split('’')[0];
+          var name=row.querySelector('h2').textContent.replace('View ','').split('’')[0];
           row.querySelector('h2').textContent=j.state==='already'?'You got mail':'Asked '+name;
           row.querySelector('p').textContent=j.state==='already'
             ?'Use the link from your email to log in.'
