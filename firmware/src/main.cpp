@@ -58,12 +58,17 @@ constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
 // screen with a photo waiting on a decision, get longer before the sleep
 // face comes up.
 constexpr uint32_t REVIEW_IDLE_TIMEOUT_MS = 30000;
+// A photo the phone is standing by for: long enough to find the card and frame it, short enough
+// that a camera put down mid-ask still sleeps.
+constexpr uint32_t PROMPT_IDLE_TIMEOUT_MS = 120000;
 constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 // Pairing holds the screen until the phone is done with it. The timeout is the
 // escape hatch for a phone that walks away mid-dialog; the result lingers just
 // long enough to be read.
 constexpr uint32_t PAIRING_TIMEOUT_MS = 60000;
-constexpr uint32_t PAIRING_RESULT_MS = 1500;
+constexpr uint32_t PAIRING_RESULT_MS = 6000;
+// Between two chirps the phone asked for: long enough to be two and not a stutter.
+constexpr uint32_t CHIRP_GAP_MS = 220;
 
 // A firmware update owns the screen until the phone is done with it or gives
 // up; sync.cpp's own timeouts are the escape hatch, so there is none here.
@@ -161,12 +166,19 @@ static bool cameraReady = false;
 // waiting on the phone).
 static Mode modeBeforePairing = Mode::Viewfinder;
 static uint32_t pairingStartedAt = 0;
+// The hello is the owner's to dismiss, on the phone or on the button, so it does not end on a beat.
+static bool helloShowing = false;
 static uint32_t pairingDoneAt = 0;
 // Updating: where to go back to if it does not end in a reboot, the percent
 // on screen, and when the outcome went up (0 = still running).
 static Mode modeBeforeUpdate = Mode::Viewfinder;
 static int updatePercent = -1;
 static uint32_t updateEndedAt = 0;
+// A failure restarts the camera rather than dropping back to the viewfinder.
+// Nothing is wrong with the image it is running — the half-written slot is —
+// and coming back up clean is both what the screen promises and the cheapest
+// way to be sure the flash writer let go of everything.
+static bool updateFailed = false;
 
 // Forward declaration
 void enterSleepMode();
@@ -370,6 +382,7 @@ static bool sampleBattery() {
         sleepStatusMv = mv;
         sleepStatusChg = chg;
         Display::setBatteryPercent(Power::percent(mv, chg, digitalRead(PIN_VBUS) == HIGH));
+        Display::setCharging(chg);
         snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV%s", (unsigned)(mv / 1000),
                  (unsigned)(mv % 1000 / 10), chg ? " chg" : "");
         moved = true;
@@ -385,6 +398,9 @@ static void showSleepFace(bool full) {
     const uint8_t band = Chirp::band(h);
     if (band != sleepFaceBand) full = true;
     sleepFaceBand = band;
+    // The viewfinder's sidebar wears the same face, so it learns the band here
+    // rather than asking mood.h from inside the panel driver.
+    Display::setFaceBand(band);
 
     // The debug readout sits outside the face rows, so a breath frame cannot
     // repaint it and a moved reading has to pay for a full frame.
@@ -504,10 +520,10 @@ void setup() {
     Console::begin();
 
     // Initialize camera (OV2640 on J2)
-    if (!cameraOn()) {
-        Serial.println("Camera init failed — halting");
-        while (true) delay(1000);
-    }
+    // Non-fatal, like storage above: cameraOn() tries again every time the viewfinder wants a
+    // frame, and halting here would take the radio and the console down with it — leaving no way
+    // to reach the photos already on flash, which is the one thing worth protecting.
+    if (!cameraOn()) Serial.println("Camera init failed — carrying on without it");
 
     // Radio last: everything it advertises (photo counts, the secret) exists
     // by now, and the camera init above is the slow part of boot anyway.
@@ -580,9 +596,9 @@ static void wakeFromAsleep() {
 // straight over it. The camera does not wake for this — pairing needs the
 // radio and the panel, not the sensor — so a sleeping camera pairs and goes
 // back to its face.
-static void enterPairing(uint32_t code) {
-    char text[16];
-    snprintf(text, sizeof(text), "%06lu", (unsigned long)code);
+// The pairing screen takes the panel from wherever the camera was, the sleep face included, and
+// leavePairing() hands it back.
+static void takeOverForPairing() {
     if (mode != Mode::Pairing) modeBeforePairing = mode;
     Display::clearToast();
     hintToastShowing = false;
@@ -591,6 +607,13 @@ static void enterPairing(uint32_t code) {
     gestureActive = false;
     holdFired = false;
     mode = Mode::Pairing;
+}
+
+static void enterPairing(uint32_t code) {
+    helloShowing = false;
+    char text[16];
+    snprintf(text, sizeof(text), "%06lu", (unsigned long)code);
+    takeOverForPairing();
     pairingStartedAt = millis();
     pairingDoneAt = 0;
     Display::drawPairing(text, "type this on your phone");
@@ -601,6 +624,7 @@ static void enterPairing(uint32_t code) {
 // through a pairing dialog, so anything that was not the sleep face resumes as
 // the viewfinder.
 static void leavePairing() {
+    helloShowing = false;
     if (modeBeforePairing == Mode::Asleep) {
         mode = Mode::Asleep;
         // The phone that just paired is about to sync: give the radio its full
@@ -640,8 +664,9 @@ static void enterUpdating(uint32_t size) {
     }
     mode = Mode::Updating;
     updateEndedAt = 0;
+    updateFailed = false;
     updatePercent = 0;
-    Display::drawUpdate("new firmware", 0, "keep the phone close");
+    Display::drawUpdate("freshing up", 0, "keep the phone close");
     Serial.printf("Update: receiving %u bytes, fw now %s\n", (unsigned)size, LC_VERSION_STRING);
 }
 
@@ -673,7 +698,7 @@ static void leaveUpdating() {
 // vanish, and the melody is the last thing this firmware does.
 static void finishUpdating() {
     Serial.println("Update: verified and armed — restarting into it");
-    Display::drawUpdate("restarting", -1, nullptr);
+    Display::drawUpdate("brb", -1, "it will only be a minute i promise");
     Audio::playMelody(Audio::Melody::TaDaDa);
     while (Audio::isPlaying()) {
         Audio::update();
@@ -690,11 +715,54 @@ static void finishUpdating() {
 // the camera it was a minute ago.
 static void failUpdating(uint32_t status) {
     if (mode != Mode::Updating) return;
-    const bool stopped = status == SyncProto::STATUS_ABORTED;
-    Serial.printf("Update: %s (status %u)\n", stopped ? "stopped" : "failed", (unsigned)status);
-    Display::drawUpdate(stopped ? "update stopped" : "update failed", -1, "nothing changed");
+    updateFailed = status != SyncProto::STATUS_ABORTED;
+    Serial.printf("Update: %s (status %u)\n", updateFailed ? "failed" : "stopped", (unsigned)status);
+    if (updateFailed) {
+        Display::drawUpdate("ugh fuck", -1, "that didn't work, restarting", UI::getAlertIcon());
+    } else {
+        Display::drawUpdate("update stopped", -1, "nothing changed");
+    }
     Audio::playMelody(Audio::Melody::DaDaTa);
     updateEndedAt = millis();
+}
+
+// The phone is waiting for one particular photo: the card that binds this
+// camera to a blog, or the picture that heads it (docs/protocol.md §3.3). The
+// camera says which, because the person holding it is looking at the camera,
+// not at the phone. A sleeping camera wakes for it — being asked for a photo is
+// the one message that is useless behind a closed face.
+static void enterPrompt(uint8_t kind) {
+    // Hello is not something to wait for, it is something to say: the same screen the passkey ends on,
+    // and the only greeting the camera can give a phone it is already bonded to.
+    if (kind == SyncProto::PROMPT_HELLO) {
+        takeOverForPairing();
+        pairingDoneAt = millis();
+        helloShowing = true;
+        Display::drawPairing("oh hi", nullptr);
+        Serial.println("Sync: saying oh hi");
+        return;
+    }
+    if (kind == SyncProto::PROMPT_NONE && helloShowing) {
+        leavePairing();
+        return;
+    }
+    const Display::Prompt want = kind == SyncProto::PROMPT_VERIFICATION ? Display::Prompt::Verification
+                               : kind == SyncProto::PROMPT_SELFIE       ? Display::Prompt::Selfie
+                                                                        : Display::Prompt::None;
+    Display::setPrompt(want);
+    if (want == Display::Prompt::None) {
+        Display::clearToast();
+        hintToastShowing = false;
+        return;
+    }
+    if (mode == Mode::Asleep) wakeFromAsleep();
+    if (mode != Mode::Viewfinder) return;
+    // Indefinite: it stands until the shot is taken or the phone takes it back,
+    // unlike the "press to shoot" hint it replaces.
+    Display::showToast(want == Display::Prompt::Verification ? "photograph the card" : "take one of you",
+                       Display::ToastHAlign::Center, Display::ToastVAlign::Bottom, true, 0);
+    hintToastShowing = true;
+    lastActivityTime = millis();
 }
 
 // Sync raises its events from loop() on the main thread, so drawing here is
@@ -708,13 +776,31 @@ static void handleSyncEvents() {
                 // Never a screen change: the mood just learns the time.
                 moodOnClock((ev.value & Sync::CLOCK_TZ_KNOWN) != 0, (int16_t)(uint16_t)(ev.value & 0xFFFF));
                 break;
+            case Sync::Event::Connected:
+                Serial.println("Sync: phone connected");
+                break;
+            case Sync::Event::Disconnected:
+                Serial.println("Sync: phone gone");
+                break;
             case Sync::Event::Passkey:
                 enterPairing(ev.value);
                 break;
+            case Sync::Event::Chirp:
+                for (uint32_t i = 0; i < ev.value; i++) {
+                    if (i) delay(CHIRP_GAP_MS);
+                    playMoodChirp(moodHappiness(), "Asked");
+                }
+                break;
+            case Sync::Event::Prompt:
+                enterPrompt((uint8_t)ev.value);
+                break;
             case Sync::Event::PairingDone:
-                if (mode == Mode::Pairing) {
+                Serial.printf("Sync: link %s\n", ev.value ? "encrypted" : "NOT encrypted");
+                // Only the screen that asked for the passkey: the link re-authenticates on every
+                // connection, and the hello a phone wants said is PROMPT_HELLO, not this.
+                if (mode == Mode::Pairing && !helloShowing) {
                     pairingDoneAt = millis();
-                    Display::drawPairing(ev.value ? "paired" : "pairing failed", nullptr);
+                    Display::drawPairing(ev.value ? "oh hi" : "not this time", nullptr);
                 }
                 break;
             case Sync::Event::UpdateBegan:
@@ -1004,7 +1090,9 @@ void loop() {
     // from the Asleep case below. Also applies on the save screen: an
     // unanswered prompt is still an idle device.
     const uint32_t idleLimit =
-        (mode == Mode::Gallery || mode == Mode::Save) ? REVIEW_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+        Display::promptPending()                      ? PROMPT_IDLE_TIMEOUT_MS
+        : (mode == Mode::Gallery || mode == Mode::Save) ? REVIEW_IDLE_TIMEOUT_MS
+                                                        : IDLE_TIMEOUT_MS;
     // Pairing is the phone's moment, not an idle camera: it runs on its own
     // timeout in the mode switch below. An update is the same, only longer —
     // falling asleep mid-image would take the radio down under the transfer.
@@ -1163,6 +1251,8 @@ void loop() {
                 switch (r) {
                     case Storage::Result::Ok:
                         moodOnPhoto();
+                        // Whatever the phone was waiting for, it has it now.
+                        Display::setPrompt(Display::Prompt::None);
                         Audio::playMelody(Audio::Melody::Saved);
                         startDismiss("saved");
                         break;
@@ -1256,6 +1346,13 @@ void loop() {
         case Mode::Pairing: {
             // The button does nothing here; the phone drives. The screen ends
             // on the result (after a beat to read it) or on the timeout.
+            // The hello is the exception: it waits for the owner, on either device, and only the
+            // pairing timeout stands behind it so a camera left alone still gets to sleep.
+            if (helloShowing) {
+                if (pressed && !lastPressed) leavePairing();
+                if (millis() - pairingDoneAt >= PAIRING_TIMEOUT_MS) leavePairing();
+                break;
+            }
             const uint32_t waited = pairingDoneAt ? (millis() - pairingDoneAt) : (millis() - pairingStartedAt);
             if (waited >= (pairingDoneAt ? PAIRING_RESULT_MS : PAIRING_TIMEOUT_MS)) leavePairing();
             break;
@@ -1264,7 +1361,10 @@ void loop() {
         case Mode::Updating: {
             // The phone drives; the button does nothing. Progress arrives as
             // events, and either a reboot or an outcome ends this screen.
-            if (updateEndedAt && millis() - updateEndedAt >= UPDATE_RESULT_MS) leaveUpdating();
+            if (updateEndedAt && millis() - updateEndedAt >= UPDATE_RESULT_MS) {
+                if (updateFailed) esp_restart();
+                leaveUpdating();
+            }
             break;
         }
 

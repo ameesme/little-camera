@@ -30,6 +30,14 @@ export function createBlog(db: Db, p: { handle: string; name: string; email: str
   return findBlogById(db, Number(r.lastInsertRowid))!;
 }
 
+/// An address nobody confirmed is not a blog yet: the handle goes back on the shelf and the
+/// half-made rows go with it. Cascades clear its codes, subscribers and tokens; the cameras and
+/// photos that pointed at it fall back to unbound, which the orphan sweep picks up later.
+export function deleteUnverifiedBlogsBefore(db: Db, cutoff: number): number {
+  const r = db.prepare('DELETE FROM blogs WHERE email_verified_at IS NULL AND created_at < ?').run(cutoff);
+  return Number(r.changes);
+}
+
 export function markEmailVerified(db: Db, id: number, now: number): void {
   db.prepare('UPDATE blogs SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?').run(now, id);
 }

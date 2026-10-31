@@ -3,7 +3,7 @@ import Security
 
 /// A plain UserDefaults wrapper, deliberately not observable: AppModel mirrors whatever the UI needs.
 final class Settings {
-    static let defaultServerBaseURL = "https://lttl.cam"
+    static let defaultServerBaseURL = "http://192.168.50.42.nip.io:3000"
 
     private let defaults: UserDefaults
 
@@ -142,5 +142,13 @@ enum Keychain {
 
     static func delete(for cameraId: String) {
         SecItemDelete(baseQuery(for: cameraId) as CFDictionary)
+    }
+
+    /// Every secret this app holds, for the launch that finds it remembers no camera at all.
+    static func deleteEverySecret() {
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ] as CFDictionary)
     }
 }

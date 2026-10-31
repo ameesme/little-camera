@@ -34,11 +34,6 @@ export const CSS = `
        letter-spacing:.1em;text-transform:uppercase;padding:7px 10px;white-space:nowrap;text-decoration:none;display:inline-block}
   .btn:active,.btn[aria-pressed="true"]{background:var(--paper);color:var(--ink)}
 
-  .subscribe-row{display:none;border-bottom:var(--rule);padding:10px var(--pad)}
-  .subscribe-row.open,.subscribe-row:target{display:flex;gap:8px}
-  .subscribe-row input{flex:1;min-width:0;font-family:inherit;font-size:16px;border:0;border-bottom:var(--rule);
-       border-radius:0;background:none;padding:4px 0}
-
   article{border-bottom:var(--rule)}
   .meta{padding:9px var(--pad) 8px;font-size:10px;letter-spacing:.11em;text-transform:uppercase;
         display:flex;gap:0 7px}
@@ -65,9 +60,12 @@ export const CSS = `
   .more:disabled,.more.end{cursor:default}
   :focus-visible{outline:2px solid #000;outline-offset:2px}
 
-  /* The pages an emailed link opens, set like a stage in the app: one question, one answer. */
-  .stage{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
-  .stage .bar{border-bottom:var(--rule);padding:10px var(--pad);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+  /* The pages an emailed link opens, set like a stage in the app: one question, one answer.
+     No frame: the rules around the feed are there to hold a column of pictures together,
+     and a page with one sentence on it has nothing to hold. */
+  .wrap:has(.stage){border:0;max-width:none}
+  .stage{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;max-width:440px;margin:0 auto}
+  .stage .bar{padding:10px var(--pad);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
   .stage .mid{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:28px var(--pad);text-align:center}
   .stage h1{font-size:30px;font-weight:700;letter-spacing:-1px;line-height:1.08;margin:0}
   .stage p{font-size:19px;line-height:1.35;margin:0}
@@ -91,7 +89,15 @@ export const CSS = `
   .page a{color:inherit}
   .page ul{margin:0 0 12px;padding:0 0 0 18px}
   .notice{border-bottom:var(--rule);padding:10px var(--pad);font-size:10px;letter-spacing:.11em;text-transform:uppercase}
-  .teaser{padding:24px var(--pad) 40px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;text-align:center}
+  .teaser{padding:24px var(--pad) 18px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;text-align:center}
+
+  /* The ask, where the pictures run out: that is the moment someone decides, not the header. */
+  .join{border-top:var(--rule);border-bottom:var(--rule);padding:22px var(--pad) 24px;text-align:center;margin-bottom:28px}
+  .join h2{font-size:24px;font-weight:700;letter-spacing:-.6px;margin:0 0 6px}
+  .join p{margin:0 0 16px;font-size:14px}
+  .join form{display:flex;gap:8px;max-width:340px;margin:0 auto}
+  .join input{flex:1;min-width:0;font-family:inherit;border:0;border-bottom:var(--rule);border-radius:0;background:none;padding:6px 0}
+  .join .btn{padding:9px 14px}
   .list{margin:0 0 18px;padding:0;list-style:none;border-top:var(--rule)}
   .list li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:var(--rule);font-size:13.5px}
   .list li form{display:inline}

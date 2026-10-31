@@ -17,6 +17,9 @@ constexpr int PIN_CAM_PCLK  = 48;
 constexpr int PIN_CAM_D[8]  = {39, 41, 42, 40, 38, 47, 21, 13};
 
 static camera_fb_t* fb = nullptr;
+// Consecutive empty frames before the sensor is taken down and brought back.
+constexpr int CAPTURE_RETRIES = 5;
+static int _failures = 0;
 
 // With CAM_EN low the sensor's rails are gone, so nothing may drive into it:
 // a driven pin into a dead rail leaks through the ESD diodes.
@@ -26,6 +29,24 @@ static void pinsHighZ() {
     for (int p : pins) pinMode(p, INPUT);
     for (int p : PIN_CAM_D) pinMode(p, INPUT);
 }
+
+static bool _vflip = false;
+static bool _hmirror = false;
+// Until the console says otherwise, the sensor decides which way it is mounted.
+static bool _flipChosen = false;
+
+void setFlip(bool vflip, bool hmirror) {
+    _vflip = vflip;
+    _hmirror = hmirror;
+    _flipChosen = true;
+    sensor_t* s = esp_camera_sensor_get();
+    if (!s) return;
+    s->set_vflip(s, vflip ? 1 : 0);
+    s->set_hmirror(s, hmirror ? 1 : 0);
+}
+
+bool flippedVertically() { return _vflip; }
+bool mirrored() { return _hmirror; }
 
 bool init() {
     // Rails first, then the driver. 20ms covers the three LDOs coming up and
@@ -72,8 +93,16 @@ bool init() {
     // Set orientation in sensor registers to avoid per-frame CPU work.
     sensor_t* s = esp_camera_sensor_get();
     if (s) {
-        s->set_vflip(s, 0);
-        s->set_hmirror(s, 0);
+        // The OV3660 goes into J2 the other way round from the OV2640, so it starts mirrored.
+        if (!_flipChosen) {
+            _hmirror = s->id.PID == OV3660_PID;
+            _vflip = false;
+        }
+        s->set_vflip(s, _vflip ? 1 : 0);
+        s->set_hmirror(s, _hmirror ? 1 : 0);
+        Serial.printf("Camera initialized: sensor PID 0x%02x, vflip %d hmirror %d\n",
+                      s->id.PID, _vflip ? 1 : 0, _hmirror ? 1 : 0);
+        return true;
     }
 
     Serial.println("Camera initialized");
@@ -110,10 +139,24 @@ uint8_t* capture() {
 
     fb = esp_camera_fb_get();
     if (!fb) {
-        Serial.println("Camera capture failed");
-        return nullptr;
+        // An OV3660 that has lost sync returns nothing for every frame from then on, and the
+        // screen goes on asking: the shutter stops working until someone pulls the battery.
+        // Cutting the rails is the only reset the sensor answers to, so take the whole module
+        // down and bring it back. A handful of tries first, because one dropped frame is normal.
+        if (++_failures < CAPTURE_RETRIES) {
+            Serial.println("Camera capture failed");
+            return nullptr;
+        }
+        Serial.printf("Camera capture failed %d times; power-cycling the sensor\n", _failures);
+        _failures = 0;
+        deinit();
+        delay(50);
+        if (!init()) return nullptr;
+        fb = esp_camera_fb_get();
+        if (!fb) return nullptr;
     }
 
+    _failures = 0;
     return fb->buf;
 }
 

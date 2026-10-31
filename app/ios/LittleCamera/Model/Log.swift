@@ -14,6 +14,7 @@ final class SyncLog {
     }()
 
     func add(_ line: String) {
+        print("lc  " + line)
         lines.append(SyncLog.clock.string(from: Date()) + "  " + line)
         if lines.count > SyncLog.capacity {
             lines.removeFirst(lines.count - SyncLog.capacity)

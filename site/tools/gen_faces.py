@@ -20,7 +20,12 @@ def eye(px, x, y, happy):
     block(px, x + 2 * B, lo)
 
 def mouth(px, x, y, band):
-    if band >= 2:
+    # Mirrors Face::mouth in firmware/src/display.cpp; the panel is the original.
+    if band == 3:
+        block(px, x - B, y)
+        for i in range(3): block(px, x + i * B, y + B)
+        block(px, x + 3 * B, y)
+    elif band == 2:
         block(px, x + B, y)
     elif band == 1:
         for i in range(3): block(px, x + i * B, y)
@@ -59,14 +64,11 @@ src = open(path).read()
 m = re.search(r'const SCREENS = (\{.*?\});\n', src, re.S)
 screens = json.loads(m.group(1))
 
-assert screens['sleepA'] == png(frame(3, False)), 'happy/out frame does not match sleepA'
-assert screens['sleepB'] == png(frame(3, True)), 'happy/in frame does not match sleepB'
-
-for band, name in ((2, 'content'), (1, 'glum'), (0, 'sad')):
+# `sleep` is the happy band, and `fine` is what the element calls content.
+for band, name in ((3, 'sleep'), (2, 'fine'), (1, 'glum'), (0, 'sad')):
     screens[name + 'A'] = png(frame(band, False))
     screens[name + 'B'] = png(frame(band, True))
 
-order = ['sleepA', 'sleepB', 'contentA', 'contentB', 'glumA', 'glumB', 'sadA', 'sadB', 'viewfinder', 'gallery', 'save']
-body = json.dumps({k: screens[k] for k in order}, separators=(',', ':'))
+body = json.dumps(screens, separators=(',', ':'))
 open(path, 'w').write(src[:m.start(1)] + body + src[m.end(1):])
-print('ok', len(order))
+print('ok', len(screens))

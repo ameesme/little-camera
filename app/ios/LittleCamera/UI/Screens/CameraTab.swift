@@ -5,6 +5,7 @@ import SwiftUI
 struct CameraTab: View {
     let model: AppModel
     @State private var confirmingDisconnect = false
+    @State private var confirmingResync = false
 
     private var camera: CameraSession { model.camera }
     private var info: CameraInfo? { camera.info }
@@ -12,7 +13,9 @@ struct CameraTab: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Device(mood: camera.isSyncing ? .gallery : DeviceMood(info?.face ?? .content))
+                // Sending, not browsing: the gallery scene is a stock photo and the camera
+                // is not showing anyone a stock photo while it hands pictures over.
+                Device(mood: camera.isSyncing ? .send : DeviceMood(info?.face ?? .content))
                     .padding(.top, 8)
 
                 Text(lastSeen)
@@ -27,9 +30,12 @@ struct CameraTab: View {
                         .padding(.top, 10)
                 }
 
-                Button { camera.syncNow() } label: { Caption("Sync now") }
-                    .buttonStyle(BlackButton())
-                    .card()
+                // Nothing to ask for while it is already happening.
+                if !camera.isSyncing {
+                    Button { camera.syncNow() } label: { Caption("Sync now") }
+                        .buttonStyle(BlackButton())
+                        .card()
+                }
 
                 numbers
             }
@@ -40,6 +46,11 @@ struct CameraTab: View {
             } message: {
                 Text("You will have to photograph the code again to come back.")
             }
+            .confirmationDialog("Send every picture again?", isPresented: $confirmingResync, titleVisibility: .visible) {
+                Button("Send everything") { camera.resyncEverything() }
+            } message: {
+                Text("Everything still on the camera goes to this blog, even what it has already sent.")
+            }
         }
     }
 
@@ -47,28 +58,27 @@ struct CameraTab: View {
         List {
             if let info {
                 Section {
-                    // Both numbers, because the percentage comes off a curve nobody has calibrated
-                    // yet and the millivolts are the measurement (firmware/AGENTS.md).
-                    StatRow(label: "Charge", value: "\(info.batteryPercent) %")
-                    StatRow(label: "Voltage", value: String(format: "%.2f V", Double(info.batteryMv) / 1000))
-                    if info.charging {
-                        StatRow(label: "Power", value: "Charging")
-                    } else if info.onUsb {
-                        StatRow(label: "Power", value: "USB, charged")
-                    }
-                    ProgressRule(fraction: Double(info.batteryPercent) / 100)
+                    // Both numbers on one line, because the percentage comes off a curve nobody
+                    // has calibrated yet and the millivolts are the measurement (firmware/AGENTS.md).
+                    Gauge(value: "\(info.batteryPercent) %", aside: voltage(info), fraction: Double(info.batteryPercent) / 100)
                 } header: {
                     Caption("Battery")
                 }
 
                 Section {
-                    StatRow(label: "Photos", value: "\(info.photoCount)")
-                    StatRow(label: "Not sent yet", value: "\(info.unsyncedCount)")
                     if info.totalBytes > 0 {
-                        StatRow(label: "Used", value: "\(bytes(info.usedBytes)) of \(bytes(info.totalBytes))")
-                        ProgressRule(fraction: info.usedFraction)
+                        Gauge(value: "\(info.photoCount) photos",
+                              aside: "\(bytes(info.usedBytes)) of \(bytes(info.totalBytes))",
+                              fraction: info.usedFraction)
                     } else {
-                        StatRow(label: "Storage", value: "Not mounted")
+                        Gauge(value: "\(info.photoCount) photos", aside: "Not mounted", fraction: 0)
+                    }
+                    if info.unsyncedCount > 0 {
+                        Text("\(info.unsyncedCount) still to come over").font(Theme.small)
+                    }
+                    if !camera.isSyncing, info.photoCount > 0 {
+                        Button { confirmingResync = true } label: { Caption("Send everything again") }
+                            .buttonStyle(QuietButton())
                     }
                 } header: {
                     Caption("Memory")
@@ -78,24 +88,27 @@ struct CameraTab: View {
             FirmwareSection(model: model)
 
             Section {
-                Text("Forgets little camera and the little blog on this phone. Both stay where they are.")
-                    .font(Theme.small)
+                Text("Disconnect this little camera and log out.")
+                    .font(Theme.body)
                 Button(role: .destructive) { confirmingDisconnect = true } label: {
                     Caption("Disconnect and log out")
                 }
                 .buttonStyle(BlackButton())
             } header: {
-                Caption("This phone")
+                Caption("Goodbye")
             }
 
             if let error = camera.error {
-                Text(error).font(Theme.small)
+                Pill(error).frame(maxWidth: .infinity)
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .environment(\.defaultMinListRowHeight, 0)
         .defaultScrollAnchor(.top)
         .defaultScrollAnchor(.top, for: .sizeChanges)
         .listRowSeparatorTint(Theme.ink)
+        .listRowBackground(Color.clear)
     }
 
     private var lastSeen: String {
@@ -104,6 +117,13 @@ struct CameraTab: View {
         let since = RelativeDateTimeFormatter()
         since.unitsStyle = .full
         return "Last seen \(since.localizedString(for: last, relativeTo: .now))"
+    }
+
+    /// Charging says more about the number than the number does, so it takes the slot.
+    private func voltage(_ info: CameraInfo) -> String {
+        if info.charging { return "Charging" }
+        if info.onUsb { return "USB, charged" }
+        return String(format: "%.2f V", Double(info.batteryMv) / 1000)
     }
 
     private func bytes(_ value: UInt32) -> String {

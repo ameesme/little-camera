@@ -7,7 +7,8 @@ enum SyncError: LocalizedError {
     /// The notification stream ended (disconnect) before an END frame. Carries whatever payload arrived so a GET can resume from that offset.
     case streamEnded(received: Data)
     case timeout
-    case sequenceGap(expected: UInt16, got: UInt16)
+    /// Carries the contiguous prefix before the gap, which a GET can resume from.
+    case sequenceGap(expected: UInt16, got: UInt16, received: Data)
     case wrongKind
     case status(String)
     case lengthMismatch(Int, UInt32)
@@ -17,7 +18,7 @@ enum SyncError: LocalizedError {
         switch self {
         case .streamEnded(let d): return "disconnected after \(d.count) bytes"
         case .timeout: return "camera stopped answering"
-        case .sequenceGap(let e, let g): return "lost a frame (expected \(e), got \(g))"
+        case .sequenceGap(let e, let g, _): return "lost a frame (expected \(e), got \(g))"
         case .wrongKind: return "unexpected frame kind"
         case .status(let s): return "camera said: \(s)"
         case .lengthMismatch(let got, let want): return "got \(got) bytes, camera counted \(want)"
@@ -86,7 +87,8 @@ final class SyncEngine {
     }
 
     /// `info` is the Info read right after connecting.
-    func run(info initial: CameraInfo) async {
+    /// `everything` re-sends pictures the camera has already handed over, for an owner moving to a new blog.
+    func run(info initial: CameraInfo, everything: Bool = false) async {
         guard !isRunning else { return }
         isRunning = true
         // The phone goes back in a pocket right after the shutter, and the ~30 s iOS grants covers a handful of photos.
@@ -101,7 +103,7 @@ final class SyncEngine {
             var passes = 0
             repeat {
                 passes += 1
-                let (uploaded, after) = try await pass(info: info)
+                let (uploaded, after) = try await pass(info: info, everything: everything)
                 uploadedTotal += uploaded
                 info = after
                 if uploaded == 0 { break }
@@ -119,25 +121,25 @@ final class SyncEngine {
 
     // MARK: One pass
 
-    private func pass(info: CameraInfo) async throws -> (uploaded: Int, info: CameraInfo) {
+    private func pass(info: CameraInfo, everything: Bool) async throws -> (uploaded: Int, info: CameraInfo) {
         let infoReadAt = Date()
         if info.busy {
             // A stream from a previous, interrupted session is still running.
             log.add("camera busy, aborting its stream")
-            try await link.write(.abort)
+            try await link.command(.abort)
             try await Task.sleep(nanoseconds: 100_000_000)
         }
 
         let now = UInt32(Date().timeIntervalSince1970)
         let tz = Int16(clamping: TimeZone.current.secondsFromGMT() / 60)
-        try await link.write(.setTime(epoch: now, utcOffsetMin: tz))
+        try await link.command(.setTime(epoch: now, utcOffsetMin: tz))
         log.add("SET_TIME \(now) tz=\(tz)")
 
-        let listPayload = try await stream(.list(from: 1, unsyncedOnly: true), expecting: .listData)
+        let listPayload = try await stream(.list(from: 1, unsyncedOnly: !everything), expecting: .listData)
         let entries = try ListEntry.parseAll(listPayload)
-            .filter { !$0.synced }
+            .filter { everything || !$0.synced }
             .sorted { $0.index < $1.index }
-        log.add("LIST: \(entries.count) unsynced")
+        log.add("LIST: \(entries.count) to send")
         onEvent?(.progress(done: 0, total: entries.count))
 
         var uploaded = 0
@@ -162,7 +164,7 @@ final class SyncEngine {
             let hash = Data(SHA256.hash(data: file)).hexString
             let dating = SyncEngine.date(header: header, entry: entry, info: info, infoReadAt: infoReadAt)
             var kind = "photo"
-            if settings.uploadedHashes.contains(hash) {
+            if !everything, settings.uploadedHashes.contains(hash) {
                 // The server confirmed this file earlier but the ACK never reached the camera (disconnect in between). Just ACK.
                 log.add("#\(entry.index) already on the server")
             } else {
@@ -176,7 +178,7 @@ final class SyncEngine {
                 kind = outcome.kind
                 log.add("#\(entry.index) → \(outcome.statusCode) \(outcome.isDuplicate ? "duplicate" : kind)")
             }
-            try await link.write(.ack(index: entry.index))
+            try await link.command(.ack(index: entry.index))
             partial[entry.index] = nil
             uploaded += 1
             onEvent?(.uploaded(index: entry.index, image: PBM.image(file), kind: kind))
@@ -202,6 +204,12 @@ final class SyncEngine {
             have.append(received)
             partial[entry.index] = have
             throw SyncError.streamEnded(received: received)
+        } catch SyncError.sequenceGap(let expected, let got, let received) {
+            // Everything before the gap is a valid prefix of the file, so the next GET asks for the
+            // rest rather than the whole photo again. The END's CRC still checks the finished bytes.
+            have.append(received)
+            partial[entry.index] = have
+            throw SyncError.sequenceGap(expected: expected, got: got, received: received)
         } catch SyncError.crcMismatch {
             // Do not build on corrupt bytes; next time start from zero.
             partial[entry.index] = nil
@@ -211,6 +219,8 @@ final class SyncEngine {
 
     /// Writes `op`, then collects the Data frames it produces up to END and verifies status, sequence continuity, length and CRC-32.
     private func stream(_ op: ControlOp, expecting kind: FrameKind) async throws -> Data {
+        await link.hold()
+        defer { link.letGo() }
         // Open the stream before the write: the first frame can arrive ~30 ms later.
         let frames = link.frames()
         try await link.write(op)
@@ -236,9 +246,14 @@ final class SyncEngine {
         var end: EndFrame?
         for await frame in frames {
             lastFrameAt = Date()
+            // An END naming another command is the answer to one that stopped waiting for it (§3.3).
+            // Counting it would shift this stream's sequence by one and lose the whole transfer.
+            if frame.kind == .end, let late = try? EndFrame(payload: frame.payload), late.op != op.code {
+                continue
+            }
             guard frame.seq == expectedSeq else {
-                try? await link.write(.abort)
-                throw SyncError.sequenceGap(expected: expectedSeq, got: frame.seq)
+                try? await link.held(.abort)
+                throw SyncError.sequenceGap(expected: expectedSeq, got: frame.seq, received: payload)
             }
             expectedSeq &+= 1
             if frame.kind == .end {
@@ -246,7 +261,7 @@ final class SyncEngine {
                 break
             }
             guard frame.kind == kind else {
-                try? await link.write(.abort)
+                try? await link.held(.abort)
                 throw SyncError.wrongKind
             }
             payload.append(frame.payload)
@@ -254,7 +269,7 @@ final class SyncEngine {
 
         guard let endFrame = end else {
             if timedOut {
-                try? await link.write(.abort)
+                try? await link.held(.abort)
                 throw SyncError.timeout
             }
             throw SyncError.streamEnded(received: payload)

@@ -8,12 +8,12 @@ enum Demo {
     static var stage: AppModel.Stage? {
         switch name {
         case "intro": return .intro
-        case "setup", "found", "pairing", "bluetooth": return .setup
+        case "permission": return .permission
+        case "setup", "found", "pairing", "bluetooth", "connected": return .setup
         case "firmware", "firmware-flat", "firmware-sending", "firmware-failed": return .firmware
         case "claim", "asked", "claim-error": return .claim
         case "onboarding", "name", "name-typed", "email", "email-typed", "handle", "handle-checking",
-             "handle-taken", "signin", "signin-taken", "sent", "bind", "avatar", "avatar-waiting",
-             "onboard-error":
+             "handle-taken", "email-taken", "sent", "avatar", "onboard-error":
             return .onboarding
         case "ready", "commenting", "deleting", "empty", "camera", "camera-syncing", "camera-error",
              "camera-unmounted", "people", "nobody", "add-person":
@@ -26,12 +26,10 @@ enum Demo {
     static var step: OnboardStage.Step? {
         switch name {
         case "name", "name-typed", "onboard-error": return .name
-        case "email", "email-typed": return .email
+        case "email", "email-typed", "email-taken": return .email
         case "handle", "handle-checking", "handle-taken": return .handle
-        case "signin", "signin-taken": return .signIn
         case "sent": return .sent
-        case "bind": return .bind
-        case "avatar", "avatar-waiting": return .avatar
+        case "avatar": return .avatar
         default: return nil
         }
     }
@@ -41,6 +39,8 @@ enum Demo {
     }
 
     static var pairing: Bool { name == "pairing" }
+    /// The last screen of the way in, where the camera has said hello and the owner presses on.
+    static var hello: Bool { name == "connected" }
     static var bluetoothOff: Bool { name == "bluetooth" }
     static var syncing: Bool { name == "camera-syncing" }
     static var cameraError: String? { name == "camera-error" ? "Little camera stopped answering halfway." : nil }
@@ -52,7 +52,7 @@ enum Demo {
         }
     }
 
-    static var takenEmail: Bool { name == "signin-taken" }
+    static var takenEmail: Bool { name == "email-taken" }
 
     static var availability: Blog.Availability {
         switch name {
@@ -88,11 +88,11 @@ enum Demo {
         return stage == nil ? "" : "Mees"
     }
 
-    static var typedEmail: String { name == "email-typed" || name == "signin-taken" ? "mees@example.com" : "" }
+    static var typedEmail: String { name == "email-typed" || name == "email-taken" ? "mees@example.com" : "" }
     static var typedHandle: String { step == .handle ? "mees" : "" }
 
     static var made: ServerClient.MadeBlog? {
-        step == .bind ? ServerClient.MadeBlog(handle: "mees", url: "https://mees.lttl.cam") : nil
+        step == .avatar ? ServerClient.MadeBlog(handle: "mees", url: "https://mees.lttl.cam") : nil
     }
 
     static let code = "4821-9903-7715"
@@ -143,7 +143,7 @@ enum Demo {
         notes: "Sleeps sooner, chirps less on a flat battery.", releasedAt: 1_757_789_000, updateAvailable: true
     )
 
-    static var hasAvatar: Bool { !(name?.hasPrefix("avatar") ?? false) }
+    static var hasAvatar: Bool { name != "avatar" }
 
     static func status(claim: ClaimState, bound: Bool) -> StatusResponse {
         StatusResponse(
@@ -152,6 +152,8 @@ enum Demo {
             avatar: AvatarState(requestedAt: nil, hasAvatar: hasAvatar),
             firmware: FirmwareState(installed: "0.2.0", latest: release, updateAvailable: true),
             claim: claim,
+            pending: nil,
+            confirmedEmail: nil,
             subscribers: name == "nobody" || name == "add-person" ? [] : [
                 Subscriber(id: 1, email: "sanne@example.com", name: "Sanne", status: "approved", addedBy: "owner"),
                 Subscriber(id: 2, email: "joost@example.com", name: nil, status: "pending", addedBy: "self"),

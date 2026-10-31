@@ -21,6 +21,7 @@ export interface CameraRow {
   telemetry_at: number | null;
   claim_approved_at: number | null;
   claim_blog_id: number | null;
+  verified_email: string | null;
 }
 
 export interface Telemetry {
@@ -43,6 +44,10 @@ export function setCameraTelemetry(db: Db, id: string, t: Telemetry, now: number
 
 export function approveCameraClaim(db: Db, id: string, blogId: number, now: number): void {
   db.prepare('UPDATE cameras SET claim_approved_at = ?, claim_blog_id = ? WHERE id = ?').run(now, blogId, id);
+}
+
+export function setCameraVerifiedEmail(db: Db, id: string, email: string | null): void {
+  db.prepare('UPDATE cameras SET verified_email = ? WHERE id = ?').run(email, id);
 }
 
 export function findCamera(db: Db, id: string): CameraRow | null {

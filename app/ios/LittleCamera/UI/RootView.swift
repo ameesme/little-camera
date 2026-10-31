@@ -11,6 +11,7 @@ struct RootView: View {
             Group {
                 switch model.stage {
                 case .intro: IntroStage(model: model)
+                case .permission: PermissionStage(model: model)
                 case .setup: SetupStage(model: model)
                 case .firmware: FirmwareStage(model: model)
                 case .claim: ClaimStage(model: model)
@@ -79,8 +80,11 @@ struct DeviceStage<Content: View, Actions: View>: View {
     var mood: DeviceMood = .asleep
     var turn: Int = 0
     var lit: Bool = true
+    /// The camera turns into the phone it posts to, which needs a taller canvas to stand in.
+    var phone: Bool = false
     /// A way back out of a step, which belongs in the corner rather than under the primary action.
     var back: (() -> Void)?
+    var photo: String?
     @ViewBuilder var content: () -> Content
     @ViewBuilder var actions: () -> Actions
 
@@ -99,7 +103,7 @@ struct DeviceStage<Content: View, Actions: View>: View {
             .frame(height: 30)
             .padding(.horizontal, Theme.pad)
             Spacer(minLength: 24)
-            Device(mood: mood, turn: turn, lit: lit)
+            Device(mood: mood, turn: turn, lit: lit, phone: phone, aspect: phone ? 0.8 : Device.aspect, photo: photo)
             VStack(spacing: 12) {
                 Text(title)
                     .font(Theme.font(30, bold: true))
@@ -111,7 +115,7 @@ struct DeviceStage<Content: View, Actions: View>: View {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, Theme.pad)
-            .padding(.top, 28)
+            .padding(.top, 36)
             Spacer(minLength: 24)
             VStack(spacing: 10) { actions() }
                 .card()

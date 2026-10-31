@@ -31,10 +31,14 @@ final class CameraLink: NSObject, @unchecked Sendable {
         /// Service discovered, notifications on Data enabled: safe to read/write.
         case ready(name: String)
         case disconnected(String?)
+        /// iOS holds a pairing the camera has forgotten, and only Settings can let go of it.
+        case pairingLost
         case log(String)
     }
 
     private static let restoreIdentifier = "me.amees.littlecamera.central"
+    /// A pending connect waits for ever, and a sleeping camera never arrives. After this, look around again.
+    private static let connectPatience: TimeInterval = 6
 
     private let events: @MainActor (Event) -> Void
     private let queue = DispatchQueue(label: "me.amees.littlecamera.ble")
@@ -44,9 +48,21 @@ final class CameraLink: NSObject, @unchecked Sendable {
     /// CoreBluetooth drops a CBPeripheral nobody retains, so these are held until the owner picks one.
     private var found: [UUID: CBPeripheral] = [:]
     private var characteristics: [CBUUID: CBCharacteristic] = [:]
+    /// Which connect the patience timer belongs to, so a later one does not answer for an earlier.
+    private var connectAttempt = 0
     private var pendingReads: [CBUUID: CheckedContinuation<Data, Error>] = [:]
     private var pendingWrite: CheckedContinuation<Void, Error>?
+    /// Writes waiting their turn. The camera takes one command at a time, and the sync engine and the
+    /// screens both write, so the loser of a race has to wait rather than fail.
+    private var waitingWrites: [(Data, CheckedContinuation<Void, Error>)] = []
     private var frameContinuation: AsyncStream<DataFrame>.Continuation?
+    /// How long a one-shot command waits for its END. Generous, because the camera answers from its
+    /// own loop: a write to LittleFS or a panel redraw in front of it can hold the answer for seconds,
+    /// and giving up early is what desynchronises the channel in the first place.
+    static let answerPatience: TimeInterval = 6
+    /// Whoever holds the Data channel owns `frameContinuation` until they let go.
+    private var channelHeld = false
+    private var waitingForChannel: [CheckedContinuation<Void, Never>] = []
     /// A chunk waiting for the controller to drain, with the caller it lets go of once the bytes are on the wire.
     private var queuedChunk: (Data, CheckedContinuation<Void, Error>)?
 
@@ -76,6 +92,8 @@ final class CameraLink: NSObject, @unchecked Sendable {
         queue.async {
             self.pairedId = peripheralId
             self.central?.stopScan()
+            // Already on its way there: a second connect would only restart the patience behind it.
+            if let going = self.peripheral, going.identifier == peripheralId, going.state != .disconnected { return }
             let known = self.found[peripheralId]
                 ?? self.central?.retrievePeripherals(withIdentifiers: [peripheralId]).first
             if let p = known {
@@ -120,6 +138,7 @@ final class CameraLink: NSObject, @unchecked Sendable {
 
     /// Write with response. Only one write in flight at a time; the camera serialises anyway.
     func write(_ op: ControlOp) async throws {
+        print("lc  tx op \(op.encoded.map { String(format: "%02x", $0) }.joined())")
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             self.queue.async {
                 guard let p = self.peripheral, p.state == .connected,
@@ -128,13 +147,66 @@ final class CameraLink: NSObject, @unchecked Sendable {
                     return
                 }
                 guard self.pendingWrite == nil else {
-                    cont.resume(throwing: LinkError.busy)
+                    // Bounded: a link this far behind is broken, and an unbounded queue would only hide it.
+                    guard self.waitingWrites.count < 8 else {
+                        cont.resume(throwing: LinkError.busy)
+                        return
+                    }
+                    self.waitingWrites.append((op.encoded, cont))
                     return
                 }
                 self.pendingWrite = cont
                 p.writeValue(op.encoded, for: c, type: .withResponse)
             }
         }
+    }
+
+    /// The Data channel is one slot wide: `frames()` replaces whatever stream was open, so a screen
+    /// saying hello in the middle of a sync would otherwise swallow that sync's frames. Queue instead.
+    func hold() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            queue.async {
+                if self.channelHeld { self.waitingForChannel.append(cont) }
+                else { self.channelHeld = true; cont.resume() }
+            }
+        }
+    }
+
+    func letGo() {
+        queue.async {
+            guard !self.waitingForChannel.isEmpty else { self.channelHeld = false; return }
+            self.waitingForChannel.removeFirst().resume()
+        }
+    }
+
+    /// Write and read the camera's answer to it, taking the channel for the round trip.
+    func command(_ op: ControlOp) async throws {
+        await hold()
+        defer { letGo() }
+        try await held(op)
+    }
+
+    /// `command` for a caller that already holds the channel. The camera ends every command with an END
+    /// frame (§3.3: one at a time, the phone waits for END), and an END nobody collects becomes the first
+    /// frame of whatever stream opens next, which shifts that stream's sequence by one. The END names the
+    /// command it answers, so one left over from a command that gave up waiting is skipped rather than
+    /// taken for this one's.
+    func held(_ op: ControlOp) async throws {
+        let answers = frames()
+        try await write(op)
+        let answered = Task {
+            for await frame in answers where frame.kind == .end {
+                if let end = try? EndFrame(payload: frame.payload), end.op == op.code { break }
+            }
+        }
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(CameraLink.answerPatience))
+            guard !Task.isCancelled else { return }
+            self?.closeFrames()
+        }
+        await answered.value
+        timeout.cancel()
+        closeFrames()
     }
 
     /// Opened *before* the write that starts a stream, and opening one finishes the last, so leftovers cannot leak.
@@ -225,6 +297,7 @@ final class CameraLink: NSObject, @unchecked Sendable {
 
     private func scan() {
         guard let central = central, central.state == .poweredOn else { return }
+        emit(.log("scanning"))
         // Filtering on the service UUID is what makes background scans match too.
         central.scanForPeripherals(withServices: [LC.serviceUUID], options: nil)
         emit(.scanning)
@@ -235,6 +308,18 @@ final class CameraLink: NSObject, @unchecked Sendable {
         peripheral = p
         emit(.connecting(name: p.name ?? "camera"))
         central?.connect(p, options: nil)
+        connectAttempt += 1
+        let attempt = connectAttempt
+        // A connect iOS is sitting on has to be taken back before another can land, and one restored
+        // from an earlier session can be minutes old: cancel, forget it, and find the camera again.
+        queue.asyncAfter(deadline: .now() + CameraLink.connectPatience) { [weak self] in
+            guard let self, self.connectAttempt == attempt,
+                  let pending = self.peripheral, pending.state != .connected else { return }
+            self.central?.cancelPeripheralConnection(pending)
+            self.peripheral = nil
+            self.emit(.log("no answer in \(Int(CameraLink.connectPatience))s; dropped that connect, looking again"))
+            self.scan()
+        }
     }
 
     private func discover(_ p: CBPeripheral) {
@@ -243,6 +328,9 @@ final class CameraLink: NSObject, @unchecked Sendable {
     }
 
     private func failPending(_ error: Error) {
+        let waiting = waitingWrites
+        waitingWrites = []
+        for (_, cont) in waiting { cont.resume(throwing: error) }
         let reads = pendingReads
         pendingReads = [:]
         for (_, cont) in reads {
@@ -306,12 +394,14 @@ extension CameraLink: CBCentralManagerDelegate {
             ?? peripheral.name
             ?? "lc-????"
         found[peripheral.identifier] = peripheral
+        emit(.log("saw \(name) at \(RSSI) dBm"))
+        // Said for the paired camera too: "a camera is in range" is what the screen above is asking,
+        // and leaving it out made a known camera look like no camera at all.
+        emit(.found(id: peripheral.identifier, name: name))
         if peripheral.identifier == pairedId {
             central.stopScan()
             connect(peripheral)
-            return
         }
-        emit(.found(id: peripheral.identifier, name: name))
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -323,6 +413,12 @@ extension CameraLink: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         emit(.log("connect failed: \(error?.localizedDescription ?? "unknown")"))
+        // The camera dropped its half of the pairing, so iOS refuses the link and no app can clear
+        // the record it keeps. Retrying is pointless; only the owner can undo it, in Settings.
+        if (error as? CBError)?.code == .peerRemovedPairingInformation {
+            emit(.pairingLost)
+            return
+        }
         // Rare, since pending connects usually just wait. Back off and re-arm.
         queue.asyncAfter(deadline: .now() + 2) {
             if self.peripheral?.identifier == peripheral.identifier {
@@ -384,6 +480,9 @@ extension CameraLink: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if characteristic.uuid == LC.dataUUID {
             if let value = characteristic.value, let frame = DataFrame(data: value) {
+                if frame.kind != .photoData || frame.seq < 2 {
+                    print("lc  rx \(frame.kind) #\(frame.seq) \(frame.payload.count)b\(frameContinuation == nil ? " NOBODY" : "")")
+                }
                 frameContinuation?.yield(frame)
             } else {
                 emit(.log("dropped a malformed frame"))
@@ -408,6 +507,19 @@ extension CameraLink: CBPeripheralDelegate {
         } else {
             cont.resume()
         }
+        sendNextWrite()
+    }
+
+    private func sendNextWrite() {
+        guard pendingWrite == nil, !waitingWrites.isEmpty else { return }
+        let (bytes, cont) = waitingWrites.removeFirst()
+        guard let p = peripheral, p.state == .connected, let c = characteristics[LC.controlUUID] else {
+            cont.resume(throwing: LinkError.notConnected)
+            sendNextWrite()
+            return
+        }
+        pendingWrite = cont
+        p.writeValue(bytes, for: c, type: .withResponse)
     }
 
     func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {

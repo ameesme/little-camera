@@ -13,6 +13,11 @@ enum Theme {
         Font.custom(bold ? "HelveticaNeue-Bold" : "HelveticaNeue", size: size)
     }
 
+    /// Between the body face and the bold one, for a line that is large without shouting.
+    static func medium(_ size: CGFloat) -> Font {
+        Font.custom("HelveticaNeue-Medium", size: size)
+    }
+
     static let caption = font(11, bold: true)
     static let body = font(14)
     /// What an instruction page says under its title, which is the only text on the page.
@@ -96,6 +101,18 @@ struct SmallButton: ButtonStyle {
     }
 }
 
+/// `SmallButton` for a screen that is already inverted: white fill, black text.
+struct PaperButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .foregroundStyle(configuration.isPressed ? Theme.paper : Theme.ink)
+            .background(configuration.isPressed ? Theme.ink : Theme.paper)
+            .overlay(Rectangle().stroke(Theme.paper, lineWidth: 1))
+    }
+}
+
 /// The second choice on a screen: the same size, outlined rather than filled.
 struct QuietButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -152,6 +169,29 @@ struct StatRow: View {
     }
 }
 
+/// A reading and the measurement behind it on one line, over the bar that shows it.
+/// Three stacked label/value rows said the same thing in four times the height.
+struct Gauge: View {
+    let value: String
+    var aside: String?
+    let fraction: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(value)
+                    .font(Theme.font(22, bold: true))
+                    .kerning(-0.5)
+                Spacer(minLength: 8)
+                if let aside {
+                    Text(aside).font(Theme.body)
+                }
+            }
+            ProgressRule(fraction: fraction)
+        }
+    }
+}
+
 /// Card padding shared by every section.
 struct CardPadding: ViewModifier {
     func body(content: Content) -> some View {
@@ -198,13 +238,35 @@ struct Thumbnail: View {
     }
 }
 
+/// A black capsule with white text: what the app has to say that is not an answer to the
+/// question on screen. Loud enough to be read at a glance, which 11 pt grey never was.
+struct Pill: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(Theme.body)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(Theme.paper)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(Theme.ink))
+    }
+}
+
 /// Shown wherever the app can do nothing until the person does something.
 struct Waiting: View {
     let text: String
+    /// Paper on a screen that is already inverted, as the card is.
+    var ink: Color = Theme.ink
 
     var body: some View {
         HStack(spacing: 7) {
-            Spinner()
+            Spinner(ink: ink)
             Text(text)
                 .font(Theme.lead)
         }
@@ -215,6 +277,8 @@ struct Waiting: View {
 /// Eight blocks round a square, three lit at a time. The system spinner is a grey wheel,
 /// and there is no grey here.
 struct Spinner: View {
+    var ink: Color = Theme.ink
+
     private static let ring = [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
     private static let block: CGFloat = 6
     private static let gap: CGFloat = 2
@@ -229,12 +293,65 @@ struct Spinner: View {
                     let x = CGFloat(cell.0) * (Spinner.block + Spinner.gap)
                     let y = CGFloat(cell.1) * (Spinner.block + Spinner.gap)
                     let square = CGRect(x: x, y: y, width: Spinner.block, height: Spinner.block)
-                    context.fill(Path(square), with: .color(Theme.ink))
+                    context.fill(Path(square), with: .color(ink))
                 }
             }
             .frame(width: side, height: side)
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
+    }
+}
+
+/// One per word, so a renderer can bring them in one at a time. The values differ, which is what
+/// keeps two neighbouring words from being merged into a single run.
+struct WordIndex: TextAttribute {
+    let value: Int
+}
+
+extension Text {
+    /// The same sentence, cut into one run per word.
+    static func words(_ sentence: String) -> Text {
+        sentence.split(separator: " ").enumerated().reduce(Text("")) { line, word in
+            line + Text(word.element + " ").customAttribute(WordIndex(value: word.offset))
+        }
+    }
+}
+
+/// White on black with a box per line, the way the landing page sets its spec line. One box behind
+/// the whole block would be a rectangle with ragged text in it; this follows the wrap instead.
+/// Every box goes down before any word does, or the next line's box clips the descenders above it.
+struct Inverted: TextRenderer, Animatable {
+    /// 0 is an empty box, 1 the whole line; the words land in order in between.
+    var progress: Double = 1
+    var inset = CGSize(width: 8, height: 6)
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        let runs = layout.flatMap { $0 }
+        let last = runs.compactMap { $0[WordIndex.self]?.value }.max() ?? 0
+        let step = 1 / Double(last + 2)
+        func arrived(_ run: Text.Layout.Run) -> Double {
+            min(1, max(0, (progress - Double(run[WordIndex.self]?.value ?? 0) * step) / (step * 2)))
+        }
+        // The black reaches as far as the words that have landed, so it cuts in with them rather than waiting for them.
+        for line in layout {
+            var box = CGRect.null
+            for run in line where arrived(run) > 0 { box = box.union(run.typographicBounds.rect) }
+            guard !box.isNull else { continue }
+            context.fill(Path(box.insetBy(dx: -inset.width, dy: -inset.height)), with: .color(Theme.ink))
+        }
+        for run in runs {
+            let landed = arrived(run)
+            guard landed > 0 else { continue }
+            var word = context
+            word.opacity = landed
+            word.translateBy(x: 0, y: (1 - landed) * 8)
+            word.draw(run)
+        }
     }
 }

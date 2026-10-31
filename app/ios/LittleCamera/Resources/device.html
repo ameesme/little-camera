@@ -7,7 +7,7 @@
                -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
   little-camera { position:fixed; inset:0; }
 </style>
-<little-camera id="cam" span="0.95"></little-camera>
+<little-camera id="cam" span="0.95" phone-span="0.9"></little-camera>
 <script src="camera-element.js"></script>
 <script>
   // Swift talks to the element through window.lc (UI/Device/DeviceView.swift).
@@ -16,8 +16,13 @@
     scene: (key) => cam.scene(key),
     spin: (degrees) => cam.spin(degrees),
     turnTo: (key) => cam.turnTo(key),
+    // The element hands back the edge-on moment, which is the only frame with nothing to show: swapping the panel any earlier shows the next screen on the old shape.
+    morph: (on, key) => { const at = cam.morph(on); at ? setTimeout(() => cam.scene(key), at) : cam.scene(key); },
     celebrate: () => cam.celebrate(),
     breathing: (on) => { cam.breathing = !!on; },
     reset: () => cam.reset(),
+    // A data URL, because a file:// image is an opaque origin and WebGL refuses to take one.
+    strip: (src) => cam.setAttribute('strip', src),
+    photo: (src) => cam.photo(src),
   };
 </script>

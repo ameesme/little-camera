@@ -1,12 +1,13 @@
 import type { Db } from '../db.js';
 
-export type TokenKind = 'subscriber' | 'email_verify' | 'device_claim';
+export type TokenKind = 'subscriber' | 'address_verify' | 'device_claim';
 
 export interface TokenRow {
   id: number;
   token_hash: string;
   kind: TokenKind;
-  blog_id: number;
+  blog_id: number | null;
+  email: string | null;
   camera_id: string | null;
   subscriber_id: number | null;
   photo_id: number | null;
@@ -17,14 +18,14 @@ export interface TokenRow {
 
 export function insertToken(
   db: Db,
-  t: { tokenHash: string; kind: TokenKind; blogId: number; cameraId: string | null; subscriberId: number | null; photoId: number | null; expiresAt: number; now: number },
+  t: { tokenHash: string; kind: TokenKind; blogId: number | null; email: string | null; cameraId: string | null; subscriberId: number | null; photoId: number | null; expiresAt: number; now: number },
 ): TokenRow {
   const r = db
     .prepare(
-      `INSERT INTO access_tokens (token_hash, kind, blog_id, camera_id, subscriber_id, photo_id, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO access_tokens (token_hash, kind, blog_id, email, camera_id, subscriber_id, photo_id, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(t.tokenHash, t.kind, t.blogId, t.cameraId, t.subscriberId, t.photoId, t.expiresAt, t.now);
+    .run(t.tokenHash, t.kind, t.blogId, t.email, t.cameraId, t.subscriberId, t.photoId, t.expiresAt, t.now);
   return db.prepare('SELECT * FROM access_tokens WHERE id = ?').get(Number(r.lastInsertRowid)) as unknown as TokenRow;
 }
 

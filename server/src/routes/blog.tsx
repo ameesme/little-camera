@@ -21,7 +21,8 @@ import {
 } from '../repo/photos.js';
 import type { BlogRow } from '../repo/blogs.js';
 import { findSubscriberByEmail } from '../repo/subscribers.js';
-import { ExpiredLink, Feed, FreshLinkSent, Teaser, type ArticleData } from '../views/blog.js';
+import { verifyToken } from '../lib/tokens.js';
+import { ExpiredLink, Feed, FreshLinkSent, Teaser, UnsubscribeDone, UnsubscribePrompt, type ArticleData } from '../views/blog.js';
 
 type BlogEnv = { Bindings: { blog: BlogRow } };
 
@@ -31,7 +32,7 @@ const emailSchema = z.string().trim().toLowerCase().email().max(200);
 const JOIN_NOTICES: Record<string, string> = {
   sent: 'Thanks. The owner will let you in.',
   pending: 'Still waiting for the owner to let you in.',
-  already: 'You’re already in. Use the link from your email.',
+  already: 'You’re already in. A fresh link is on its way.',
 };
 
 export function blogRoutes(env: Env): Hono<BlogEnv> {
@@ -127,6 +128,23 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
     return c.html(<FreshLinkSent />);
   });
 
+  /** The way off the list, from every mail that goes on it. */
+  app.get('/unsubscribe', async (c) => {
+    const blog = c.env.blog;
+    const token = c.req.query('t') ?? '';
+    const sub = subscriberOf(env, blog, token);
+    if (!sub) return c.html(<ExpiredLink email="" />, 410);
+    return c.html(<UnsubscribePrompt name={blog.name} email={sub.email} token={token} />);
+  });
+
+  app.post('/unsubscribe', async (c) => {
+    const blog = c.env.blog;
+    const sub = subscriberOf(env, blog, String((await c.req.parseBody()).t ?? ''));
+    if (!sub) return c.html(<ExpiredLink email="" />, 410);
+    subscribers.remove(env, sub);
+    return c.html(<UnsubscribeDone name={blog.name} />);
+  });
+
   app.post('/subscribe', async (c) => {
     const blog = c.env.blog;
     const json = wantsJson(c);
@@ -182,6 +200,13 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
   });
 
   return app;
+}
+
+/** The subscriber a `?t=` names, if it is live and belongs to this blog. Reads only; nothing is spent. */
+function subscriberOf(env: Env, blog: BlogRow, token: string) {
+  const verified = verifyToken(env, token, 'subscriber');
+  if (!verified.ok || verified.row.blog_id !== blog.id || verified.row.subscriber_id === null) return null;
+  return subscribers.find(env, blog, verified.row.subscriber_id);
 }
 
 const wantsJson = (c: Context<BlogEnv>): boolean => (c.req.header('accept') ?? '').includes('application/json');

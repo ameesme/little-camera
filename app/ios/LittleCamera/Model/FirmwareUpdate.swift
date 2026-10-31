@@ -37,18 +37,27 @@ final class FirmwareUpdate {
         }
     }
 
-    func line(installed: String?) -> String {
+    /// What the push is doing right now, for whoever has to stand still through it.
+    var line: String {
         switch phase {
         case .downloading: return "Fetching the update"
-        case .sending(let sent, let total): return "Sending, \(sent * 100 / max(total, 1)) %"
+        case .sending(let sent, let total): return "\(sent * 100 / max(total, 1)) %"
         case .verifying: return "Little camera is checking it"
         case .restarting: return "Little camera is restarting"
-        case .failed(let why): return "It did not take: \(why)"
-        case .idle:
-            guard let installed else { return "Firmware, version unknown" }
-            guard let release, release.version != installed else { return "Firmware \(installed), up to date" }
-            return "Firmware \(installed), \(release.version) is out"
+        case .failed, .idle: return ""
         }
+    }
+
+    /// Why the last push stopped, or nil. Its own property because a failure is a screen, not a line.
+    var failure: String? {
+        if case .failed(let why) = phase { return why }
+        return nil
+    }
+
+    /// The two states the camera tab reports: either it is current or there is something to press.
+    func isBehind(installed: String?) -> Bool {
+        guard let installed, let release else { return false }
+        return release.version != installed
     }
 
     /// Flash is written from the camera's main loop and a brownout halfway leaves it on the old

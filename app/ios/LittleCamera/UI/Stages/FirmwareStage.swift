@@ -6,23 +6,46 @@ struct FirmwareStage: View {
     let model: AppModel
 
     private var charged: Bool { model.firmware.isChargedEnough(model.camera) }
+    private var failed: String? { model.firmware.failure }
 
     var body: some View {
-        DeviceStage(title: charged ? "Hold on a minute" : "Charge it first", mood: .sparkles) {
-            if charged {
-                Text("Your little camera is getting up to date.")
+        DeviceStage(title: title, mood: mood) {
+            if let failed {
+                Text("Something went wrong while freshing up")
+                Pill(failed).padding(.top, 10)
+            } else if charged {
+                Text("This will only take a minute or so.")
                 ProgressRule(fraction: model.firmware.fraction)
                     .padding(.top, 4)
-                Text(model.firmware.line(installed: model.camera.info?.firmware))
-                    .font(Theme.body)
             } else {
-                Text("There is \(model.camera.info?.batteryPercent ?? 0) % left. Plug it in and this happens on its own.")
+                Text("Charge little camera for a few minutes to continue.")
             }
         } actions: {
-            if !model.firmware.isRunning {
-                Button { model.deferFirmware() } label: { Caption(charged ? "Not now" : "Skip it") }
+            if failed != nil {
+                Button { model.firmware.send(to: model.camera) } label: { Caption("Retry") }
+                    .buttonStyle(BlackButton())
+                Button { model.deferFirmware() } label: { Caption("Ignore") }
+                    .buttonStyle(QuietButton())
+            } else if !charged {
+                Button { model.refresh() } label: { Caption("Retry") }
+                    .buttonStyle(BlackButton())
+                Button { model.deferFirmware() } label: { Caption("Skip it") }
+                    .buttonStyle(QuietButton())
+            } else if !model.firmware.isRunning {
+                Button { model.deferFirmware() } label: { Caption("Not now") }
                     .buttonStyle(QuietButton())
             }
         }
+    }
+
+    private var title: String {
+        if failed != nil { return "That didn’t work" }
+        return charged ? "Freshing up your little camera" : "Charge it first"
+    }
+
+    /// A flat battery is about the battery; everything else is about the update.
+    private var mood: DeviceMood {
+        if failed != nil { return .alert }
+        return charged ? .sparkles : .battery
     }
 }

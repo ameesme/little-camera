@@ -2,7 +2,9 @@ import base64, json, re, struct, zlib
 
 W, H, SCALE = 400, 240, 7
 HEADER = '/Users/meesboeijen/development/little-camera/firmware/src/icons.h'
-WANT = {'MAIL': 'mail', 'SEND': 'send', 'IMAGES': 'images', 'CAMERA': 'camera'}
+WANT = {'MAIL': 'mail', 'SEND': 'send', 'IMAGES': 'images', 'CAMERA': 'camera',
+        'SPARKLES': 'sparkles', 'USER': 'person', 'ALERT': 'alert', 'BLOG': 'blog',
+        'BATTERY_LOW': 'battery'}
 
 src = open(HEADER).read()
 
@@ -47,8 +49,6 @@ m = re.search(r'const SCREENS = (\{.*?\});\n', js, re.S)
 screens = json.loads(m.group(1))
 for key, icon in icons.items():
     screens[key] = png(icon)
-order = ['sleepA', 'sleepB', 'fineA', 'fineB', 'glumA', 'glumB', 'sadA', 'sadB',
-         'viewfinder', 'gallery', 'save'] + list(icons)
-body = json.dumps({k: screens[k] for k in order}, separators=(',', ':'))
+body = json.dumps(screens, separators=(',', ':'))
 open(path, 'w').write(js[:m.start(1)] + body + js[m.end(1):])
-print('wrote', order)
+print('wrote', list(icons))

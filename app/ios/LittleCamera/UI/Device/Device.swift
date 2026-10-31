@@ -10,15 +10,19 @@ struct Device: View {
     var mood: DeviceMood = .asleep
     var turn: Int = 0
     var lit: Bool = true
+    var phone: Bool = false
+    /// The canvas, not the camera: the phone is framed down the height, so it needs a taller one than the camera does.
+    var aspect: CGFloat = Device.aspect
     var width: CGFloat?
+    var photo: String?
 
     var body: some View {
         Group {
             if let width {
-                panel.frame(width: width, height: width / Device.aspect)
+                panel.frame(width: width, height: width / aspect)
             } else {
                 panel
-                    .aspectRatio(Device.aspect, contentMode: .fit)
+                    .aspectRatio(aspect, contentMode: .fit)
                     .containerRelativeFrame(.horizontal) { page, _ in page * Device.share }
             }
         }
@@ -26,7 +30,7 @@ struct Device: View {
     }
 
     private var panel: some View {
-        DeviceView(mood: mood, turn: turn)
+        DeviceView(mood: mood, turn: turn, phone: phone, photo: photo)
             .blur(radius: lit ? 0 : 12)
             .opacity(lit ? 1 : 0.4)
             .animation(.easeInOut(duration: 0.8), value: lit)

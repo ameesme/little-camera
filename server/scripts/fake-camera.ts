@@ -1,10 +1,10 @@
-// `pnpm fake-camera --code LC:XXXXXX` — pretend to be the bridge app.
+// `pnpm fake-camera --code XXXXXX` — pretend to be the bridge app.
 //
 // Says hello as a camera, then uploads either a simulated photo of the
 // verification QR (--code) or one of the fixture photos (--fixture cat).
 // Enough to walk the whole registration flow on a laptop without hardware.
 //
-//   pnpm fake-camera --code LC:KQ7M2X            # bind the camera to the blog that code belongs to
+//   pnpm fake-camera --code KQ7M2X               # bind the camera to the blog that code belongs to
 //   pnpm fake-camera --fixture moon              # post a picture
 //   pnpm fake-camera --fixture moon --index 12   # with a specific camera index
 //   pnpm fake-camera --status                    # GET /status
@@ -55,13 +55,12 @@ async function main() {
   let bytes: Uint8Array<ArrayBuffer>;
   if (args.has('code')) {
     let code = args.get('code')!.toUpperCase();
-    if (!code.startsWith('LC:')) code = `LC:${code}`;
     const shot = fakeCameraShot(code, { modulePx: 8, blur: 1, offsetX: 9, offsetY: -5 });
     bytes = encodePbm(shot.width, shot.height, shot.rows, { boot: 1, up: 12345, t: 0 });
   } else if (args.has('fixture')) {
     bytes = new Uint8Array(readFileSync(join(FIXTURES, `${args.get('fixture')}.pbm`)));
   } else {
-    console.error('need --code LC:XXXXXX, --fixture <name> or --status');
+    console.error('need --code XXXXXX, --fixture <name> or --status');
     process.exit(2);
   }
 

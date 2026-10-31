@@ -4,7 +4,7 @@ import { cameraLinkedMail } from '../emails/index.js';
 import { queueEmail } from '../lib/email.js';
 import { hashSecret, secretMatches } from '../middleware/cameraAuth.js';
 import { appUrl, blogUrl } from '../config.js';
-import { deviceClaimMail } from '../emails/index.js';
+import { confirmAddressMail, deviceClaimMail } from '../emails/index.js';
 import { createToken, verifyToken } from '../lib/tokens.js';
 import {
   approveCameraClaim,
@@ -12,6 +12,7 @@ import {
   createCamera,
   findCamera,
   setCameraFirmware,
+  setCameraVerifiedEmail,
   setCameraTelemetry,
   touchCamera,
   type CameraRow,
@@ -106,10 +107,25 @@ export function requestClaim(env: Env, camera: CameraRow, blog: BlogRow): void {
     deviceClaimMail({
       name: blog.name,
       blogName: blogUrl(env.config, blog.handle).replace(/^https?:\/\//, ''),
-      shortCode: camera.short_code,
       url: appUrl(env.config, `/claim?t=${token}`),
     }),
   );
+}
+
+/** Mails an address nobody has registered, asking its owner to confirm it before naming a blog (§4.9). */
+export function requestAddressConfirmation(env: Env, camera: CameraRow, email: string): void {
+  const { token } = createToken(env, { kind: 'address_verify', email, cameraId: camera.id });
+  queueEmail(env, email, confirmAddressMail({ url: appUrl(env.config, `/confirm?t=${token}`) }));
+}
+
+/** Redeem that link. The address lands on the camera, which is the only thing allowed to name a blog for it. */
+export function confirmAddress(env: Env, token: string | undefined): CameraRow | null {
+  const verified = verifyToken(env, token, 'address_verify');
+  if (!verified.ok || !verified.row.camera_id || !verified.row.email) return null;
+  const camera = findCamera(env.db, verified.row.camera_id);
+  if (!camera || camera.blog_id !== null) return null;
+  setCameraVerifiedEmail(env.db, camera.id, verified.row.email);
+  return findCamera(env.db, camera.id);
 }
 
 export interface Claim {
@@ -120,7 +136,7 @@ export interface Claim {
 /** Redeem the emailed link. It names the camera, so it cannot be replayed onto another phone. */
 export function approveClaim(env: Env, token: string | undefined): Claim | null {
   const verified = verifyToken(env, token, 'device_claim');
-  if (!verified.ok || !verified.row.camera_id) return null;
+  if (!verified.ok || !verified.row.camera_id || verified.row.blog_id === null) return null;
   const camera = findCamera(env.db, verified.row.camera_id);
   const blog = findBlogById(env.db, verified.row.blog_id);
   if (!camera || !blog) return null;

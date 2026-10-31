@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { randomCode } from '@little-camera/pbm';
 import { blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
-import { boundInfo, claimState, letPhoneIn, relayTelemetry, requestClaim, sayHello } from '../core/cameras.js';
+import { bind, boundInfo, claimState, letPhoneIn, relayTelemetry, requestAddressConfirmation, requestClaim, sayHello } from '../core/cameras.js';
 import { register } from '../core/blogs.js';
 import { MAX_COMMENT, MAX_PHOTO_BYTES, PhotoRejected, comment, feed, removePhoto, uploadPhoto } from '../core/photos.js';
 import { VERSION, firmwareState } from '../core/firmware.js';
 import type { Env } from '../env.js';
 import { CAMERA_ID, SECRET_HEX, cameraAuth, type CameraVars } from '../middleware/cameraAuth.js';
+import { setCameraVerifiedEmail } from '../repo/cameras.js';
 import { countFeedPhotos, findPhotoByPublicId } from '../repo/photos.js';
 import { findBlogById, findBlogByEmail, findBlogByHandle, setAvatarRequested, type BlogRow } from '../repo/blogs.js';
 import { HANDLE, RESERVED_HANDLES } from '../lib/handles.js';
@@ -37,7 +38,6 @@ const telemetrySchema = z.object({
 
 const blogSchema = z.object({
   name: z.string().trim().min(1).max(60),
-  email: z.string().trim().toLowerCase().email().max(200),
   handle: z
     .string()
     .trim()
@@ -74,6 +74,15 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
   });
 
   app.use('*', cameraAuth(env));
+
+  // The blog this camera is being set up for, before the code photo binds it. A phone reopened
+  // mid-onboarding reads this rather than starting a second blog for the same owner.
+  const pendingBlog = (env: Env, camera: { blog_id: number | null; claim_blog_id: number | null }) => {
+    if (camera.blog_id !== null || camera.claim_blog_id === null) return null;
+    const blog = findBlogById(env.db, camera.claim_blog_id);
+    if (!blog) return null;
+    return { handle: blog.handle, name: blog.name, verified: blog.email_verified_at != null };
+  };
 
   const blogOf = (c: { get(k: 'camera'): { blog_id: number | null } }): BlogRow | null => {
     const id = c.get('camera').blog_id;
@@ -127,6 +136,9 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
       firmware: firmwareState(env.config, camera.firmware_version),
       // Whether the owner has let this phone in. Until they have, the app shows the blog's name and nothing of its contents.
       claim: claimState(camera),
+      pending: pendingBlog(env, camera),
+      // An address its owner has confirmed but not yet named a blog for (§4.9).
+      confirmed_email: camera.blog_id === null ? camera.verified_email : null,
       subscribers: blog
         ? listSubscribers(env.db, blog.id).map((s) => ({
             id: s.id,
@@ -157,15 +169,24 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
     return c.json({ ok: true });
   });
 
-  // A blog of its own, made by the phone that is holding the camera. Binding is still the QR photo.
+  // A blog of its own, named by the phone holding the camera, for the address its owner already
+  // confirmed (§4.9). The phone does not send the address: it does not get to choose it here.
+  // Binding is still the QR photo.
   app.post('/blog', async (c) => {
-    if (c.get('camera').blog_id !== null) return c.json(error('already_bound', 'This camera already posts to a blog'), 409);
+    const camera = c.get('camera');
+    if (camera.blog_id !== null) return c.json(error('already_bound', 'This camera already posts to a blog'), 409);
+    const email = camera.verified_email;
+    if (!email) return c.json(error('address_unconfirmed', 'Confirm an email address first'), 409);
     const parsed = blogSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json(error('bad_request', 'Expected { name, email, handle }'), 400);
-    const made = register(env, parsed.data);
+    if (!parsed.success) return c.json(error('bad_request', 'Expected { name, handle }'), 400);
+    const made = register(env, { ...parsed.data, email });
     if (!made.ok) return c.json(error(`${made.taken}_taken`, `That ${made.taken} is already in use`), 409);
-    // The phone that made it is let in without a second email; it chose the address.
-    letPhoneIn(env, c.get('camera'), made.blog.id);
+    // Confirmed once, spent once: the address now belongs to the blog, not to the camera.
+    setCameraVerifiedEmail(env.db, camera.id, null);
+    // The phone that named it is let in without a second email; its owner confirmed the address.
+    letPhoneIn(env, camera, made.blog.id);
+    // ponytail: temporary — binds here because the app skips the §5 code photo for now. Remove with it.
+    bind(env, camera, made.blog.id);
     return c.json({ handle: made.blog.handle, url: blogUrl(env.config, made.blog.handle) }, 201);
   });
 
@@ -180,9 +201,11 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
     if (camera.blog_id !== null) return c.json(error('not_found', 'That blog is gone'), 404);
     const parsed = z.object({ email: z.string().trim().toLowerCase().email().max(200) }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json(error('bad_request', 'Expected { email } while the camera is unbound'), 400);
-    // Same answer either way, so the form cannot be used to find out who has a camera.
+    // Same answer either way, so the form cannot be used to find out who has a camera: an address
+    // that owns a blog is mailed a way into it, one nobody knows is mailed a way to start one.
     const blog = findBlogByEmail(env.db, parsed.data.email);
     if (blog) requestClaim(env, camera, blog);
+    else requestAddressConfirmation(env, camera, parsed.data.email);
     return c.json({ state: 'pending' });
   });
 
@@ -190,7 +213,8 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
   app.get('/handle', (c) => {
     const handle = (c.req.query('handle') ?? '').trim().toLowerCase();
     const allowed = HANDLE.test(handle) && !RESERVED_HANDLES.has(handle);
-    return c.json({ handle, available: allowed && findBlogByHandle(env.db, handle) === null });
+    const blog = findBlogByHandle(env.db, handle);
+    return c.json({ handle, available: allowed && blog === null });
   });
 
   // The phone shows the code on its own screen and the camera photographs it, so the

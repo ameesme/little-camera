@@ -8,6 +8,7 @@ import { createToken } from '../src/lib/tokens.js';
 import { bindCamera } from '../src/repo/cameras.js';
 import { insertCode } from '../src/repo/codes.js';
 import { listOutbox } from '../src/repo/outbox.js';
+import { findBlogById, findBlogByHandle } from '../src/repo/blogs.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
 import { createSubscriber, findSubscriberById } from '../src/repo/subscribers.js';
 import { seed } from '../src/seed.js';
@@ -73,17 +74,32 @@ describe('newsletter', () => {
 describe('purge', () => {
   it('removes expired tokens and codes and week-old orphan photos with their files', async () => {
     const mees = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    createToken(w.env, { kind: 'email_verify', blogId: mees.id });
-    insertCode(w.env.db, 'ABCDEF', mees.id, w.clock.t);
     await hello(w);
+    createToken(w.env, { kind: 'device_claim', blogId: mees.id, cameraId: CAM.id });
+    insertCode(w.env.db, 'ABCDEF', mees.id, w.clock.t);
     const orphan = await upload(w, fixture('cat'), 1);
     const path = join(w.env.config.dataDir, findPhotoByPublicId(w.env.db, orphan.body.id)!.path);
 
-    expect(runPurge(w.env)).toEqual({ tokens: 0, codes: 0, photos: 0 });
+    expect(runPurge(w.env)).toEqual({ tokens: 0, codes: 0, blogs: 0, photos: 0 });
     w.clock.t += 8 * 86400;
-    expect(runPurge(w.env)).toEqual({ tokens: 1, codes: 1, photos: 1 });
+    expect(runPurge(w.env)).toEqual({ tokens: 1, codes: 1, blogs: 0, photos: 1 });
     expect(existsSync(path)).toBe(false);
     expect(findPhotoByPublicId(w.env.db, orphan.body.id)).toBeNull();
+  });
+
+  it('discards a blog whose address was never confirmed, and keeps one that was', () => {
+    const kept = makeBlog(w.env, { handle: 'kept', name: 'Kept', email: 'kept@example.com' });
+    const dropped = makeBlog(w.env, { handle: 'gone', name: 'Gone', email: 'gone@example.com', verified: false });
+
+    w.clock.t += 23 * 3600;
+    expect(runPurge(w.env).blogs).toBe(0);
+    w.clock.t += 2 * 3600;
+    expect(runPurge(w.env).blogs).toBe(1);
+
+    expect(findBlogById(w.env.db, dropped.id)).toBeNull();
+    expect(findBlogById(w.env.db, kept.id)).not.toBeNull();
+    // The handle is free again, which is the point of letting it go.
+    expect(findBlogByHandle(w.env.db, 'gone')).toBeNull();
   });
 });
 

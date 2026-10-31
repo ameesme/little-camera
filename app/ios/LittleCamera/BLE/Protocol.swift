@@ -154,6 +154,15 @@ enum UpdateState: UInt8, Equatable {
 
 // MARK: - Control (§3.3)
 
+/// The shot the phone is standing by for. The camera draws the instruction; this only names it.
+enum CameraPrompt: UInt8 {
+    case none = 0
+    case verification = 1
+    case selfie = 2
+    /// Not a thing to photograph: the panel says hello back (§3.3).
+    case hello = 3
+}
+
 enum ControlOp {
     case setTime(epoch: UInt32, utcOffsetMin: Int16)
     case list(from: UInt16, unsyncedOnly: Bool)
@@ -161,6 +170,10 @@ enum ControlOp {
     case ack(index: UInt16)
     case delete(index: UInt16)
     case abort
+    /// What this phone is waiting for the camera to photograph (§3.3), so the camera can say so itself.
+    case prompt(CameraPrompt)
+    /// Chirp in the camera's own mood, for a step on the phone it should be noticed for (§3.3).
+    case chirp(times: UInt8)
     /// Open a firmware update session for an image of `size` bytes (§3.7).
     case updateBegin(size: UInt32, sha256: Data)
     case updateEnd
@@ -174,6 +187,8 @@ enum ControlOp {
         case .ack: return 0x04
         case .delete: return 0x05
         case .abort: return 0x06
+        case .prompt: return 0x07
+        case .chirp: return 0x08
         case .updateBegin: return 0x10
         case .updateEnd: return 0x11
         case .updateAbort: return 0x12
@@ -188,6 +203,8 @@ enum ControlOp {
         case .ack: return "ACK"
         case .delete: return "DELETE"
         case .abort: return "ABORT"
+        case .prompt: return "PROMPT"
+        case .chirp: return "CHIRP"
         case .updateBegin: return "UPDATE_BEGIN"
         case .updateEnd: return "UPDATE_END"
         case .updateAbort: return "UPDATE_ABORT"
@@ -212,6 +229,10 @@ enum ControlOp {
         case .updateBegin(let size, let sha256):
             d.lcAppend(size)
             d.append(sha256)  // 32 bytes; the camera checks the image against it
+        case .prompt(let kind):
+            d.append(kind.rawValue)
+        case .chirp(let times):
+            d.append(times)
         case .abort, .updateEnd, .updateAbort:
             break
         }
@@ -247,7 +268,8 @@ enum EndStatus: UInt8 {
     case ok = 0
     case notFound = 1
     case aborted = 2
-    case storageError = 3
+    /// The camera refused the command. Generic on the wire (§3.4), so it says no more than that.
+    case refused = 3
     case busy = 4
     case badImage = 5
     case offset = 6
@@ -258,7 +280,7 @@ enum EndStatus: UInt8 {
         case .ok: return "ok"
         case .notFound: return "not found"
         case .aborted: return "aborted"
-        case .storageError: return "storage error"
+        case .refused: return "the camera said no to that"
         case .busy: return "busy"
         case .badImage: return "the image did not check out"
         case .offset: return "out of order"

@@ -58,8 +58,6 @@ js = open(path).read()
 m = re.search(r'const SCREENS = (\{.*?\});\n', js, re.S)
 screens = json.loads(m.group(1))
 screens['passkey'] = png(grid)
-order = ['sleepA', 'sleepB', 'fineA', 'fineB', 'glumA', 'glumB', 'sadA', 'sadB',
-         'viewfinder', 'gallery', 'save', 'mail', 'send', 'images', 'camera', 'sparkles', 'passkey']
-body = json.dumps({k: screens[k] for k in order}, separators=(',', ':'))
+body = json.dumps(screens, separators=(',', ':'))
 open(path, 'w').write(js[:m.start(1)] + body + js[m.end(1):])
 print('wrote passkey')

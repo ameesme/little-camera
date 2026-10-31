@@ -1,6 +1,6 @@
 # Little Camera — iOS bridge
 
-This app pulls photos off the camera over BLE and uploads them to the server, authenticating as the camera itself, and carries new firmware the other way. It also owns the blog now: making one, signing into one, reading its feed and its subscribers. The one thing it cannot do is prove a blog belongs to the person holding the camera — only that blog's inbox can, which is what the `claim` stage is for (`../../docs/protocol.md` §4.9). Wire format and the sync algorithm are §3.5 and §3.7, who-does-what is `../../docs/flows.md`.
+This app pulls photos off the camera over BLE and uploads them to the server, authenticating as the camera itself, and carries new firmware the other way. It also owns the blog now: making one, getting back into one, reading its feed and its subscribers. The one thing it cannot do is prove a blog belongs to the person holding the camera — only that blog's inbox can, which is what the `claim` stage is for (`../../docs/protocol.md` §4.9). Wire format and the sync algorithm are §3.5 and §3.7, who-does-what is `../../docs/flows.md`.
 
 SwiftUI + CoreBluetooth + CryptoKit, iOS 26, Swift 6, no packages.
 
@@ -19,7 +19,7 @@ Every stage renders in the simulator without a camera, which is how the screensh
 xcrun simctl launch booted me.amees.littlecamera -demo onboarding
 ```
 
-`-demo <name>` seeds `Demo.swift` with a plausible camera, blog and feed and drops the app straight into that screen, with the radio and the server both switched off so nothing overwrites it. The names are the stages (`intro`, `setup`, `firmware`, `claim`, `onboarding`, `ready`) plus the screens inside them: `found`, `create`, `handle`, `signin`, `sent`, `bind`, `avatar`, `asked`.
+`-demo <name>` seeds `Demo.swift` with a plausible camera, blog and feed and drops the app straight into that screen, with the radio and the server both switched off so nothing overwrites it. The names are the stages (`intro`, `setup`, `firmware`, `claim`, `onboarding`, `ready`) plus the screens inside them: `found`, `create`, `handle`, `email`, `email-taken`, `sent`, `bind`, `avatar`, `asked`. The `bind` screen turns the phone on its side, so a screenshot of it needs rotating.
 
 ## Layout
 
@@ -41,7 +41,7 @@ UI/       Stages/         setup → firmware → claim or onboarding → ready
 
 The app is **staged**, not one long page. `AppModel.stage` decides which of six takes the screen: `intro` until the owner presses Get started, `setup` until a camera is picked, `firmware` while there is an update worth offering, then either `claim` (the camera already posts to a blog, so the owner's inbox has to let this phone in) or `onboarding` (no blog yet: make one or sign into one, photograph the code, take the picture that heads it), and finally `ready`, which is the two tabs. Onboarding asks one question per screen and never puts two fields on one.
 
-The camera on screen is the same object as the one on lttl.cam: its panel shows the camera's own mood while it sleeps, and the icons it shows otherwise are lifted from `firmware/src/icons.h`, so the app never invents artwork the device could not draw itself.
+The camera on screen is the same object as the one on lttl.cam: its panel shows the camera's own mood while it sleeps, and the icons it shows otherwise are lifted from `firmware/src/icons.h` by `site/tools/gen_icons.py`, so the app never invents artwork the device could not draw itself. A new panel icon starts as an SVG in `firmware/artifacts/fonts/`, goes into `icons.h` through the converter there, and reaches the app and the site through that script.
 
  `UI/Device/DeviceView.swift` is a `WKWebView` loading `Resources/device.html`, which loads `site/camera-element.js` straight out of the site directory — one file, no copy, listed in `project.yml`. Swift talks to it through `window.lc`, and the face it shows is the camera's own mood off Info (`docs/mood.md`), never something the app decided.
 

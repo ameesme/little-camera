@@ -6,6 +6,8 @@ final class AppModel {
     enum Stage {
         /// Nothing has happened yet: what the camera is, and the way in.
         case intro
+        /// The way in has been pressed and iOS has not been asked for Bluetooth yet.
+        case permission
         /// No camera chosen yet: pick the server and the camera.
         case setup
         /// Paired, and the camera is behind the firmware the server has published.
@@ -18,6 +20,9 @@ final class AppModel {
         case ready
     }
 
+    /// Set once the owner has read the camera's hello and pressed on, which is worth asking once and not at every launch.
+    private var connectedSeen = false
+    private var celebrating = false
     /// Set once the owner has waved the firmware offer away, so it does not block them twice.
     private var firmwareDeferred = false
     /// Mirrors the stored flag, because `stage` has to be recomputed the moment it changes.
@@ -70,13 +75,22 @@ final class AppModel {
         if let demoStage { return demoStage }
         // Until a camera and a blog have found each other, every launch opens on the way in.
         if !started && !setUp { return .intro }
-        if !camera.isPaired { return .setup }
+        if !camera.isStarted || !camera.radioAnswered { return .permission }
+        // Not `isPaired`: that is only the camera this phone chose, and making a blog needs the secret it has not read yet.
+        // Walking the way in also means the camera is in the room: a remembered secret is no reason to say hello to it,
+        // and the way in ends on that hello rather than on the connection that caused it.
+        if !camera.isLinked || (!setUp && (camera.info == nil || !connectedSeen)) { return .setup }
         if !firmwareDeferred && firmware.isAvailable(for: camera) { return .firmware }
         switch blog.claim {
-        case .approved: return blog.needsAvatar && !avatarSkipped ? .onboarding : .ready
+        case .approved: return celebrating || (blog.needsAvatar && !avatarSkipped) ? .onboarding : .ready
         case .pending: return .claim
         case .unbound, .none: return .onboarding
         }
+    }
+
+    func confirmConnected() {
+        connectedSeen = true
+        camera.helloRead()
     }
 
     func deferFirmware() {
@@ -88,8 +102,29 @@ final class AppModel {
         started = true
     }
 
+    /// No camera answered, so the way in goes back to its first page instead of waiting for ever.
+    func startOver() {
+        started = false
+    }
+
+    /// The owner has read what the alert is for, and the central that raises it can exist now.
+    func allowBluetooth() {
+        camera.start(firmware: firmware)
+    }
+
     /// The blog keeps its empty head and the tabs take over.
     func skipAvatar() {
+        avatarSkipped = true
+        settings.avatarSkipped = true
+    }
+
+    /// The picture landing is what would otherwise end onboarding; hold the stage for its last screen.
+    func celebrate() {
+        celebrating = true
+    }
+
+    func openBlog() {
+        celebrating = false
         avatarSkipped = true
         settings.avatarSkipped = true
     }
@@ -98,6 +133,7 @@ final class AppModel {
     func disconnect() {
         firmwareDeferred = false
         avatarSkipped = false
+        celebrating = false
         setUp = false
         settings.setUp = false
         started = false
@@ -108,6 +144,11 @@ final class AppModel {
     func start() {
         // A demo run is seeded data and nothing else: no radio, no server, nothing to overwrite it.
         guard Demo.stage == nil else { return }
+        // The keychain outlives the app that wrote it, so a reinstall still holds the secrets of
+        // whatever cameras the last install paired with. Nothing here remembers those cameras any
+        // more, and a secret with no camera beside it would let the app skip pairing for one it has
+        // never met — on a link the camera will not encrypt, because its own bond went with the app.
+        if settings.cameraId == nil { Keychain.deleteEverySecret() }
         blog.onStatus = { [weak self] status in
             guard let self, status.claim == .approved, status.bound != nil else { return }
             setUp = true
@@ -116,7 +157,8 @@ final class AppModel {
         camera.onAwake = { [weak self] in self?.firmware.settle() }
         camera.onAvatarTaken = { [weak self] in self?.blog.avatarTaken() }
         camera.onConnected = { [weak self] in self?.refresh() }
-        camera.start(firmware: firmware)
+        // Creating the central is what asks for Bluetooth, so a first launch waits for the way in; a camera this phone has already paired cannot wait, because restored state only reaches a manager that exists.
+        if settings.pairedPeripheralId != nil { camera.start(firmware: firmware) }
         refresh()
     }
 

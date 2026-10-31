@@ -6,7 +6,7 @@ import { findTokenByHash, insertToken, markTokenUsed, type TokenKind, type Token
 
 export const TOKEN_TTL: Record<TokenKind, number> = {
   subscriber: 48 * 3600,
-  email_verify: 24 * 3600,
+  address_verify: 1 * 3600,
   device_claim: 1 * 3600,
 };
 
@@ -16,14 +16,15 @@ export function hashToken(token: string): string {
 
 export function createToken(
   env: Env,
-  t: { kind: TokenKind; blogId: number; cameraId?: string | null; subscriberId?: number | null; photoId?: number | null },
+  t: { kind: TokenKind; blogId?: number | null; email?: string | null; cameraId?: string | null; subscriberId?: number | null; photoId?: number | null },
 ): { token: string; row: TokenRow } {
   const token = randomBytes(32).toString('base64url');
   const now = env.now();
   const row = insertToken(env.db, {
     tokenHash: hashToken(token),
     kind: t.kind,
-    blogId: t.blogId,
+    blogId: t.blogId ?? null,
+    email: t.email ?? null,
     cameraId: t.cameraId ?? null,
     subscriberId: t.subscriberId ?? null,
     photoId: t.photoId ?? null,

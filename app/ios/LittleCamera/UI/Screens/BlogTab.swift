@@ -4,6 +4,7 @@ import SwiftUI
 struct BlogTab: View {
     let model: AppModel
     @State private var showingPeople = Demo.showingPeople
+    @State private var entered = false
 
     private var blog: Blog { model.blog }
 
@@ -37,8 +38,14 @@ struct BlogTab: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blog.photos.enumerated()), id: \.element.id) { index, photo in
-                    PhotoPost(photo: photo, blog: blog, first: index == 0)
-                    Rule()
+                    VStack(alignment: .leading, spacing: 0) {
+                        PhotoPost(photo: photo, blog: blog, first: index == 0)
+                        Rule()
+                    }
+                    .opacity(entered ? 1 : 0)
+                    .offset(y: entered ? 0 : 28)
+                    // Capped, so a long blog does not spend a second and a half arriving.
+                    .animation(.easeOut(duration: 0.5).delay(Double(min(index, 5)) * 0.07), value: entered)
                 }
                 if blog.nextPage != nil {
                     Button { blog.loadMore() } label: { Caption("Older") }
@@ -48,7 +55,11 @@ struct BlogTab: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .onAppear { entered = true }
         .refreshable { model.refresh() }
+        // The same ground every other screen stands on; a flat white page under the
+        // pictures was the one place the app forgot it.
+        .background(Ground())
     }
 
     /// A blog with nothing on it is the camera waiting to be pressed, not an error.
@@ -60,7 +71,7 @@ struct BlogTab: View {
                 .font(Theme.font(30, bold: true))
                 .kerning(-1)
                 .padding(.top, 28)
-            Text("Press the button on little camera and the picture lands here.")
+            Text("Time to take your first photo with little camera.")
                 .font(Theme.lead)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Theme.pad)
@@ -112,7 +123,6 @@ private struct PhotoPost: View {
             confirmingDelete = first && Demo.deleting
         }
         .card()
-        .background(Theme.paper)
         .contextMenu {
             Button { saying = true } label: { Label("Comment", systemImage: "text.bubble") }
             Button { save() } label: { Label("Save to photos", systemImage: "square.and.arrow.down") }

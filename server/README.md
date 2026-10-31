@@ -43,7 +43,7 @@ pnpm seed     # a demo blog "mees" with the mockup's pictures and comments
 ```
 # the app makes the blog: POST /api/camera/blog, then open /app/dev/mailbox and click the link.
 # the code is what POST /api/camera/verification-code hands back; the app draws it as a QR.
-pnpm fake-camera --code LC:KQ7M2X     # "photographs" the code and uploads it as a camera
+pnpm fake-camera --code KQ7M2X        # "photographs" the code and uploads it as a camera
 pnpm fake-camera --fixture moon       # post a picture
 pnpm fake-camera --status             # what the app would see
 pnpm fake-camera --firmware 0.1.0 --status   # the same, as a camera with an update waiting

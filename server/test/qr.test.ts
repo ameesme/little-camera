@@ -17,17 +17,22 @@ beforeEach(async () => {
 afterEach(() => w.cleanup());
 
 const shotBytes = (code: string, modulePx: number, blur = 1) => {
-  const pbm = fakeCameraShot(`LC:${code}`, { modulePx, blur, offsetX: 11, offsetY: -6 });
+  const pbm = fakeCameraShot(code, { modulePx, blur, offsetX: 11, offsetY: -6 });
   return encodePbm(pbm.width, pbm.height, pbm.rows, { boot: 2, up: 5000, t: 0 });
 };
 
 describe('verification QR', () => {
-  it('fits in a version 1 symbol at ECC H', () => {
-    expect(QRCode.create('LC:KQ7M2X', { errorCorrectionLevel: 'H' }).version).toBe(1);
+  // Byte mode, because that is all CoreImage offers the phone, and version 1 at H holds exactly
+  // seven bytes of it. Six characters fit; a prefix would not, and the symbol would grow to 25
+  // modules across (§5).
+  it('fits in a version 1 symbol at ECC H, in byte mode', () => {
+    const byte = (data: string) => [{ data: Buffer.from(data), mode: 'byte' as const }];
+    expect(QRCode.create(byte('KQ7M2X'), { errorCorrectionLevel: 'H' }).version).toBe(1);
+    expect(() => QRCode.create(byte('LC:KQ7M2X'), { errorCorrectionLevel: 'H', version: 1 })).toThrow();
   });
 
   it.each([7, 8, 10])('decodes a dithered shot at %i px per module', (modulePx) => {
-    const pbm = fakeCameraShot('LC:ABCDEF', { modulePx, blur: 2 });
+    const pbm = fakeCameraShot('ABCDEF', { modulePx, blur: 2 });
     expect(decodeVerificationCode(pbm)).toBe('ABCDEF');
   });
 

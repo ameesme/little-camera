@@ -298,11 +298,16 @@ void refreshInfo() {
 
 // Push one frame. Returns false if the stack refused it (queue full); the
 // caller retries next loop().
+//
+// The bytes go to notify() rather than into the characteristic first. An argument-less notify()
+// only marks the attribute changed, and NimBLE then reads whatever the characteristic holds when
+// it comes to transmit — so the eight frames a pump() queues in one loop() all went out carrying
+// the last one's bytes, arriving as duplicates, gaps and torn headers. Handing the buffer over
+// copies it into an mbuf per frame, and gives a return code worth checking.
 bool sendFrame(uint8_t kind, const uint8_t* payload, size_t len) {
     packFrameHeader(kind, _stream.seq, _frame);
     if (len) memcpy(_frame + FRAME_HEADER_SIZE, payload, len);
-    _data->setValue(_frame, FRAME_HEADER_SIZE + len);
-    if (!_data->notify()) return false;
+    if (!_data->notify(_frame, FRAME_HEADER_SIZE + len)) return false;
     _stream.seq++;
     _lastBleActivity = millis();
     return true;
@@ -344,10 +349,9 @@ void sendUpdateStatus(uint8_t op, uint8_t status) {
     u.window = (uint16_t)updateWindow();
     packFrameHeader(KIND_UPDATE_STATUS, _update.seq, _frame);
     packUpdateStatus(u, _frame + FRAME_HEADER_SIZE);
-    _data->setValue(_frame, FRAME_HEADER_SIZE + UPDATE_STATUS_SIZE);
     // A frame the stack refused never went out, so it must not consume a
     // sequence number either.
-    if (_data->notify()) _update.seq++;
+    if (_data->notify(_frame, FRAME_HEADER_SIZE + UPDATE_STATUS_SIZE)) _update.seq++;
     _update.ackedAt = Ota::received();
     _lastBleActivity = millis();
 }
@@ -495,6 +499,17 @@ void handleCommand(const uint8_t* b, size_t len) {
             if (_stream.active) _stream.abortRequested = true;
             else reply(op, STATUS_OK);
             return;
+        }
+        case OP_PROMPT: {
+            if (len < 2) return reply(op, STATUS_ERROR);
+            if (b[1] > PROMPT_HELLO) return reply(op, STATUS_ERROR);
+            pushEvent(Event::Prompt, b[1]);
+            return reply(op, STATUS_OK);
+        }
+        case OP_CHIRP: {
+            if (len < 2 || b[1] < 1 || b[1] > 3) return reply(op, STATUS_ERROR);
+            pushEvent(Event::Chirp, b[1]);
+            return reply(op, STATUS_OK);
         }
         case OP_UPDATE_BEGIN: {
             // Every BEGIN starts the status numbering over, answered or not.
@@ -770,6 +785,12 @@ bool nextEvent(Event* out) {
 bool connected() { return _connected; }
 bool busy() { return _stream.active || _update.active; }
 bool updating() { return _update.active; }
+
+bool forgetPhones() {
+    if (!NimBLEDevice::isInitialized()) return false;
+    NimBLEDevice::deleteAllBonds();
+    return true;
+}
 
 bool activeRecently(uint32_t now) {
     return _running && _connected && now - _lastBleActivity < BLE_ACTIVE_MS;

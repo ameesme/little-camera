@@ -12,7 +12,7 @@ import { APP_PREFIX, loadConfig } from '../src/config.js';
 import { openDb } from '../src/db.js';
 import type { Env } from '../src/env.js';
 import { bind } from '../src/core/cameras.js';
-import { findCamera } from '../src/repo/cameras.js';
+import { findCamera, setCameraVerifiedEmail } from '../src/repo/cameras.js';
 import { createBlog, markEmailVerified, type BlogRow } from '../src/repo/blogs.js';
 
 export const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'pbm', 'fixtures');
@@ -55,6 +55,11 @@ export function makeBlog(env: Env, p: { handle: string; name: string; email: str
 }
 
 export const CAM = { id: '7cdfa1e2b3c4', secret: '9f2c0000111122223333444455556666' };
+
+/** Confirm an address without the mail round trip. That path itself is covered in web.test.ts. */
+export function confirmAddress(world: TestWorld, email: string, cam = CAM) {
+  setCameraVerifiedEmail(world.env.db, cam.id, email);
+}
 
 /** Bind without photographing a QR code. The QR path itself is covered in qr.test.ts. */
 export function linkCamera(world: TestWorld, blogId: number, cam = CAM) {

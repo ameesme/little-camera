@@ -41,6 +41,12 @@ const ICONS = [
   ["lucide-images.svg", "IMAGES"],
   ["lucide-arrow-right.svg", "ARROW_RIGHT"],
   ["lucide-camera.svg", "CAMERA"],
+  ["lucide-battery-charging.svg", "BATTERY_CHARGING"],
+  ["lucide-sparkles.svg", "SPARKLES"],
+  ["lucide-user.svg", "USER"],
+  ["lucide-scan-line.svg", "SCAN"],
+  ["lucide-triangle-alert.svg", "ALERT"],
+  ["blog-phone.svg", "BLOG"],
 ];
 
 const SIZE = 24;

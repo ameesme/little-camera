@@ -83,12 +83,21 @@ struct FirmwareState: Codable, Equatable {
     let updateAvailable: Bool
 }
 
+/// The blog this camera is being set up for, before the code photo binds it (§4.4).
+struct PendingBlog: Codable, Equatable {
+    let handle: String
+    let name: String
+    let verified: Bool
+}
+
 struct StatusResponse: Codable, Equatable {
     let cameraId: String
     let bound: BoundBlog?
     let avatar: AvatarState
     let firmware: FirmwareState?
     let claim: ClaimState
+    let pending: PendingBlog?
+    let confirmedEmail: String?
     let subscribers: [Subscriber]
     let serverTime: Int
 }
@@ -288,21 +297,23 @@ final class ServerClient {
         let url: String
     }
 
-    /// A blog for this camera. It still has to photograph the QR code to be bound to it (§5).
-    func createBlog(name: String, email: String, handle: String) async throws -> MadeBlog {
+    /// Names the blog for the address its owner already confirmed (§4.9) — the phone does not send
+    /// the address here. It still has to photograph the QR code to be bound to it (§5).
+    func createBlog(name: String, handle: String) async throws -> MadeBlog {
         struct Body: Encodable {
             let name: String
-            let email: String
             let handle: String
         }
         var req = try request("POST", "blog")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try encoder.encode(Body(name: name, email: email, handle: handle))
+        req.httpBody = try encoder.encode(Body(name: name, handle: handle))
         let (code, data) = try await send(req)
         return try decode(MadeBlog.self, code: code, data: data)
     }
 
-    /// Asks the owner, by email, to let this phone in. `email` is needed only while the camera has no blog.
+    /// Asks the owner, by email, to let this phone in — or, for an address that owns nothing yet, to
+    /// confirm it so a blog can be named for it. The answer is the same either way (§4.9), so the
+    /// phone cannot tell which was sent and neither can anyone holding a camera that is not theirs.
     func requestClaim(email: String?) async throws {
         var req = try request("POST", "claim")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")

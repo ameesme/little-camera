@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parsePbm, pbmToPng } from '@little-camera/pbm';
 import { apexUrl, blogUrl } from '../config.js';
-import { confirmEmail } from '../core/blogs.js';
-import { approveClaim } from '../core/cameras.js';
+import { approveClaim, confirmAddress } from '../core/cameras.js';
 import { hashToken } from '../lib/tokens.js';
 import { findTokenByHash } from '../repo/tokens.js';
 import { findCamera } from '../repo/cameras.js';
@@ -13,7 +12,7 @@ import { formatFull } from '../lib/dates.js';
 import { findOutbox, listOutbox } from '../repo/outbox.js';
 import { findPhotoById } from '../repo/photos.js';
 import { findBlogById } from '../repo/blogs.js';
-import { ClaimDone, ClaimPrompt, EmailConfirmed, ExpiredLink, Mailbox, MailView, u } from '../views/owner.js';
+import { ClaimDone, ClaimPrompt, AddressConfirmed, ExpiredLink, Mailbox, MailView, u } from '../views/owner.js';
 
 /** The web does no management: the app owns all of it (§4.9). These are the pages an emailed link opens. */
 export function ownerRoutes(env: Env): Hono {
@@ -24,9 +23,11 @@ export function ownerRoutes(env: Env): Hono {
   // Nothing to land on: the app does the managing and the landing page owns the apex.
   app.get('/', (c) => c.redirect(apexUrl(env.config), 302));
 
-  app.get('/verify-email', (c) => {
-    const blog = confirmEmail(env, c.req.query('t'));
-    return blog ? c.html(<EmailConfirmed blogUrl={blogUrl(env.config, blog.handle)} />) : c.html(<ExpiredLink />, 410);
+  // Confirming an address grants nothing — it only says the address is reachable — so unlike /claim
+  // below there is no button behind it, and a mail client prefetching the link does no harm.
+  app.get('/confirm', (c) => {
+    const camera = confirmAddress(env, c.req.query('t'));
+    return camera ? c.html(<AddressConfirmed />) : c.html(<ExpiredLink />, 410);
   });
 
   // Shown before anything is granted, because the link lands in a mail client that may have prefetched it.
@@ -34,7 +35,7 @@ export function ownerRoutes(env: Env): Hono {
     const token = c.req.query('t') ?? '';
     const row = findTokenByHash(env.db, hashToken(token));
     const camera = row?.camera_id ? findCamera(env.db, row.camera_id) : null;
-    const blog = row ? findBlogById(env.db, row.blog_id) : null;
+    const blog = row?.blog_id != null ? findBlogById(env.db, row.blog_id) : null;
     if (!row || row.kind !== 'device_claim' || row.expires_at <= env.now() || !camera || !blog) {
       return c.html(<ExpiredLink />, 410);
     }

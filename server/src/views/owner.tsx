@@ -5,13 +5,9 @@ import { Simple, Stage } from './layout.js';
 /** The two pages an emailed link opens live under APP_PREFIX, since `/` on this domain belongs to the landing page. */
 export const u = (path = '') => `${APP_PREFIX}${path}`;
 
-export const EmailConfirmed: FC<{ blogUrl: string }> = ({ blogUrl }) => (
-  <Stage
-    title="Email confirmed"
-    heading="Email confirmed"
-    actions={<a class="big" href={blogUrl}>Open the blog</a>}
-  >
-    <p>{blogUrl.replace(/^https?:\/\//, '')} is live. Go back to the app.</p>
+export const AddressConfirmed: FC = () => (
+  <Stage title="Email confirmed" heading="Email confirmed">
+    <p>Go back to the app to name your little blog.</p>
   </Stage>
 );
 
@@ -48,6 +44,11 @@ export const ClaimDone: FC<{ blogName: string }> = ({ blogName }) => (
 
 export const Mailbox: FC<{ rows: { id: number; subject: string; to_email: string; status: string; when: string }[] }> = ({ rows }) => (
   <Simple title="Dev mailbox" heading="Dev mailbox">
+    <p>
+      No SMTP server is configured, so nothing here was actually sent. Every message the server
+      would have posted lands in this list instead; open one to read it and to follow the link it
+      carries. This page does not exist in production.
+    </p>
     {rows.length === 0 ? <p>Nothing sent yet.</p> : null}
     <ul class="list mail">
       {rows.map((m) => (

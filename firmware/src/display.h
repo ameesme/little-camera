@@ -30,7 +30,9 @@ void drawPairing(const char* big, const char* hint = nullptr);
 // happening, a progress bar when there is something to measure (percent < 0
 // leaves it out), and an optional hint under it. Like pairing, a screen rather
 // than a toast: it holds the panel for minutes.
-void drawUpdate(const char* line, int percent, const char* hint = nullptr);
+// `mark` is the 24x24 icon above the line, blown up; nullptr is the sparkles
+// the phone shows beside it. A failure passes the alert mark instead.
+void drawUpdate(const char* line, int percent, const char* hint = nullptr, const uint8_t* mark = nullptr);
 // Repaint only the progress bar of the update screen already up, and push only
 // its rows. Cheap enough to follow every percent; a no-op if the last
 // drawUpdate() had no bar.
@@ -95,8 +97,20 @@ void toggleVcom();  // Force a VCOM toggle now — used by the sleep keep-alive
 
 // UI state for sidebar
 void setBatteryPercent(int percent);  // 0-100
+void setCharging(bool charging);      // Drawn on the sleep face, which is where nobody can ask
+void setFaceBand(uint8_t band);       // 0-3 as Chirp::band: the face the viewfinder sidebar wears
 void setPhotoCount(int count);        // Photos on flash (not rendered yet)
 void setSignalLevel(UI::SignalLevel level);
+
+// What the phone asked this camera to photograph (docs/protocol.md §3.3
+// PROMPT). The viewfinder says so rather than leaving the holder to guess why
+// their phone is showing them a card: the sidebar's face block becomes the
+// prompt's icon and a standing toast names the shot. Prompt::None is the
+// ordinary camera.
+enum class Prompt : uint8_t { None = 0, Verification = 1, Selfie = 2 };
+void setPrompt(Prompt prompt);
+// True while the phone is standing by for a particular photo, which is not an idle camera.
+bool promptPending();
 
 // Toast positioning
 enum class ToastHAlign { Left, Center, Right };

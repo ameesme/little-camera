@@ -177,6 +177,8 @@ const uint8_t* photoBits() { return _photoBits; }
 
 // UI state
 static int _batteryPercent = 100;
+static bool _charging = false;
+static Prompt _prompt = Prompt::None;
 static int _photoCount = 0;
 static UI::SignalLevel _signalLevel = UI::SignalLevel::Full;
 
@@ -232,6 +234,8 @@ constexpr UI::Font HINT_FONT = UI::Font::Small;
 constexpr int UPDATE_BAR_HEIGHT = 20;
 constexpr int UPDATE_BAR_RADIUS = 6;
 constexpr int UPDATE_BAR_PADDING = 3;   // Between the outline and the fill
+constexpr int UPDATE_MARK_SCALE = 3;    // Sparkles above the line: 72px, the same weight as the text
+constexpr int UPDATE_MARK_GAP = 14;
 // Where the last drawUpdate() put its bar, so drawUpdateProgress() can repaint
 // that strip alone. -1 = the screen currently up has no bar.
 static int _updateBarX = -1;
@@ -331,6 +335,19 @@ static void drawIcon(const uint8_t* icon, int iconW, int iconH, int x, int y, bo
     }
 }
 
+// The same icon, each pixel a scale x scale block. The update screen wants the
+// mark big enough to read across a room, like the pairing code.
+static void drawIconScaled(const uint8_t* icon, int iconW, int iconH, int x, int y, bool white, int scale) {
+    const int bytesPerRow = (iconW + 7) / 8;
+    for (int row = 0; row < iconH; row++) {
+        for (int col = 0; col < iconW; col++) {
+            if (!(icon[row * bytesPerRow + col / 8] & (1 << (7 - (col % 8))))) continue;
+            for (int dy = 0; dy < scale; dy++)
+                for (int dx = 0; dx < scale; dx++) setPixel(x + col * scale + dx, y + row * scale + dy, white);
+        }
+    }
+}
+
 // Draw icon centered horizontally in box at given Y
 static void drawIconCentered(const uint8_t* icon, int iconW, int iconH, int boxX, int boxW, int y, bool white) {
     int startX = boxX + (boxW - iconW) / 2;
@@ -383,6 +400,80 @@ static void drawTextCenteredAt(const char* text, int boxX, int boxW, int y, UI::
     drawText(text, startX, y, font, white);
 }
 
+// The sleeping face is 16px pixel art, white on black: two closed eyes and a
+// mouth, centred on the panel. It follows the mood (docs/mood.md) in the same
+// four bands as the chirps: happy sleeps with a smile, content is the original
+// face (a dot for a mouth), glum goes flat, sad turns the eyes over and the
+// mouth down. `breathIn` is the second frame of a two-frame breath: eyes up a
+// touch, mouth down a touch, so the distance between them grows and shrinks
+// every 5s while it sleeps. The block size is a parameter because the
+// viewfinder's sidebar draws the same face at a fifth of the size.
+namespace Face {
+constexpr int B = 16;             // Block size on the sleep screen
+constexpr int EYE_L_X = 96;       // Left eye's left corner block
+constexpr int EYE_R_X = 240;      // Right eye's left corner block
+constexpr int EYE_Y = 96;         // Top row of a happy (u-shaped) eye; a flat eye sits a block lower
+constexpr int MOUTH_X = 176;      // Left block of a three-block mouth; the square sits in the middle
+constexpr int MOUTH_Y = 144;
+constexpr int BREATH_EYES_DY = -4;
+constexpr int BREATH_MOUTH_DY = 8;
+
+static void block(int x, int y, int b) { fillRoundedRect(x, y, b, b, 0, true); }
+
+// A closed eye. Happy is a u, corners lifted off the line; everything else is
+// the same four blocks flat.
+static void eye(int x, int y, bool happy, int b = B) {
+    const int lo = y + b;
+    block(x, happy ? y : lo, b);
+    block(x + 3 * b, happy ? y : lo, b);
+    block(x + b, lo, b);
+    block(x + 2 * b, lo, b);
+}
+
+static void mouth(int x, int y, uint8_t band, int b = B) {
+    switch (band) {
+        case 3:  // Happy: a wide smile, flat with both ends lifted. Wider than
+                 // the three the others get, and wider than an eye, or at the
+                 // size the viewfinder draws this it reads as a third eye.
+            block(x - b, y, b);
+            block(x, y + b, b);
+            block(x + b, y + b, b);
+            block(x + 2 * b, y + b, b);
+            block(x + 3 * b, y, b);
+            break;
+        case 2:  // Content: a square under flat eyes
+            block(x + b, y, b);
+            break;
+        case 1:  // Glum: the square stretches into a line
+            block(x, y, b);
+            block(x + b, y, b);
+            block(x + 2 * b, y, b);
+            break;
+        default:  // Sad: corners down
+            block(x, y + b, b);
+            block(x + 2 * b, y + b, b);
+            block(x + b, y, b);
+            break;
+    }
+}
+
+// The whole face inside a box, at whatever block size fits it. Used by the
+// sidebar; the sleep screen places its own blocks at panel coordinates.
+static void mini(int x, int y, int w, int h, uint8_t band, bool breathIn, int b) {
+    const int eyesW = 4 * b + 2 * b + 4 * b;  // Two eyes and the gap between them
+    const int eyeX = x + (w - eyesW) / 2;
+    // Eyes, two blocks of air, mouth. The air is what keeps a smile from
+    // reading as a third eyebrow at a block size this small.
+    const int rows = 6 * b;
+    const int top = y + (h - rows) / 2;
+    const int eyeY = top + (breathIn ? 0 : 1);
+    const int mouthY = top + 4 * b - (breathIn ? 0 : 1);
+    eye(eyeX, eyeY, band == 3, b);
+    eye(eyeX + 6 * b, eyeY, band == 3, b);
+    mouth(x + (w - 3 * b) / 2, mouthY, band, b);
+}
+}  // namespace Face
+
 // A black box with a centred icon and a label hung under it, plus a footer
 // naming the gesture that triggers it, ruled off by a hairline. Shared by the
 // viewfinder sidebar and the save-screen actions so the two stay identical.
@@ -422,13 +513,51 @@ static void drawBoxButton(int x, int y, int w, int h,
     drawTextCenteredAt(gesture, x, w, gestureY, HINT_FONT, true);
 }
 
-// Viewfinder sidebar: a single full-height box that names the one gesture the
+// The face block above the sidebar button: the same face the camera sleeps
+// with, so the thing in your hands looks back at you while you aim it. One
+// toast tall, which is as much as the photos button can spare.
+constexpr int FACE_BLOCK_HEIGHT = SPLEEN8X16_HEIGHT + TOAST_PADDING_V * 2 + 12;
+constexpr int FACE_BLOCK_GAP = ACTION_GAP;
+constexpr int FACE_BLOCK_B = 3;  // Block size of the miniature, a fifth of the sleep face
+// It breathes on the same beat the sleep face does, off the clock rather than
+// off a caller: every screen that draws the sidebar redraws it whole anyway.
+constexpr uint32_t FACE_BLOCK_BREATH_MS = 2500;
+
+// The mood the face wears while awake, as the last telemetry read it. The
+// panel has no business asking mood.h anything, so main.cpp pushes it here.
+static uint8_t _faceBand = 3;
+
+void setFaceBand(uint8_t band) {
+    _faceBand = band > 3 ? 3 : band;
+}
+
+static void drawFaceBlock(int x) {
+    if (x + BOX_WIDTH <= 0 || x >= WIDTH) return;
+    fillRoundedRect(x, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, BOX_RADIUS, false);
+    Face::mini(x, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
+               (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
+}
+
+// Viewfinder sidebar: the face block, then a box that names the one gesture the
 // viewfinder has besides shooting — hold for the gallery. x is a parameter so
-// the save slide can walk it off the left edge. (It used to say "inbox", for
-// received images that this carrier revision cannot receive.)
+// the save slide can walk it off the left edge. While the phone has asked for a
+// particular shot (docs/protocol.md §3.3 PROMPT) the button says which, because
+// a camera that knows what it is being pointed at should say so.
 static void drawSidebar(int x) {
-    drawBoxButton(x, SIDEBAR_PADDING, BOX_WIDTH, INBOX_HEIGHT,
-                  UI::getImagesIcon(), "photos", "hold");
+    const int buttonY = SIDEBAR_PADDING + FACE_BLOCK_HEIGHT + FACE_BLOCK_GAP;
+    const int buttonH = INBOX_HEIGHT - FACE_BLOCK_HEIGHT - FACE_BLOCK_GAP;
+    drawFaceBlock(x);
+    switch (_prompt) {
+        case Prompt::Verification:
+            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getScanIcon(), "card", "press");
+            break;
+        case Prompt::Selfie:
+            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getUserIcon(), "you", "press");
+            break;
+        default:
+            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getImagesIcon(), "photos", "hold");
+            break;
+    }
 }
 
 // Gallery column: same two-button stack as the save screen so the two review
@@ -549,6 +678,18 @@ void setPhotoCount(int count) {
 
 void setSignalLevel(UI::SignalLevel level) {
     _signalLevel = level;
+}
+
+void setCharging(bool charging) {
+    _charging = charging;
+}
+
+bool promptPending() {
+    return _prompt != Prompt::None;
+}
+
+void setPrompt(Prompt p) {
+    _prompt = p;
 }
 
 // Whiten the padding strips around the photo and round its corners.
@@ -920,7 +1061,7 @@ static void fillUpdateBar(int percent) {
 // is. Its own screen for the same reason pairing has one — it owns the panel
 // for minutes, and a toast would be painted over by the next one. The bar is
 // the only progress indicator in the UI; everything else here is instant.
-void drawUpdate(const char* line, int percent, const char* hint) {
+void drawUpdate(const char* line, int percent, const char* hint, const uint8_t* mark) {
     memset(_framebuffer, 0xFF, sizeof(_framebuffer));  // White paper, like every screen but sleep
 
     const int inset = 12;
@@ -941,8 +1082,14 @@ void drawUpdate(const char* line, int percent, const char* hint) {
     const int hintH = hasHint ? UI::fontHeight(HINT_FONT) : 0;
     const int gapBar = hasBar ? 24 : 0;
     const int gapHint = hasHint ? (hasBar ? 14 : 20) : 0;
+    const int markH = UI::ICON_SIZE * UPDATE_MARK_SCALE;
 
-    int y = (HEIGHT - textH - gapBar - barH - gapHint - hintH) / 2;
+    int y = (HEIGHT - markH - UPDATE_MARK_GAP - textH - gapBar - barH - gapHint - hintH) / 2;
+    // The same four-pointed star the phone shows while it sends, so the two
+    // screens in front of whoever is waiting are one screen.
+    drawIconScaled(mark ? mark : UI::getSparklesIcon(), UI::ICON_SIZE, UI::ICON_SIZE,
+                   (WIDTH - UI::ICON_SIZE * UPDATE_MARK_SCALE) / 2, y, false, UPDATE_MARK_SCALE);
+    y += markH + UPDATE_MARK_GAP;
     drawTextScaled(line, (WIDTH - textW) / 2, y, UI::Font::Large, false, scale);
     y += textH + gapBar;
 
@@ -995,55 +1142,28 @@ void drawSplash() {
     digitalWrite(_cs, LOW);
 }
 
-// The sleeping face is 16px pixel art, white on black: two closed eyes and a
-// mouth, centred on the panel. It follows the mood (docs/mood.md) in the same
-// four bands as the chirps: happy sleeps with a smile, content is the original
-// face (a dot for a mouth), glum goes flat, sad turns the eyes over and the
-// mouth down. `breathIn` is the second frame of a two-frame breath: eyes up a
-// touch, mouth down a touch, so the distance between them grows and shrinks
-// every 5s while it sleeps.
-namespace Face {
-constexpr int B = 16;             // Block size
-constexpr int EYE_L_X = 96;       // Left eye's left corner block
-constexpr int EYE_R_X = 240;      // Right eye's left corner block
-constexpr int EYE_Y = 96;         // Top row of a happy (u-shaped) eye; a flat eye sits a block lower
-constexpr int MOUTH_X = 176;      // Left block of a three-block mouth; the square sits in the middle
-constexpr int MOUTH_Y = 144;
-constexpr int BREATH_EYES_DY = -4;
-constexpr int BREATH_MOUTH_DY = 8;
+// Below this the camera is asking for a cable rather than reporting a number.
+constexpr int SLEEP_BATTERY_LOW_PCT = 20;
+// The badge sits bottom-left, where the debug readout used to, and is the only
+// thing on the sleep screen besides the face: a battery nobody can ask about is
+// worth an icon, a battery that is merely fine is not.
+constexpr int SLEEP_BADGE_SCALE = 2;
+constexpr int SLEEP_BADGE_SIZE = UI::ICON_SIZE * SLEEP_BADGE_SCALE;
 
-static void block(int x, int y) { fillRoundedRect(x, y, B, B, 0, true); }
-
-// A closed eye. Happy is a u, corners lifted off the line; everything else is
-// the same four blocks flat. The eyes carry the happiness, which is why the
-// happy face needs no smile.
-static void eye(int x, int y, bool happy) {
-    const int lo = y + B;
-    block(x, happy ? y : lo);
-    block(x + 3 * B, happy ? y : lo);
-    block(x + B, lo);
-    block(x + 2 * B, lo);
+static bool sleepBadgeVisible() {
+    return _charging || _batteryPercent <= SLEEP_BATTERY_LOW_PCT;
 }
 
-static void mouth(int x, int y, uint8_t band) {
-    switch (band) {
-        case 3:  // Happy: a square, and lifted eyes above it
-        case 2:  // Content: the same square under flat eyes
-            block(x + B, y);
-            break;
-        case 1:  // Glum: the square stretches into a line
-            block(x, y);
-            block(x + B, y);
-            block(x + 2 * B, y);
-            break;
-        default:  // Sad: corners down
-            block(x, y + B);
-            block(x + 2 * B, y + B);
-            block(x + B, y);
-            break;
-    }
+// Two frames, carried by the breath the face is already doing: charging fills
+// (bolt, then full), low blinks (outline, then the one bar it has left).
+static void drawSleepBadge(bool breathIn) {
+    if (!sleepBadgeVisible()) return;
+    const uint8_t* icon = _charging ? (breathIn ? UI::getBatteryIcon(UI::BatteryLevel::Full) : UI::getChargingIcon())
+                                    : (breathIn ? UI::getBatteryIcon(UI::BatteryLevel::Empty)
+                                                : UI::getBatteryIcon(UI::BatteryLevel::Low));
+    drawIconScaled(icon, UI::ICON_SIZE, UI::ICON_SIZE, TOAST_MARGIN,
+                   HEIGHT - SLEEP_BADGE_SIZE - TOAST_MARGIN, true, SLEEP_BADGE_SCALE);
 }
-}  // namespace Face
 
 void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* status) {
     memset(_framebuffer, 0, sizeof(_framebuffer));  // Black
@@ -1068,15 +1188,23 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* stat
     drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);  // White border
     drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);  // White text
 
+    drawSleepBadge(breathIn);
+    // The voltage readout is a bench tool, so it goes under the badge rather
+    // than where the badge is: console `log` is the one that matters.
     if (status) {
-        drawText(status, TOAST_MARGIN, HEIGHT - UI::fontHeight(TOAST_FONT) - TOAST_MARGIN,
-                 TOAST_FONT, true);
+        drawText(status, TOAST_MARGIN + (sleepBadgeVisible() ? SLEEP_BADGE_SIZE + 8 : 0),
+                 HEIGHT - UI::fontHeight(TOAST_FONT) - TOAST_MARGIN, TOAST_FONT, true);
     }
 
     // A breath frame only touches the face rows; the rest of the panel keeps
-    // what it has. The band spans both breath positions of eyes and mouth.
-    if (faceOnly) flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
-    else flushFramebuffer();
+    // what it has. The band spans both breath positions of eyes and mouth, and
+    // the badge animates on the same beat, so its strip goes too.
+    if (faceOnly) {
+        flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
+        if (sleepBadgeVisible()) flushLines(HEIGHT - SLEEP_BADGE_SIZE - TOAST_MARGIN, HEIGHT - TOAST_MARGIN);
+    } else {
+        flushFramebuffer();
+    }
 }
 
 void toggleVcom() {

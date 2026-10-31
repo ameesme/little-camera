@@ -30,8 +30,8 @@ const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer }> =
       )}
     </div>
     {viewer.kind === 'anonymous' ? (
-      <a class="btn" id="subbtn" href="#join" aria-expanded="false">
-        Subscribe
+      <a class="btn" href="#join">
+        Log in
       </a>
     ) : (
       <span class="btn" aria-pressed="true">
@@ -41,13 +41,18 @@ const BlogHeader: FC<{ name: string; battery: number | null; viewer: Viewer }> =
   </header>
 );
 
-const SubscribeRow: FC<{ open: boolean }> = ({ open }) => (
-  <form class={open ? 'subscribe-row open' : 'subscribe-row'} id="join" method="post" action="/subscribe">
-    <input id="email" name="email" type="email" placeholder="you@email.com" aria-label="Email address" required autocomplete="email" />
-    <button class="btn" id="subgo" type="submit">
-      Join
-    </button>
-  </form>
+/** The ask, under the one picture a visitor gets: the same form does joining and asking for a fresh link. */
+const JoinBox: FC<{ name: string }> = ({ name }) => (
+  <section class="join" id="join">
+    <h2>Read {name}’s little camera</h2>
+    <p>Ask to be let in, or get a fresh link if you are already on the list.</p>
+    <form method="post" action="/subscribe">
+      <input id="email" name="email" type="email" placeholder="you@email.com" aria-label="Email address" required autocomplete="email" />
+      <button class="btn" id="subgo" type="submit">
+        Join
+      </button>
+    </form>
+  </section>
 );
 
 const Notice: FC<{ text: string }> = ({ text }) => <div class="notice">{text}</div>;
@@ -103,15 +108,9 @@ const LoadMore: FC<{ href: string | null }> = ({ href }) =>
 // The only script on the blog, and everything works without it.
 const BLOG_SCRIPT = `
 (function(){
-  var btn=document.getElementById('subbtn'),row=document.getElementById('join');
-  if(btn&&row){
-    btn.addEventListener('click',function(e){
-      e.preventDefault();
-      var open=row.classList.toggle('open');
-      btn.setAttribute('aria-expanded',String(open));
-      if(open)document.getElementById('email').focus();
-    });
-    row.addEventListener('submit',function(e){
+  var row=document.getElementById('join');
+  if(row){
+    row.querySelector('form').addEventListener('submit',function(e){
       e.preventDefault();
       var email=document.getElementById('email');
       if(!email.value.includes('@')){email.focus();return;}
@@ -119,11 +118,13 @@ const BLOG_SCRIPT = `
         body:JSON.stringify({email:email.value})})
         .then(function(r){return r.json()})
         .then(function(j){
-          row.classList.remove('open');
-          btn.textContent=j.state==='already'?'Subscribed':'Requested';
-          btn.setAttribute('aria-pressed','true');
+          row.querySelector('h2').textContent=j.state==='already'?'You are already in':'Thanks, ask sent';
+          row.querySelector('p').textContent=j.state==='already'
+            ?'Use the link from your email, or ask for a fresh one.'
+            :'The owner will let you in.';
+          row.querySelector('form').remove();
         })
-        .catch(function(){row.submit();});
+        .catch(function(){row.querySelector('form').submit();});
     });
   }
   document.querySelectorAll('form.cmtform').forEach(function(form){
@@ -202,13 +203,13 @@ export const Teaser: FC<BlogPage & { hiddenCount: number }> = (p) => {
     <Shell page={p}>
       <BlogHeader name={p.blog.name} battery={p.battery} viewer={anonymous} />
       {p.notice ? <Notice text={p.notice} /> : null}
-      <SubscribeRow open={!p.notice} />
       <main id="feed">
         {p.articles.map((a) => (
           <Article a={a} viewer={anonymous} />
         ))}
       </main>
       <div class="teaser">{hiddenLine(p.articles.length > 0, p.hiddenCount)}</div>
+      <JoinBox name={p.blog.name} />
       <BlogScript />
     </Shell>
   );
@@ -230,6 +231,31 @@ export const ExpiredLink: FC<{ email: string }> = ({ email }) => (
     <form id="fresh" method="post" action="/request-link">
       <input class="ask" type="email" name="email" value={email} placeholder="you@email.com" aria-label="Email address" required autocomplete="email" />
     </form>
+  </Stage>
+);
+
+/** Asked before anything happens: the link lands in a mail client that may have prefetched it. */
+export const UnsubscribePrompt: FC<{ name: string; email: string; token: string }> = ({ name, email, token }) => (
+  <Stage
+    title="Stop getting these?"
+    heading="Stop getting these?"
+    actions={
+      <form method="post" action="/unsubscribe">
+        <input type="hidden" name="t" value={token} />
+        <button class="big" type="submit">Take me off the list</button>
+      </form>
+    }
+  >
+    <p>
+      <b>{email}</b> comes off {name}’s little camera. No more mail, and the link you have stops working.
+    </p>
+    <p>Changed your mind? Close this.</p>
+  </Stage>
+);
+
+export const UnsubscribeDone: FC<{ name: string }> = ({ name }) => (
+  <Stage title="Off the list" heading="Off the list">
+    <p>You will hear nothing more from {name}’s little camera. Ask again from the blog whenever you like.</p>
   </Stage>
 );
 

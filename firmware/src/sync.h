@@ -22,6 +22,12 @@ namespace Sync {
 struct Event {
     enum Kind {
         None, Connected, Disconnected, Passkey, PairingDone, Sent, ClockSet,
+        // The phone is waiting for a particular photo (§3.3 PROMPT): the
+        // camera says which on its own screen rather than leaving the holder
+        // to guess why their phone is showing them a card.
+        Prompt,
+        // The phone asked for a chirp, `value` times (§3.3).
+        Chirp,
         // Firmware update (docs/protocol.md §3.7). These are the only events
         // besides pairing that take over the screen, because an update lasts
         // minutes and must not be interrupted by an idle timeout.
@@ -30,6 +36,7 @@ struct Event {
     Kind kind = None;
     uint32_t value = 0;   // Passkey: the 6 digits. PairingDone: 1 ok / 0 failed. Sent: count this connection.
                           // ClockSet: low 16 bits the UTC offset in minutes (as int16), CLOCK_TZ_KNOWN set if the phone sent one.
+                          // Prompt: SyncProto::PROMPT_*.
                           // UpdateBegan: image size. UpdateProgress: percent. UpdateFailed: the protocol status.
 };
 
@@ -60,5 +67,8 @@ bool updating();                // A firmware update session is open
 
 // A phone is connected and did something within the last minute.
 bool activeRecently(uint32_t now);
+// Drop every phone this camera has let in, so the next one is asked for the passkey again.
+// Only the camera's half: the phone keeps its own bond until it is forgotten there too.
+bool forgetPhones();
 
 }

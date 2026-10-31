@@ -31,6 +31,9 @@ targets:
       # is what device.html's relative import expects.
       - path: ../../site/camera-element.js
         buildPhase: resources
+      # The blog the phone scrolls in the intro, the landing page's own strip.
+      - path: ../../site/media/blog-strip.png
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: me.amees.littlecamera
@@ -63,6 +66,12 @@ targets:
         UILaunchScreen:
           UIColorName: Paper
         ITSAppUsesNonExemptEncryption: false
+        # LAN testing over plain http: nip.io resolves <ip>.nip.io, and any label under it, to that ip.
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            nip.io:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIRequiresFullScreen: true

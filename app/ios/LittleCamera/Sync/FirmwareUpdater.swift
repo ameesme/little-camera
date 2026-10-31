@@ -121,6 +121,8 @@ final class FirmwareUpdater {
         let image = try await server.downloadFirmware(release)
         let digest = Data(SHA256.hash(data: image))
 
+        await link.hold()
+        defer { link.letGo() }
         // Open the stream before the write, as everywhere else: the answer can arrive a loop iteration later.
         let frames = link.frames()
         defer { link.closeFrames() }

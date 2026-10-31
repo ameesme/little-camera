@@ -29,11 +29,20 @@ constexpr uint8_t OP_GET          = 0x03;  // u16 index, u32 offset
 constexpr uint8_t OP_ACK          = 0x04;  // u16 index
 constexpr uint8_t OP_DELETE       = 0x05;  // u16 index
 constexpr uint8_t OP_ABORT        = 0x06;
+constexpr uint8_t OP_PROMPT       = 0x07;  // u8 kind: what the phone has asked this camera to photograph
+constexpr uint8_t OP_CHIRP        = 0x08;  // u8 times (1..3): chirp in the current mood
 constexpr uint8_t OP_UPDATE_BEGIN = 0x10;  // u32 size, u8[32] sha256
 constexpr uint8_t OP_UPDATE_END   = 0x11;
 constexpr uint8_t OP_UPDATE_ABORT = 0x12;
 
 constexpr uint8_t LIST_FLAG_UNSYNCED_ONLY = 0x01;
+
+// PROMPT kinds. The camera draws the instruction; the phone only says which
+// shot it is waiting for, and sends NONE once it has it.
+constexpr uint8_t PROMPT_NONE         = 0x00;
+constexpr uint8_t PROMPT_VERIFICATION = 0x01;
+constexpr uint8_t PROMPT_SELFIE       = 0x02;
+constexpr uint8_t PROMPT_HELLO        = 0x03;
 
 // Data frame kinds
 constexpr uint8_t KIND_LIST_DATA     = 0x01;

@@ -1,29 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { bindCamera, findCamera } from '../src/repo/cameras.js';
+import { approveCameraClaim, bindCamera, findCamera } from '../src/repo/cameras.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
 import { listOutbox } from '../src/repo/outbox.js';
 import { letPhoneIn } from '../src/core/cameras.js';
 import { findBlogByHandle } from '../src/repo/blogs.js';
 import { commentsForPhotos, insertComment } from '../src/repo/comments.js';
 import { createSubscriber, listSubscribers } from '../src/repo/subscribers.js';
-import {
-  CAM,
-  apex,
-  appPage,
-  blog as blogPage,
-  body,
-  cameraDelete,
-  cameraGet,
-  cameraPost,
-  fixture,
-  hello,
-  makeBlog,
-  makeWorld,
-  upload,
-  type TestWorld,
-} from './helpers.js';
+import { apex, appPage, blog as blogPage, body, CAM, cameraDelete, cameraGet, cameraPost, confirmAddress, fixture, hello, makeBlog, makeWorld, upload, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
 beforeEach(() => {
@@ -183,6 +168,8 @@ describe('GET /api/camera/status', () => {
       avatar: { requested_at: null, has_avatar: false },
       firmware: { installed: null, latest: null, update_available: false },
       claim: 'unbound',
+      pending: null,
+      confirmed_email: null,
       subscribers: [],
       server_time: w.clock.t,
     });
@@ -307,39 +294,61 @@ describe('POST /api/camera/telemetry', () => {
 });
 
 describe('the phone making a blog of its own', () => {
-  it('creates it, lets this phone in, and still needs the QR to bind', async () => {
+  it('names it for the confirmed address and lets this phone in', async () => {
     await hello(w);
-    const r = await cameraPost(w, '/blog', { name: 'Mees', email: 'mees@example.com', handle: 'mees' });
+    // There is nothing to name a blog for until someone has opened the link.
+    const early = await cameraPost(w, '/blog', { name: 'Mees', handle: 'mees' });
+    expect(early.status).toBe(409);
+    expect(early.body.error).toBe('address_unconfirmed');
+
+    confirmAddress(w, 'mees@example.com');
+    expect((await cameraGet(w, '/status')).body.confirmed_email).toBe('mees@example.com');
+
+    const r = await cameraPost(w, '/blog', { name: 'Mees', handle: 'mees' });
     expect(r.status).toBe(201);
     expect(r.body).toEqual({ handle: 'mees', url: 'http://mees.localhost:3000' });
 
-    // The blog exists and was emailed a verification link, but the camera is not bound to it.
-    expect(findBlogByHandle(w.env.db, 'mees')).not.toBeNull();
-    expect(findCamera(w.env.db, CAM.id)!.blog_id).toBeNull();
-    expect(listOutbox(w.env.db)[0].subject).toMatch(/confirm your email/i);
+    // Live from birth, on the address that was confirmed, and no second link to open.
+    const made = findBlogByHandle(w.env.db, 'mees')!;
+    expect(made.email).toBe('mees@example.com');
+    expect(made.email_verified_at).toBe(w.clock.t);
+    // ponytail: temporary — the app skips the §5 code photo, so naming binds. Expect blog_id null again
+    // once the card comes back, and `pending` to cover the gap between naming and binding.
+    expect(findCamera(w.env.db, CAM.id)!.blog_id).toBe(made.id);
 
-    // Claim is already approved, so once the QR binds it the phone is in without a second email.
     const status = await cameraGet(w, '/status');
-    expect(status.body.claim).toBe('unbound');
-    bindCamera(w.env.db, CAM.id, findBlogByHandle(w.env.db, 'mees')!.id, w.clock.t);
-    expect((await cameraGet(w, '/status')).body.claim).toBe('approved');
+    expect(status.body.claim).toBe('approved');
+    // Spent: the address belongs to the blog now, so it cannot name a second one.
+    expect(status.body.confirmed_email).toBeNull();
+    expect(status.body.pending).toBeNull();
+    expect(status.body.bound.handle).toBe('mees');
   });
 
-  it('refuses a taken handle, a taken email, and a camera that already has a blog', async () => {
+  it('refuses a taken handle, a reserved one, and a camera that already has a blog', async () => {
     await hello(w);
     makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    expect((await cameraPost(w, '/blog', { name: 'M', email: 'other@example.com', handle: 'mees' })).status).toBe(409);
-    expect((await cameraPost(w, '/blog', { name: 'M', email: 'mees@example.com', handle: 'other' })).status).toBe(409);
-    expect((await cameraPost(w, '/blog', { name: 'M', email: 'a@b.co', handle: 'Reserved!' })).status).toBe(400);
+    confirmAddress(w, 'other@example.com');
+    expect((await cameraPost(w, '/blog', { name: 'M', handle: 'mees' })).status).toBe(409);
+    expect((await cameraPost(w, '/blog', { name: 'M', handle: 'Reserved!' })).status).toBe(400);
 
     bindCamera(w.env.db, CAM.id, 1, w.clock.t);
-    expect((await cameraPost(w, '/blog', { name: 'M', email: 'a@b.co', handle: 'fresh' })).status).toBe(409);
+    expect((await cameraPost(w, '/blog', { name: 'M', handle: 'fresh' })).status).toBe(409);
+  });
+
+  // Two cameras can confirm the same address before either names a blog; the second one loses.
+  it('refuses an address that grew a blog while this phone was still typing', async () => {
+    await hello(w);
+    confirmAddress(w, 'mees@example.com');
+    makeBlog(w.env, { handle: 'first', name: 'First', email: 'mees@example.com' });
+    const r = await cameraPost(w, '/blog', { name: 'M', handle: 'second' });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('email_taken');
   });
 });
 
 describe('letting a phone in', () => {
   const claimLink = () => {
-    const mail = listOutbox(w.env.db).find((m) => /let a phone manage/i.test(m.subject))!;
+    const mail = listOutbox(w.env.db).find((m) => /new phone/i.test(m.subject))!;
     return mail.text_body.match(/\/app\/claim\?t=([A-Za-z0-9_-]+)/)![1];
   };
 
@@ -376,7 +385,10 @@ describe('letting a phone in', () => {
     await hello(w);
     makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
     expect((await cameraPost(w, '/claim', { email: 'nobody@example.com' })).body).toEqual({ state: 'pending' });
-    expect(listOutbox(w.env.db).some((m) => /let a phone manage/i.test(m.subject))).toBe(false);
+    // An address nobody owns is offered a blog of its own, never a way into someone else's.
+    expect(listOutbox(w.env.db).some((m) => /new phone/i.test(m.subject))).toBe(false);
+    expect(listOutbox(w.env.db).map((m) => m.subject)).toEqual(['Confirm your email for your little camera']);
+    expect(findCamera(w.env.db, CAM.id)!.verified_email).toBeNull();
 
     expect((await cameraPost(w, '/claim', { email: 'mees@example.com' })).body).toEqual({ state: 'pending' });
     await w.app.request(
@@ -525,13 +537,16 @@ describe('POST /api/camera/verification-code', () => {
     await hello(w);
     expect((await cameraPost(w, '/verification-code', {})).status).toBe(409);
 
-    await cameraPost(w, '/blog', { name: 'Mees', email: 'mees@example.com', handle: 'mees' });
+    // A code is for moving an already-bound camera to another blog (§5), so it needs a claim on one
+    // the camera is not posting to. Naming a blog binds it for now, which is the 409 at the end.
+    const other = makeBlog(w.env, { handle: 'other', name: 'Other', email: 'other@example.com' });
+    approveCameraClaim(w.env.db, CAM.id, other.id, w.clock.t);
     const made = await cameraPost(w, '/verification-code', {});
     expect(made.status).toBe(201);
     expect(made.body.code).toMatch(/^[A-Z2-9]{6}$/);
     expect(made.body.expires_at - w.clock.t).toBe(15 * 60);
 
-    bindCamera(w.env.db, CAM.id, findBlogByHandle(w.env.db, 'mees')!.id, w.clock.t);
+    bindCamera(w.env.db, CAM.id, other.id, w.clock.t);
     expect((await cameraPost(w, '/verification-code', {})).status).toBe(409);
   });
 });

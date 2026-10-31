@@ -5,6 +5,7 @@ import type { Env } from '../env.js';
 import { newsletterMail } from '../emails/index.js';
 import { queueEmail } from '../lib/email.js';
 import { createToken } from '../lib/tokens.js';
+import { unsubscribeLink } from '../core/subscribers.js';
 import { feedPhotosSince } from '../repo/photos.js';
 import { findBlogById } from '../repo/blogs.js';
 import { listApprovedSubscribers, setLastNotified } from '../repo/subscribers.js';
@@ -26,7 +27,17 @@ export function runNewsletter(env: Env): number {
       photoId: newest.id,
     });
     const url = `${blogUrl(env.config, blog.handle)}/p/${newest.public_id}?t=${token}`;
-    queueEmail(env, sub.email, newsletterMail({ ownerName: blog.name, count: photos.length, url }), newest.id);
+    queueEmail(
+      env,
+      sub.email,
+      newsletterMail({
+        ownerName: blog.name,
+        count: photos.length,
+        url,
+        unsubscribeUrl: unsubscribeLink(env, blog, sub),
+      }),
+      newest.id,
+    );
     // The newest upload covered, not "now", so a photo landing mid-run is caught by the next one.
     setLastNotified(env.db, sub.id, newest.uploaded_at);
     sent++;

@@ -33,7 +33,10 @@ CREATE TABLE cameras (
   -- When the owner allowed this phone to manage a blog, by opening an emailed link, and which blog
   -- they allowed. Both, because a phone can be let in before it photographs the QR that binds it.
   claim_approved_at INTEGER,
-  claim_blog_id     INTEGER REFERENCES blogs(id) ON DELETE SET NULL
+  claim_blog_id     INTEGER REFERENCES blogs(id) ON DELETE SET NULL,
+  -- An address its owner confirmed by email before any blog existed (protocol §4.9). A blog is only
+  -- ever made from one of these, so there is no such thing as a blog nobody confirmed.
+  verified_email    TEXT COLLATE NOCASE
 );
 CREATE INDEX cameras_blog ON cameras(blog_id);
 
@@ -77,9 +80,10 @@ CREATE TABLE subscribers (
 CREATE TABLE access_tokens (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   token_hash    TEXT NOT NULL UNIQUE,         -- sha256 of the token; the token itself is only in the email
-  kind          TEXT NOT NULL CHECK (kind IN ('subscriber', 'owner_login', 'email_verify', 'device_claim')),
-  blog_id       INTEGER NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
-  camera_id     TEXT REFERENCES cameras(id) ON DELETE CASCADE,  -- device_claim only: the phone being let in
+  kind          TEXT NOT NULL CHECK (kind IN ('subscriber', 'owner_login', 'address_verify', 'device_claim')),
+  blog_id       INTEGER REFERENCES blogs(id) ON DELETE CASCADE,  -- NULL for address_verify: there is no blog yet
+  email         TEXT COLLATE NOCASE,                             -- address_verify only: the address being confirmed
+  camera_id     TEXT REFERENCES cameras(id) ON DELETE CASCADE,   -- the phone being let in, or confirming an address
   subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE CASCADE,
   photo_id      INTEGER REFERENCES photos(id) ON DELETE SET NULL,
   expires_at    INTEGER NOT NULL,

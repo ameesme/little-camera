@@ -3,9 +3,11 @@
 #include <esp_system.h>
 
 #include "crc32.h"
+#include "camera.h"
 #include "identity.h"
 #include "ota.h"
 #include "storage.h"
+#include "sync.h"
 #include "version.h"
 
 namespace Console {
@@ -110,10 +112,18 @@ void run(const char* line) {
         Storage::printLog();
     } else if (!strcmp(line, "log clear")) {
         Serial.println(Storage::clearLog() ? "ok" : "err");
+    } else if (!strncmp(line, "flip ", 5)) {
+        const int n = atoi(line + 5);
+        Camera::setFlip((n & 1) != 0, (n & 2) != 0);
+        Serial.printf("ok vflip %d hmirror %d\n", Camera::flippedVertically(), Camera::mirrored());
     } else if (!strcmp(line, "ota")) {
         cmdOta();
     } else if (!strcmp(line, "ota revert")) {
         cmdOtaRevert();
+#ifndef LC_NO_BLE
+    } else if (!strcmp(line, "unpair")) {
+        Serial.println(Sync::forgetPhones() ? "ok" : "err radio is down");
+#endif
     } else if (line[0]) {
         Serial.println("err unknown");
     }

@@ -110,4 +110,27 @@ inline const uint8_t* getCameraIcon() {
     return Icons::CAMERA;
 }
 
+// The firmware-update screen, the same mark the phone shows while it sends
+inline const uint8_t* getSparklesIcon() {
+    return Icons::SPARKLES;
+}
+
+// Charging, which is a state of its own rather than a step on the battery scale
+inline const uint8_t* getChargingIcon() {
+    return Icons::BATTERY_CHARGING;
+}
+
+// What the phone asked the camera to shoot (docs/protocol.md §3.3 PROMPT)
+inline const uint8_t* getScanIcon() {
+    return Icons::SCAN;
+}
+
+inline const uint8_t* getUserIcon() {
+    return Icons::USER;
+}
+
+inline const uint8_t* getAlertIcon() {
+    return Icons::ALERT;
+}
+
 }  // namespace UI

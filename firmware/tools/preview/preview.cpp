@@ -259,6 +259,11 @@ int main(int argc, char** argv) {
         // drawSaveTransition reuses the photo drawCapture dithered
         Display::drawCapture(g_source, Camera::WIDTH, Camera::HEIGHT);
         Display::drawSaveTransition(slideT);
+    } else if (!strcmp(scene, "prompt-card") || !strcmp(scene, "prompt-selfie")) {
+        Display::setPrompt(scene[7] == 'c' ? Display::Prompt::Verification : Display::Prompt::Selfie);
+        Display::showToast(scene[7] == 'c' ? "photograph the card" : "take one of you",
+                           Display::ToastHAlign::Center, Display::ToastVAlign::Bottom, true, 0);
+        Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "toast")) {
         Display::showToast("press to shoot", Display::ToastHAlign::Right,
                            Display::ToastVAlign::Top, false, 0);
@@ -273,18 +278,26 @@ int main(int argc, char** argv) {
         Display::drawSleep(24, breath);
     } else if (!strcmp(scene, "sleep-breath")) {
         Display::drawSleep((uint8_t)happiness, true);
+    } else if (!strcmp(scene, "sleep-charging")) {
+        Display::setBatteryPercent(44);
+        Display::setCharging(true);
+        Display::drawSleep((uint8_t)happiness, breath);
+    } else if (!strcmp(scene, "sleep-low")) {
+        Display::setBatteryPercent(9);
+        Display::drawSleep((uint8_t)happiness, breath);
     } else if (!strcmp(scene, "sleep-battery")) {
-        Display::drawSleep((uint8_t)happiness, breath, false, "3.87V chg");
+        Display::setBatteryPercent(9);
+        Display::drawSleep((uint8_t)happiness, breath, false, "3.87V");
     } else if (!strcmp(scene, "pairing")) {
         Display::drawPairing("418302", "type this on your phone");
     } else if (!strcmp(scene, "pairing-done")) {
-        Display::drawPairing("paired", nullptr);
+        Display::drawPairing("oh hi", nullptr);
     } else if (!strcmp(scene, "update")) {
-        Display::drawUpdate("new firmware", percent, "keep the phone close");
+        Display::drawUpdate("freshing up", percent, "keep the phone close");
     } else if (!strcmp(scene, "update-done")) {
-        Display::drawUpdate("restarting", -1, nullptr);
+        Display::drawUpdate("brb", -1, "it will only be a minute i promise");
     } else if (!strcmp(scene, "update-failed")) {
-        Display::drawUpdate("update failed", -1, "nothing changed");
+        Display::drawUpdate("ugh fuck", -1, "that didn't work, restarting", UI::getAlertIcon());
     } else if (!strcmp(scene, "splash")) {
         Display::drawSplash();
     } else if (!strcmp(scene, "gallery") || !strcmp(scene, "gallery-slide")) {

@@ -6,7 +6,6 @@ import Foundation
 final class Blog {
     private(set) var status: StatusResponse?
     private(set) var error: String?
-    private(set) var awaitingAvatar = false
     private(set) var photos: [FeedPhoto] = []
     private(set) var nextPage: String?
     private(set) var askedToBeLetIn = false
@@ -35,6 +34,11 @@ final class Blog {
     var bound: BoundBlog? { status?.bound }
     var isLinked: Bool { status?.bound != nil }
     var claim: ClaimState? { status?.claim }
+    /// The blog this camera is being set up for but has not bound yet (§4.4). The server remembers it,
+    /// so a phone reopened mid-onboarding resumes rather than making the same owner a second blog.
+    var pending: PendingBlog? { status?.pending }
+    /// An address whose owner has opened the link but has not named a blog for it yet (§4.4).
+    var confirmedEmail: String? { status?.confirmedEmail }
     /// The blog has no picture at its head yet, which is the last thing onboarding asks for.
     var needsAvatar: Bool { status.map { !$0.avatar.hasAvatar } ?? false }
     var subscribers: [Subscriber] { status?.subscribers ?? [] }
@@ -48,21 +52,21 @@ final class Blog {
             let fresh = try await server.status()
             status = fresh
             onStatus?(fresh)
-            awaitingAvatar = fresh.avatar.requestedAt != nil && !fresh.avatar.hasAvatar
             if fresh.claim == .approved { await loadFeed(reset: true) }
         }
     }
 
     // MARK: Being let in (§4.9)
 
-    func createBlog(name: String, email: String, handle: String) {
+    func createBlog(name: String, handle: String) {
         takenEmail = false
         perform { [self] in
             do {
-                made = try await server.createBlog(name: name.trimmed, email: email.trimmed, handle: handle.trimmed)
+                made = try await server.createBlog(name: name.trimmed, handle: handle.trimmed)
                 refresh()
             } catch ServerError.http(_, _, "email_taken") {
-                // Not an error so much as a wrong turn: that address already has a blog to sign into.
+                // The address grew a blog between confirming it and naming one: back to the address screen,
+                // where asking about it again mails a way into the blog that now owns it.
                 takenEmail = true
             }
         }
@@ -76,8 +80,9 @@ final class Blog {
         }
     }
 
-    /// For a camera with no blog yet: name the blog by its owner's address.
-    func signIn(email: String) {
+    /// The one question asked of an unbound camera: the owner's address. The server mails a way into the
+    /// blog that address already owns, or a way to confirm it and start one, and says nothing about which.
+    func useAddress(_ email: String) {
         perform { [self] in
             try await server.requestClaim(email: email.trimmed)
             askedToBeLetIn = true
@@ -157,15 +162,13 @@ final class Blog {
         }
     }
 
+    /// Asked for the moment the step opens: the screen already says it is waiting, so there
+    /// is nothing left for a button to add.
     func requestAvatar() {
-        perform { [self] in
-            _ = try await server.requestAvatar()
-            awaitingAvatar = true
-        }
+        perform { [self] in _ = try await server.requestAvatar() }
     }
 
     func avatarTaken() {
-        awaitingAvatar = false
         refresh()
     }
 
@@ -176,7 +179,6 @@ final class Blog {
         askedToBeLetIn = asked
         made = Demo.made
         availability = Demo.availability
-        awaitingAvatar = Demo.name == "avatar-waiting"
         takenEmail = Demo.takenEmail
         error = Demo.blogError
     }

@@ -1,0 +1,24 @@
+/* The two pages nobody visits on purpose, set like the teaser that sends them here:
+   the same paper, the same face, one column wide enough to read and no wider. */
+@font-face{font-family:"PP Neue Montreal Book";
+  src:url("fonts/ppneuemontreal-book.woff") format("woff");
+  font-weight:400; font-style:normal; font-display:swap}
+@font-face{font-family:"PP Neue Montreal Bold";
+  src:url("fonts/ppneuemontreal-bold.woff") format("woff");
+  font-weight:700; font-style:normal; font-display:swap}
+:root{--ink:#000;--paper:#ddd;
+  --font:"PP Neue Montreal Book","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --font-bold:"PP Neue Montreal Bold","PP Neue Montreal Book","Helvetica Neue",Helvetica,Arial,sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--paper);color:var(--ink)}
+body{font-family:var(--font);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;
+     -webkit-text-size-adjust:100%;text-size-adjust:100%}
+main{max-width:620px;margin:0 auto;padding:clamp(28px,7vw,72px) clamp(20px,5vw,40px) 72px}
+h1{font-family:var(--font-bold);font-weight:700;font-size:40px;line-height:.92;letter-spacing:-.02em;margin:0 0 6px}
+h2{font-family:var(--font-bold);font-weight:700;font-size:18px;margin:34px 0 6px}
+p,li{margin:0 0 12px}
+ul{padding-left:20px}
+a{color:inherit}
+.when{font-size:12px;letter-spacing:.09em;text-transform:uppercase;margin:0 0 28px}
+nav{font-size:12px;letter-spacing:.09em;text-transform:uppercase;margin-top:44px;border-top:1px solid var(--ink);padding-top:14px}
+nav a{margin-right:14px;text-decoration:none}

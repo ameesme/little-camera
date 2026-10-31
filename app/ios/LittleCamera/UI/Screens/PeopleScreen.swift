@@ -33,6 +33,8 @@ struct PeopleScreen: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Ground())
             .environment(\.defaultMinListRowHeight, 56)
             .navigationTitle("People")
             .navigationBarTitleDisplayMode(.inline)
@@ -125,7 +127,7 @@ struct AddPersonScreen: View {
                 Text("Who is reading?")
                     .font(Theme.font(30, bold: true))
                     .kerning(-1)
-                Text("They get an email with the address and nothing else.")
+                Text("They get an email when you take a photo and can see previous ones.")
                     .font(Theme.lead)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, Theme.pad)

@@ -32,14 +32,45 @@ export function subscriberLink(env: Env, blog: BlogRow, subscriber: SubscriberRo
   return newest ? `${base}/p/${newest.public_id}?t=${token}` : `${base}/?t=${token}`;
 }
 
+/**
+ * The way off the list, in every mail that goes on it. It carries a `subscriber` token like
+ * the reading links do, and the page it opens asks before it does anything, because a mail
+ * client that prefetches links must not be able to unsubscribe anyone by looking.
+ */
+export function unsubscribeLink(env: Env, blog: BlogRow, subscriber: SubscriberRow): string {
+  const { token } = createToken(env, {
+    kind: 'subscriber',
+    blogId: blog.id,
+    subscriberId: subscriber.id,
+    photoId: null,
+  });
+  return `${blogUrl(env.config, blog.handle)}/unsubscribe?t=${token}`;
+}
+
 function sendWelcome(env: Env, subscriber: SubscriberRow): void {
   const blog = findBlogById(env.db, subscriber.blog_id);
   if (!blog) return;
-  queueEmail(env, subscriber.email, welcomeMail({ ownerName: blog.name, url: subscriberLink(env, blog, subscriber) }));
+  queueEmail(
+    env,
+    subscriber.email,
+    welcomeMail({
+      ownerName: blog.name,
+      url: subscriberLink(env, blog, subscriber),
+      unsubscribeUrl: unsubscribeLink(env, blog, subscriber),
+    }),
+  );
 }
 
 export function sendFreshLink(env: Env, blog: BlogRow, subscriber: SubscriberRow): void {
-  queueEmail(env, subscriber.email, freshLinkMail({ ownerName: blog.name, url: subscriberLink(env, blog, subscriber) }));
+  queueEmail(
+    env,
+    subscriber.email,
+    freshLinkMail({
+      ownerName: blog.name,
+      url: subscriberLink(env, blog, subscriber),
+      unsubscribeUrl: unsubscribeLink(env, blog, subscriber),
+    }),
+  );
 }
 
 /** Approving twice is a no-op, so a double tap cannot send two welcome links. */
@@ -76,10 +107,18 @@ export function add(env: Env, blog: BlogRow, email: string, name: string | null)
   return { subscriber, created: true };
 }
 
-/** A visitor asking to be let in. Blocked people get the same answer as pending ones. */
+/**
+ * A visitor asking to be let in. Blocked people get the same answer as pending ones, and
+ * someone already on the list gets a fresh link rather than being told to go find the old
+ * one — that one box on the blog is the whole of logging in, so it has to do both.
+ */
 export function join(env: Env, blog: BlogRow, email: string): JoinOutcome {
   const existing = findSubscriberByEmail(env.db, blog.id, email);
-  if (existing) return existing.status === 'approved' ? 'already' : 'pending';
+  if (existing) {
+    if (existing.status !== 'approved') return 'pending';
+    sendFreshLink(env, blog, existing);
+    return 'already';
+  }
   createSubscriber(env.db, { blogId: blog.id, email, name: null, status: 'pending', addedBy: 'self', now: env.now() });
   queueEmail(env, blog.email, newSubscriberMail({ ownerName: blog.name, email }));
   return 'sent';
