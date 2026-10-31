@@ -25,6 +25,15 @@ export function createApp(env: Env): Hono {
     return c.text('Something broke.', 500);
   });
 
+  app.get('/caddy/ask', (c) => {
+    const domain = c.req.query('domain') ?? '';
+    if (domain === env.config.baseDomain) return c.text('ok');
+    const handle = handleFromHost(domain, env.config.baseDomain);
+    if (!handle || RESERVED_HANDLES.has(handle)) return c.text('no', 404);
+    const blog = findBlogByHandle(env.db, handle);
+    return blog?.email_verified_at ? c.text('ok') : c.text('no', 404);
+  });
+
   app.all('*', (c) => {
     const host = (c.req.header('host') ?? new URL(c.req.url).host).toLowerCase();
     if (host === env.config.baseDomain) return owner.fetch(c.req.raw);

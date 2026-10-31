@@ -1,10 +1,9 @@
 # Little Camera micro-blog on one VPS.
 #
-#   cp .env.example .env   # fill in DOMAIN, SESSION_SECRET, SMTP_URL, DNS token
+#   cp .env.example .env   # fill in DOMAIN, SESSION_SECRET, SMTP_URL
 #   docker compose up -d --build
 #
-# Caddy terminates TLS for the apex and every subdomain with one wildcard
-# certificate. Wildcards need the DNS-01 challenge via Vercel DNS (VERCEL_API_TOKEN).
+# Caddy terminates TLS for the apex and per-subdomain certs via on-demand TLS.
 #
 # On the shared domain Caddy forwards only /api/* and /app/* here; the root is the landing page from LANDING_DIR.
 
@@ -32,9 +31,7 @@ services:
       - "3000"
 
   caddy:
-    build:
-      context: .
-      dockerfile: Dockerfile.caddy
+    image: caddy:2
     restart: unless-stopped
     depends_on:
       - server
@@ -45,7 +42,6 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
-      VERCEL_API_TOKEN: ${VERCEL_API_TOKEN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ${LANDING_DIR:-../../site}:/srv/landing:ro

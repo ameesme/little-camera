@@ -1,12 +1,12 @@
 {
 	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://server:3000/caddy/ask
+	}
 }
 
 # Adding a path to `@app` hands away URL space the landing page owns, so mount new routes under /api or /app instead.
 {$DOMAIN} {
-	tls {
-		dns vercel {$VERCEL_API_TOKEN}
-	}
 	encode gzip
 
 	@app path /api/* /app/*
@@ -19,11 +19,10 @@
 	}
 }
 
-# Blogs. Each one owns the root of its own subdomain, so there is nothing to
-# split here; the wildcard certificate covers them all.
+# Blogs. Per-subdomain certs via TLS-ALPN, no DNS plugin needed.
 *.{$DOMAIN} {
 	tls {
-		dns vercel {$VERCEL_API_TOKEN}
+		on_demand
 	}
 	encode gzip
 	reverse_proxy server:3000
