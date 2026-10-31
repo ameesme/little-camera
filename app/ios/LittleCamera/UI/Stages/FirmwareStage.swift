@@ -17,6 +17,9 @@ struct FirmwareStage: View {
                 Text("This will only take a minute or so.")
                 ProgressRule(fraction: model.firmware.fraction)
                     .padding(.top, 4)
+                    .task(id: charged) {
+                        if !model.firmware.isRunning { model.firmware.send(to: model.camera) }
+                    }
             } else {
                 Text("Charge little camera for a few minutes to continue.")
             }
