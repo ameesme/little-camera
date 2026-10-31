@@ -120,7 +120,8 @@ const BLOG_SCRIPT = `
         body:JSON.stringify({email:email.value})})
         .then(function(r){return r.json()})
         .then(function(j){
-          row.querySelector('h2').textContent=j.state==='already'?'You got mail':'Ask sent';
+          var name=row.querySelector('h2').textContent.replace('Read ','').split('’')[0];
+          row.querySelector('h2').textContent=j.state==='already'?'You got mail':'Asked '+name;
           row.querySelector('p').textContent=j.state==='already'
             ?'Use the link from your email to log in.'
             :'If they let you in, you will get an email.';
