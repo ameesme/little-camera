@@ -235,13 +235,13 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
     if (claimState(camera) !== 'approved') return c.json(error('unclaimed', 'The owner has not let this phone in'), 403);
     const raw = c.req.query('before');
     const parts = raw?.split('.').map(Number);
-    const before = parts?.length === 2 && parts.every(Number.isInteger) ? { uploadedAt: parts[0], id: parts[1] } : undefined;
+    const before = parts?.length === 2 && parts.every(Number.isInteger) ? { capturedAt: parts[0], id: parts[1] } : undefined;
     const photos = feed(env, blog, FEED_PAGE + 1, before);
     const page = photos.slice(0, FEED_PAGE);
     const last = page[page.length - 1];
     return c.json({
       photos: page,
-      next: photos.length > FEED_PAGE && last ? `${last.uploaded_at}.0` : null,
+      next: photos.length > FEED_PAGE && last ? `${last.captured_at}.0` : null,
     });
   });
 

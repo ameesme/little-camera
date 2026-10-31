@@ -51,8 +51,8 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
   }
 
   /** Starting at a photo means "everything from there on", so an emailed link opens on its picture without a scroll script. */
-  function feed(blog: BlogRow, viewer: Viewer, opts: { before?: { uploadedAt: number; id: number }; notice?: string; startAt?: PhotoRow }) {
-    const before = opts.startAt ? { uploadedAt: opts.startAt.uploaded_at, id: opts.startAt.id + 1 } : opts.before;
+  function feed(blog: BlogRow, viewer: Viewer, opts: { before?: { capturedAt: number; id: number }; notice?: string; startAt?: PhotoRow }) {
+    const before = opts.startAt ? { capturedAt: opts.startAt.captured_at, id: opts.startAt.id + 1 } : opts.before;
     const photos = feedPage(env.db, blog.id, PAGE_SIZE + 1, before);
     const page = photos.slice(0, PAGE_SIZE);
     const last = page[page.length - 1];
@@ -64,7 +64,7 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
         avatarUrl={`${blogUrl(env.config, blog.handle)}/avatar.png`}
         blogRoot={`${blogUrl(env.config, blog.handle)}/`}
         articles={articles(blog, page)}
-        moreHref={photos.length > PAGE_SIZE && last ? `/?before=${last.uploaded_at}&bid=${last.id}` : null}
+        moreHref={photos.length > PAGE_SIZE && last ? `/?before=${last.captured_at}&bid=${last.id}` : null}
         notice={opts.notice}
       />
     );
@@ -102,7 +102,7 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
     if (viewer.kind === 'anonymous') return c.html(teaser(blog, notice));
     const beforeAt = Number(c.req.query('before'));
     const beforeId = Number(c.req.query('bid'));
-    const before = beforeAt > 0 && beforeId > 0 ? { uploadedAt: beforeAt, id: beforeId } : undefined;
+    const before = beforeAt > 0 && beforeId > 0 ? { capturedAt: beforeAt, id: beforeId } : undefined;
     return c.html(feed(blog, viewer, { before, notice }));
   });
 

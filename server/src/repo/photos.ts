@@ -84,33 +84,32 @@ export function newestFeedPhoto(db: Db, blogId: number): PhotoRow | null {
   return (
     (db
       .prepare(
-        `SELECT * FROM photos WHERE blog_id = ? AND ${FEED_KINDS_SQL} ORDER BY uploaded_at DESC, id DESC LIMIT 1`,
+        `SELECT * FROM photos WHERE blog_id = ? AND ${FEED_KINDS_SQL} ORDER BY captured_at DESC, id DESC LIMIT 1`,
       )
       .get(blogId) as PhotoRow | undefined) ?? null
   );
 }
 
-/** Newest first by upload time, not capture time, so a photo synced late still arrives at the top. */
 export function feedPage(
   db: Db,
   blogId: number,
   limit: number,
-  before?: { uploadedAt: number; id: number },
+  before?: { capturedAt: number; id: number },
 ): PhotoRow[] {
   if (before) {
     return db
       .prepare(
         `SELECT * FROM photos
          WHERE blog_id = ? AND ${FEED_KINDS_SQL}
-           AND (uploaded_at < ? OR (uploaded_at = ? AND id < ?))
-         ORDER BY uploaded_at DESC, id DESC LIMIT ?`,
+           AND (captured_at < ? OR (captured_at = ? AND id < ?))
+         ORDER BY captured_at DESC, id DESC LIMIT ?`,
       )
-      .all(blogId, before.uploadedAt, before.uploadedAt, before.id, limit) as unknown as PhotoRow[];
+      .all(blogId, before.capturedAt, before.capturedAt, before.id, limit) as unknown as PhotoRow[];
   }
   return db
     .prepare(
       `SELECT * FROM photos WHERE blog_id = ? AND ${FEED_KINDS_SQL}
-       ORDER BY uploaded_at DESC, id DESC LIMIT ?`,
+       ORDER BY captured_at DESC, id DESC LIMIT ?`,
     )
     .all(blogId, limit) as unknown as PhotoRow[];
 }

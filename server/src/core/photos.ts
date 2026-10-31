@@ -155,7 +155,7 @@ export function removePhoto(env: Env, photo: PhotoRow): void {
   deletePhoto(env.db, photo.id);
 }
 
-export function feed(env: Env, blog: BlogRow, limit: number, before?: { uploadedAt: number; id: number }): FeedPhoto[] {
+export function feed(env: Env, blog: BlogRow, limit: number, before?: { capturedAt: number; id: number }): FeedPhoto[] {
   const photos = feedPage(env.db, blog.id, limit, before);
   const comments = commentsForPhotos(env.db, photos.map((p) => p.id), blog.name);
   const base = blogUrl(env.config, blog.handle);
