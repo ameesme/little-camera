@@ -15,10 +15,8 @@ export const CSS = `
 
   .wrap{max-width:440px;margin:0 auto;min-height:100vh;border-left:var(--rule);border-right:var(--rule)}
   @media (max-width:460px){.wrap{border-left:0;border-right:0}}
-  /* Whole photo pixels at 1× or 2×. Keep the frame outside the column so
-     its borders cannot subtract pixels from the 320px image grid. */
-  .wrap:has(#feed){box-sizing:content-box;width:320px;max-width:none}
-  @media (min-width:642px){.wrap:has(#feed){width:640px}}
+  /* The blog fills the viewport; only photos snap to whole pixels at 1× or 2×. */
+  .wrap:has(#feed){width:100%;max-width:none;border:0}
 
   header{position:sticky;top:0;z-index:10;background:var(--paper);border-bottom:var(--rule);
          display:flex;align-items:center;gap:10px;padding:10px var(--pad)}
@@ -41,8 +39,9 @@ export const CSS = `
   article{border-bottom:var(--rule)}
   .meta{padding:9px var(--pad) 8px;font-size:10px;letter-spacing:.11em;text-transform:uppercase;
         display:flex;gap:0 7px}
-  .shot{box-sizing:content-box;display:block;width:100%;height:auto;image-rendering:pixelated;
+  .shot{box-sizing:content-box;display:block;width:320px;margin:0 auto;height:auto;image-rendering:pixelated;
         border-top:var(--rule);border-bottom:var(--rule)}
+  @media (min-width:640px){.shot{width:640px}}
 
   .comments{padding:10px var(--pad) 10px;font-size:13.5px}
   .comments ul{margin:0;padding:0}
