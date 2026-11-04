@@ -370,9 +370,7 @@ static void testChirp() {
 
 static const uint32_t H = 3600;
 
-// Runs the mood machine at 5s ticks (the VCOM cadence) from `from` to `to`
-// seconds of uptime, playing whatever is due; returns the number of chirps
-// and records their times.
+// Use 5s breath ticks or 60s long-sleep ticks, recording every due chirp.
 struct Sim {
     Mood::State s;
     Mood::Clock c;
@@ -381,15 +379,15 @@ struct Sim {
     Mood::Due kinds[512];
     int n = 0;
     Sim(uint32_t seed) : rng(seed) { s = Mood::State(); c.uptimeS = 0; c.epoch = 0; c.tzMin = 0; c.tzKnown = false; }
-    void run(uint32_t to) {
-        for (; c.uptimeS <= to; c.uptimeS += 5) {
-            if (c.epoch) c.epoch += 5;
+    void run(uint32_t to, uint32_t step = 5) {
+        for (; c.uptimeS <= to; c.uptimeS += step) {
             Mood::Due d = Mood::poll(s, c, rng);
             if (d != Mood::Due::None) {
                 if (n < 512) { times[n] = c.uptimeS; kinds[n] = d; }
                 n++;
                 Mood::onChirpPlayed(s, c, d, rng);
             }
+            if (c.epoch) c.epoch += step;
         }
     }
 };
@@ -404,64 +402,90 @@ static void testMood() {
     CHECK(Chirp::band(Mood::happinessFor(3 * 24 * H)) == 2);
     CHECK(Chirp::band(Mood::happinessFor(6 * 24 * H)) == 0);
 
-    // A month without a photo, no wall clock
+    // A month at the real long-sleep cadence: 3 or 4 appointments every day.
     for (uint32_t seed = 1; seed <= 20; seed++) {
         Sim sim(seed);
         Mood::onPhoto(sim.s, sim.c, sim.rng);
         CHECK(Mood::happiness(sim.s, sim.c) == 255);
-        sim.run(30 * 24 * H);
-        CHECK(sim.n >= 2 && sim.n <= 512);
-        // The one-hour chirp, once, in the window
-        CHECK(sim.kinds[0] == Mood::Due::HourChirp);
-        CHECK(sim.times[0] >= Mood::HOUR_CHIRP_MIN_S && sim.times[0] <= Mood::HOUR_CHIRP_MAX_S + 5);
+        sim.run(30 * Mood::DAY_S - 60, 60);
+        CHECK(sim.n <= 512);
+        int daily[30] = {};
         int hourChirps = 0;
-        for (int i = 0; i < sim.n; i++) if (sim.kinds[i] == Mood::Due::HourChirp) hourChirps++;
-        CHECK(hourChirps == 1);
-        // Nothing else before 24h; first attention within 8h after; then 12-20h apart
-        CHECK(sim.n >= 2);
-        CHECK(sim.times[1] >= Mood::ATTENTION_AFTER_S);
-        CHECK(sim.times[1] <= Mood::ATTENTION_AFTER_S + Mood::FIRST_INTERVAL_MAX_S + 10);
-        for (int i = 2; i < sim.n; i++) {
-            uint32_t gap = sim.times[i] - sim.times[i - 1];
-            CHECK(gap >= Mood::INTERVAL_MIN_S && gap <= Mood::INTERVAL_MAX_S + 10);
+        for (int i = 0; i < sim.n; ++i) {
+            if (sim.kinds[i] == Mood::Due::HourChirp) {
+                ++hourChirps;
+                CHECK(sim.times[i] >= Mood::HOUR_CHIRP_MIN_S && sim.times[i] <= Mood::HOUR_CHIRP_MAX_S + 60);
+            } else ++daily[sim.times[i] / Mood::DAY_S];
         }
-        // Never more than two in any 24h window
-        for (int i = 1; i < sim.n; i++)
-            for (int j = i + 2; j < sim.n; j++)
-                if (sim.times[j] - sim.times[i] < 24 * H) CHECK(false);
+        CHECK(hourChirps == 1);
+        bool sawThree = false, sawFour = false;
+        for (int n : daily) {
+            CHECK(n == 3 || n == 4);
+            sawThree |= n == 3;
+            sawFour |= n == 4;
+        }
+        CHECK(sawThree && sawFour);
         CHECK(Mood::happiness(sim.s, sim.c) == 0);
     }
 
-    // Night rule with a clock and a timezone: nothing between 22:00 and 08:00 local,
-    // deferred chirps land 08:00-10:00.
-    for (uint32_t seed = 1; seed <= 10; seed++) {
-        Sim sim(seed);
-        sim.c.epoch = 1700000000;  // 2023-11-14 22:13:20 UTC
-        sim.c.tzMin = 60;          // 23:13 local
-        sim.c.tzKnown = true;
-        Mood::onPhoto(sim.s, sim.c, sim.rng);
-        sim.run(20 * 24 * H);
-        CHECK(sim.n >= 2);
-        // The one-hour chirp at ~00:13 local is night: swallowed, not deferred
-        for (int i = 0; i < sim.n; i++) CHECK(sim.kinds[i] != Mood::Due::HourChirp);
-        for (int i = 0; i < sim.n; i++) {
-            uint32_t epoch = 1700000000 + sim.times[i];
-            uint32_t sod = (uint32_t)(((int64_t)epoch + 3600) % 86400);
-            uint32_t hour = sod / 3600;
-            CHECK(hour >= 8 && hour < 22);
+    // Daily photos leave the local-day appointments alone, including negative offsets.
+    const uint32_t midnight = 1700006400;
+    const int16_t offsets[] = {-420, 60, 330};
+    for (int16_t tz : offsets) {
+        for (uint32_t seed = 1; seed <= 10; ++seed) {
+            Sim sim(seed);
+            sim.c.epoch = midnight - tz * 60;
+            sim.c.tzMin = tz;
+            sim.c.tzKnown = true;
+            for (uint32_t day = 0; day < 20; ++day) {
+                sim.run(day * Mood::DAY_S + 10 * H - 60, 60);
+                Mood::Daily before = sim.s.daily;
+                Mood::onPhoto(sim.s, sim.c, sim.rng);
+                CHECK(sim.s.daily.next == before.next && sim.s.daily.count == before.count);
+                for (uint8_t j = 0; j < before.count; ++j) CHECK(sim.s.daily.atS[j] == before.atS[j]);
+                sim.run((day + 1) * Mood::DAY_S - 60, 60);
+            }
+            int daily[20] = {};
+            int hourChirps = 0;
+            for (int i = 0; i < sim.n; ++i) {
+                uint32_t sod = sim.times[i] % Mood::DAY_S;
+                CHECK(sod >= 8 * H && sod < 22 * H);
+                if (sim.kinds[i] == Mood::Due::Attention) ++daily[sim.times[i] / Mood::DAY_S];
+                else {
+                    ++hourChirps;
+                    CHECK(sod >= 10 * H + Mood::HOUR_CHIRP_MIN_S && sod <= 10 * H + Mood::HOUR_CHIRP_MAX_S);
+                }
+            }
+            CHECK(hourChirps == 20);
+            for (int n : daily) CHECK(n == 3 || n == 4);
         }
-        for (int i = 1; i < sim.n; i++)
-            for (int j = i + 2; j < sim.n; j++)
-                if (sim.times[j] - sim.times[i] < 24 * H) CHECK(false);
     }
-    // The one-hour chirp survives when it falls in daytime
+    // A late-night photo's hour chirp is swallowed; attention chirps resume in daytime.
     {
         Sim sim(3);
-        sim.c.epoch = 1700000000 + 12 * H;  // 11:13 local
-        sim.c.tzMin = 60; sim.c.tzKnown = true;
+        sim.c.epoch = midnight + 23 * H;
+        sim.c.tzKnown = true;
         Mood::onPhoto(sim.s, sim.c, sim.rng);
-        sim.run(2 * H);
-        CHECK(sim.n == 1 && sim.kinds[0] == Mood::Due::HourChirp);
+        sim.run(Mood::DAY_S, 60);
+        CHECK(sim.n >= 3 && sim.n <= 4);
+        for (int i = 0; i < sim.n; ++i) CHECK(sim.kinds[i] == Mood::Due::Attention);
+    }
+    // Quiet-screen delays coalesce missed appointments instead of producing a burst.
+    {
+        Sim sim(4);
+        Mood::boot(sim.s, sim.c, nullptr, 0, sim.rng);
+        Mood::poll(sim.s, sim.c, sim.rng);
+        sim.s.hourChirpAtS = 0;
+        sim.s.daily.count = 3;
+        sim.s.daily.next = 0;
+        sim.s.daily.atS[0] = 2 * H;
+        sim.s.daily.atS[1] = 4 * H;
+        sim.s.daily.atS[2] = 6 * H;
+        sim.c.uptimeS = 7 * H;
+        CHECK(Mood::poll(sim.s, sim.c, sim.rng) == Mood::Due::Attention);
+        CHECK(Mood::poll(sim.s, sim.c, sim.rng) == Mood::Due::Attention);
+        Mood::onChirpPlayed(sim.s, sim.c, Mood::Due::Attention, sim.rng);
+        CHECK(Mood::poll(sim.s, sim.c, sim.rng) == Mood::Due::None);
     }
 
     // Persist and resume without a clock: powered-off time does not count
@@ -476,6 +500,10 @@ static void testMood() {
         Mood::boot(b.s, b.c, &p, 0, b.rng);
         CHECK(Mood::elapsed(b.s, b.c) == p.elapsedS);
         CHECK(b.s.hourChirpAtS == 0);  // Already played before the reset
+        Mood::poll(b.s, b.c, b.rng);
+        CHECK(b.s.daily.next == a.s.daily.next && b.s.daily.count == a.s.daily.count);
+        for (uint8_t j = 0; j < a.s.daily.count; ++j) CHECK(b.s.daily.atS[j] == a.s.daily.atS[j]);
+        CHECK(Mood::detail::dailyNow(b.s, b.c) == p.daily.nowS);
         // With a clock and a known photo epoch, the wall clock wins
         Sim c2(9);
         c2.c.epoch = 1700000000;
@@ -516,6 +544,76 @@ static void testMood() {
         h.c.uptimeS += 100;
         h.c.epoch += 100 + 24 * H;  // The wall clock jumped forward a day
         CHECK(Mood::elapsed(h.s, h.c) == 5 * H + 100 + 24 * H);
+    }
+    // Upgrading v1 preserves mood and the extra hour chirp, replacing the old schedule.
+    {
+        Mood::LegacyPersisted old = {1, 1700000000, 3 * Mood::DAY_S, 3600, 999999};
+        Mood::Persisted p = Mood::migrate(old);
+        Sim sim(17);
+        Mood::boot(sim.s, sim.c, &p, 0, sim.rng);
+        CHECK(sim.s.lastPhotoEpoch == old.lastPhotoEpoch);
+        CHECK(Mood::elapsed(sim.s, sim.c) == old.elapsedS);
+        CHECK(sim.s.hourChirpAtS == old.hourChirpAtS);
+        Mood::poll(sim.s, sim.c, sim.rng);
+        CHECK(sim.s.daily.count == 3 || sim.s.daily.count == 4);
+        CHECK(Mood::persistDue(sim.s, sim.c));
+    }
+    // Switching to local time skips old slots; a reboot keeps that schedule without a phone.
+    {
+        Sim sim(18);
+        Mood::boot(sim.s, sim.c, nullptr, 0, sim.rng);
+        sim.run(2 * H);
+        sim.c.epoch = midnight + 23 * H;
+        sim.c.tzKnown = true;
+        Mood::onClockSet(sim.s, sim.c);
+        CHECK(Mood::poll(sim.s, sim.c, sim.rng) == Mood::Due::None);
+        CHECK(sim.s.daily.local && sim.s.daily.next == sim.s.daily.count);
+        Mood::Persisted p = Mood::snapshot(sim.s, sim.c);
+        Sim reboot(19);
+        Mood::boot(reboot.s, reboot.c, &p, 0, reboot.rng);
+        CHECK(Mood::poll(reboot.s, reboot.c, reboot.rng) == Mood::Due::None);
+        CHECK(reboot.s.daily.next == p.daily.next);
+        reboot.run(12 * H, 60);
+        for (int i = 0; i < reboot.n; ++i) CHECK((23 * H + reboot.times[i]) % Mood::DAY_S >= 8 * H);
+    }
+    // A timer waking just after midnight must not lose a midnight appointment.
+    {
+        Sim sim(20);
+        Mood::boot(sim.s, sim.c, nullptr, 0, sim.rng);
+        sim.run(Mood::DAY_S - 60, 60);
+        sim.c.uptimeS += 17;
+        bool sawMidnight = false;
+        for (uint32_t seed = 1; seed <= 2000 && !sawMidnight; ++seed) {
+            Sim next(seed);
+            next.s = sim.s;
+            next.c = sim.c;
+            Mood::Due due = Mood::poll(next.s, next.c, next.rng);
+            if (next.s.daily.atS[0] == 0) {
+                sawMidnight = true;
+                CHECK(due == Mood::Due::Attention);
+            }
+        }
+        CHECK(sawMidnight);
+    }
+    // Resuming a local day with a clock neither re-rolls nor repeats paid appointments.
+    {
+        Sim sim(21);
+        sim.c.epoch = midnight;
+        sim.c.tzKnown = true;
+        sim.run(15 * H, 60);
+        Mood::Persisted p = Mood::snapshot(sim.s, sim.c);
+        Sim resumed(22);
+        resumed.c.epoch = sim.c.epoch;
+        resumed.c.tzKnown = true;
+        Mood::boot(resumed.s, resumed.c, &p, 0, resumed.rng);
+        Mood::poll(resumed.s, resumed.c, resumed.rng);
+        CHECK(resumed.s.daily.next == p.daily.next && resumed.s.daily.count == p.daily.count);
+        for (uint8_t j = 0; j < p.daily.count; ++j) CHECK(resumed.s.daily.atS[j] == p.daily.atS[j]);
+        resumed.c.epoch += 3 * Mood::DAY_S;
+        Mood::poll(resumed.s, resumed.c, resumed.rng);
+        CHECK(resumed.s.daily.day == p.daily.day + 3);
+        if (resumed.s.daily.next < resumed.s.daily.count)
+            CHECK(resumed.s.daily.atS[resumed.s.daily.next] >= resumed.c.epoch % Mood::DAY_S);
     }
     // Persist cadence
     {

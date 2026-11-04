@@ -54,6 +54,47 @@ static void checkButton(int x, int y, int h, uint32_t threshold) {
         assert(!memcmp(photo, Display::photoBits(), sizeof(photo)));
     }
     assert(SimPanel::protocolErrors() == 0);
+    for (uint8_t band = 0; band < 4; band++) {
+        Display::drawAwake(band * 64);
+        memcpy(before, SimPanel::pixels(), PIXELS);
+        Display::drawWakeExit(band * 64, 0);
+        assert(!memcmp(before, SimPanel::pixels(), PIXELS));
+        uint32_t sent = SimPanel::bytesWritten();
+        Display::drawWakeExit(band * 64, 0.25f);
+        assert(SimPanel::bytesWritten() - sent < (240 * 52 + 2) * 2 / 3);
+        for (int y = 0; y < 180; y++) {
+            for (int x = 80; x < 320; x++) {
+                assert(SimPanel::pixels()[y * 400 + x] == before[(y + 60) * 400 + x]);
+            }
+        }
+        Display::drawWakeExit(band * 64, 1);
+        for (int y = 0; y < 180; y++) {
+            for (int x = 80; x < 320; x++) assert(SimPanel::pixels()[y * 400 + x] == 1);
+        }
+        Sim::setMillis(0);
+        Display::setFaceBand(band);
+        Display::drawViewfinder(source, 320, 240);
+        memcpy(before, SimPanel::pixels(), PIXELS);
+        memcpy(photo, Display::photoBits(), sizeof(photo));
+        Display::drawWakeEnter(source, 320, 240, 0);
+        int white = 0;
+        for (int y = 16; y < 34; y++) {
+            for (int x = 25; x < 55; x++) white += SimPanel::pixels()[y * 400 + x];
+        }
+        assert(white == 0);
+        const float steps[] = {0.25f, 0.5f, 0.75f, 1.0f};
+        for (float t : steps) {
+            sent = SimPanel::bytesWritten();
+            Display::drawWakeEnter(nullptr, 320, 240, t);
+            assert(SimPanel::bytesWritten() - sent < (240 * 52 + 2) / 5);
+            assert(!memcmp(photo, Display::photoBits(), sizeof(photo)));
+            for (int i = 0; i < PIXELS; i++) {
+                if (i % 400 >= 75 || i / 400 >= 45) assert(SimPanel::pixels()[i] == before[i]);
+            }
+        }
+        assert(!memcmp(before, SimPanel::pixels(), PIXELS));
+    }
+    assert(SimPanel::protocolErrors() == 0);
 }
 
 int main() {
@@ -131,5 +172,70 @@ int main() {
     memcpy(before, SimPanel::pixels(), PIXELS);
     Display::drawHoldProgress(700, 700);
     assert(!memcmp(before, SimPanel::pixels(), PIXELS));
-    puts("ok: horizontal fill, border, cancellation, completion latch, press flash, photo preservation and SPI protocol");
+    Display::drawSleep();
+    memcpy(before, SimPanel::pixels(), PIXELS);
+    const uint32_t wakeSamples[] = {0, 200, 600, 1000};
+    for (uint32_t elapsed : wakeSamples) {
+        Display::drawWakeProgress(elapsed, 1000);
+        const int filled = elapsed <= 200 ? 0 : elapsed == 600 ? 120 : 240;
+        for (int i = 0; i < PIXELS; i++) {
+            assert(SimPanel::pixels()[i] == (before[i] ^ (i / Display::WIDTH >= 240 - filled)));
+        }
+    }
+    Display::drawSleep();
+    assert(!memcmp(before, SimPanel::pixels(), PIXELS));
+    Display::drawWakeProgress(600, 1000);
+    memcpy(full, SimPanel::pixels(), PIXELS);
+    Display::drawWakeProgress(600, 1000);
+    assert(!memcmp(full, SimPanel::pixels(), PIXELS));
+    Display::clearWakeProgress();
+    Display::drawSleep();
+    assert(!memcmp(before, SimPanel::pixels(), PIXELS));
+    Display::drawAwake();
+    const int eyeCenters[] = {128, 272};
+    for (int center : eyeCenters) {
+        for (int y = 96; y < 128; y++) {
+            for (int x = center - 24; x < center + 24; x++) {
+                const bool middle = x >= center - 8 && x < center + 8;
+                const bool eye = y < 112 ? middle : !middle;
+                assert(SimPanel::pixels()[y * 400 + x] == !eye);
+            }
+        }
+    }
+    for (int y = 140; y < 180; y++) {
+        for (int x = 150; x < 250; x++) {
+            assert(SimPanel::pixels()[y * 400 + x] == !before[y * 400 + x]);
+        }
+    }
+    assert(SimPanel::pixels()[0] == 1);
+    for (uint8_t band = 0; band < 4; band++) {
+        Display::drawSleep(band * 64);
+        memcpy(before, SimPanel::pixels(), PIXELS);
+        Display::drawAwake(band * 64);
+        for (int y = 140; y < 180; y++) {
+            for (int x = 150; x < 250; x++) {
+                assert(SimPanel::pixels()[y * 400 + x] == !before[y * 400 + x]);
+            }
+        }
+        Sim::setMillis(0);
+        Display::setFaceBand(band);
+        Display::drawViewfinder(source, 320, 240);
+        int eyePixels = 0;
+        for (int y = 17; y < 23; y++) {
+            for (int x = 26; x < 54; x++) eyePixels += SimPanel::pixels()[y * 400 + x];
+        }
+        assert(eyePixels == ((band == 0 || band == 3) ? 54 : 36));
+        if (band == 3) {
+            assert(SimPanel::pixels()[18 * 400 + 31] == 1);
+            assert(SimPanel::pixels()[21 * 400 + 31] == 0);
+        }
+        if (band == 2) assert(SimPanel::pixels()[18 * 400 + 31] == 1);
+        if (band == 1) assert(SimPanel::pixels()[18 * 400 + 31] == 0);
+        if (band == 0) {
+            assert(SimPanel::pixels()[21 * 400 + 28] == 1);
+            assert(SimPanel::pixels()[21 * 400 + 52] == 1);
+        }
+    }
+    assert(SimPanel::protocolErrors() == 0);
+    puts("ok: button feedback, bottom-up wake fill, cancellation, aligned awake eyes, mouth preservation and SPI protocol");
 }

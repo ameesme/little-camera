@@ -160,6 +160,9 @@ static void usage(const char* argv0) {
         "  slide        one frame of the capture -> save slide (see --t)\n"
         "  toast        viewfinder with the 'press to shoot' hint\n"
         "  sleep        sleep face (see --happiness/--breath)\n"
+        "  wake-hold    bottom-up sleep inversion (see --hold-ms, threshold 1000ms)\n"
+        "  wake-awake   completed wake hold with awake eyes\n"
+        "  wake-exit, wake-enter  face sliding up, then into the sidebar (see --t)\n"
         "  sleep-content, sleep-glum, sleep-sad, sleep-breath  the other faces and the breath frame\n"
         "  sleep-battery  sleep face with the debug battery readout\n"
         "  splash       boot splash\n"
@@ -264,6 +267,7 @@ int main(int argc, char** argv) {
     Display::init(PIN_SCLK, PIN_MOSI, PIN_CS, PIN_DISP);
 
     Sim::setMillis(at);
+    Display::setFaceBand((uint8_t)happiness >> 6);
 
     if (!strcmp(scene, "viewfinder")) {
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
@@ -284,6 +288,16 @@ int main(int argc, char** argv) {
         Display::showToast("press to shoot", Display::ToastHAlign::Right,
                            Display::ToastVAlign::Top, false, 0);
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
+    } else if (!strcmp(scene, "wake-hold")) {
+        Display::drawSleep((uint8_t)happiness, breath);
+        Display::drawWakeProgress(holdMs, 1000);
+        if (holdReset) Display::drawSleep((uint8_t)happiness, breath);
+    } else if (!strcmp(scene, "wake-awake")) {
+        Display::drawAwake((uint8_t)happiness);
+    } else if (!strcmp(scene, "wake-exit")) {
+        Display::drawWakeExit((uint8_t)happiness, t);
+    } else if (!strcmp(scene, "wake-enter")) {
+        Display::drawWakeEnter(g_source, Camera::WIDTH, Camera::HEIGHT, t);
     } else if (!strcmp(scene, "sleep")) {
         Display::drawSleep((uint8_t)happiness, breath);
     } else if (!strcmp(scene, "sleep-content")) {

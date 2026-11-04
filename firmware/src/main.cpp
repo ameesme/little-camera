@@ -69,7 +69,7 @@ constexpr uint32_t PAIRING_TIMEOUT_MS = 60000;
 constexpr uint32_t PAIRING_RESULT_MS = 6000;
 // Between two chirps: long enough to be two and not a stutter, short enough to feel like one phrase.
 constexpr uint32_t CHIRP_GAP_MIN_MS = 40;
-constexpr uint32_t CHIRP_GAP_MAX_MS = 350;
+constexpr uint32_t CHIRP_GAP_MAX_MS = 300;
 
 // A firmware update owns the screen until the phone is done with it or gives
 // up; sync.cpp's own timeouts are the escape hatch, so there is none here.
@@ -109,6 +109,8 @@ constexpr uint32_t RADIO_LINGER_MS = 30000;
 // Waking — with the radio still on or from light sleep — takes a hold, not a
 // tap. A camera in a bag gets tapped; a second of pressure is intent.
 constexpr uint32_t WAKE_HOLD_MS = 1000;
+constexpr uint32_t SLEEP_TAP_MAX_MS = 300;
+constexpr uint32_t WAKE_SLIDE_MS = 180;
 
 // One button drives everything, so the UI is a strict mode machine: the
 // meaning of a press depends entirely on which screen is up.
@@ -199,7 +201,7 @@ constexpr uint32_t BREATH_MS = 5000;  // Sleep face breath period, awake; asleep
 // goes up, restarted by a tap because a tap says someone is there; after that
 // the sleep tick stretches and only the mood and a battery sample ride it. The
 // panel holds the face either way — on v3q its VCOM is U8's job, not ours — and
-// a chirp scheduled 12-20h out does not care about a minute.
+// a handful of random daily chirps does not need sub-minute timing.
 constexpr uint32_t BREATH_WINDOW_MS = 120000;
 constexpr uint32_t SLEEP_TICK_MS = 60000;
 
@@ -213,6 +215,8 @@ static uint32_t sleepFaceDrawnAt = 0;
 static char sleepStatus[16] = "";      // Battery debug line, as last drawn
 static uint32_t sleepStatusMv = 0;
 static bool sleepStatusChg = false;
+static bool sleepStatusUsb = false;
+static bool lastUsb = false;
 
 static Mood::Clock moodClock() {
     Mood::Clock c;
@@ -383,13 +387,15 @@ static uint8_t prevBatteryBars = 0;
 static bool sampleBattery() {
     const uint32_t mv = batteryMv();
     const bool chg = onCharge();
+    const bool usb = onUsb();
     const bool chgChanged = sleepStatus[0] && chg != sleepStatusChg;
+    const bool usbChanged = sleepStatus[0] && usb != sleepStatusUsb;
     const uint32_t drift = mv > sleepStatusMv ? mv - sleepStatusMv : sleepStatusMv - mv;
     bool moved = false;
-    if (!sleepStatus[0] || chgChanged || drift >= BATTERY_DEADBAND_MV) {
+    if (!sleepStatus[0] || chgChanged || usbChanged || drift >= BATTERY_DEADBAND_MV) {
         sleepStatusMv = mv;
         sleepStatusChg = chg;
-        bool usb = digitalRead(PIN_VBUS) == HIGH;
+        sleepStatusUsb = usb;
         uint8_t pct = Power::percent(mv, chg, usb);
         Display::setBatteryPercent(pct);
         Display::setCharging(chg);
@@ -401,7 +407,7 @@ static bool sampleBattery() {
                  (unsigned)(mv % 1000 / 10));
         if (!moved) moved = true;
     }
-    logBattery(mv, chg, chgChanged);
+    logBattery(mv, chg, chgChanged || usbChanged);
     return moved;
 }
 
@@ -422,7 +428,16 @@ static void showSleepFace(bool full) {
 
 static void breatheSleepFace() {
     sleepBreathIn = !sleepBreathIn;
-    showSleepFace(false);
+    showSleepFace(sampleBattery());
+}
+
+static void serviceUsb(bool asleep) {
+    const bool usb = onUsb();
+    if (usb == lastUsb) return;
+    lastUsb = usb;
+    sampleBattery();
+    if (asleep) showSleepFace(true);
+    if (usb) playMoodChirp(255, "Charger", 1);
 }
 
 // Boot/wake gate, not a debounce: light sleep wakes on the pressed level, i.e.
@@ -478,6 +493,7 @@ void setup() {
     digitalWrite(PIN_BUZZ, LOW);
     pinMode(PIN_VBUS, INPUT);
     pinMode(PIN_CHG, INPUT);
+    lastUsb = onUsb();
 
     Serial.begin(115200);
     // Never let a print wait. After a light sleep the USB-Serial-JTAG has
@@ -551,19 +567,56 @@ void setup() {
     lastActivityTime = millis();
 }
 
-static bool heldToWake() {
+static float easeOutCubic(float p);
+
+static void completeWakeFace() {
+    const uint8_t happiness = moodHappiness();
+    Display::drawWakeProgress(WAKE_HOLD_MS, WAKE_HOLD_MS);
+    Display::drawAwake(happiness);
+    playMoodChirp(happiness, "Wake", 1);
+}
+
+static void enterWakeViewfinder() {
+    const uint8_t happiness = moodHappiness();
+    Display::setFaceBand(Chirp::band(happiness));
+    uint8_t* frame = Camera::capture();
+    // A failed sensor must not animate a stale photo from before sleep.
+    if (!frame) return;
+    // Keep the face visible through sensor startup and capture so its exit leads straight to a real frame.
+    const uint32_t exitStart = millis();
+    for (;;) {
+        const uint32_t elapsed = millis() - exitStart;
+        const float t = elapsed >= WAKE_SLIDE_MS ? 1.0f : (float)elapsed / WAKE_SLIDE_MS;
+        Display::drawWakeExit(happiness, easeOutCubic(t));
+        if (t >= 1.0f) break;
+        delay(1);
+    }
+    const uint32_t start = millis();
+    for (;;) {
+        const uint32_t elapsed = millis() - start;
+        const float t = elapsed >= WAKE_SLIDE_MS ? 1.0f : (float)elapsed / WAKE_SLIDE_MS;
+        Display::drawWakeEnter(frame, Camera::WIDTH, Camera::HEIGHT, easeOutCubic(t));
+        frame = nullptr;
+        if (t >= 1.0f) break;
+        delay(1);
+    }
+}
+
+static uint32_t heldToWake() {
     Display::clearWakeProgress();
     uint32_t start = millis();
     while (millis() - start < WAKE_HOLD_MS) {
         if (!shutterPressed()) {
+            const uint32_t held = millis() - start;
             Display::clearWakeProgress();
             showSleepFace(true);
-            return false;
+            return held;
         }
         Display::drawWakeProgress(millis() - start, WAKE_HOLD_MS);
         delay(10);
     }
-    return true;
+    completeWakeFace();
+    return WAKE_HOLD_MS;
 }
 
 // Idle timeout: sleep face up, camera driver down, radio still on. To the
@@ -595,7 +648,7 @@ static void enterAsleep() {
 // moment the hold completes rather than on release. The shutter is still
 // down on the way out and the viewfinder acts on press edges only, so the
 // hold does not shoot.
-static void wakeFromAsleep() {
+static void wakeFromAsleep(bool fromHold = false) {
 #ifndef LC_NO_BLE
     // Keep the radio if a phone is mid-session (it prompted this wake) or on USB
     if (radioOn && !Sync::connected() && !onUsb()) {
@@ -604,9 +657,12 @@ static void wakeFromAsleep() {
     }
 #endif
     Serial.println(radioOn ? "Woke (radio stays)" : "Woke");
-    Audio::init(PIN_BUZZ);
-    Audio::playClick();
+    if (!fromHold) {
+        Audio::init(PIN_BUZZ);
+        Audio::playClick();
+    }
     cameraOn();
+    if (fromHold) enterWakeViewfinder();
     mode = Mode::Viewfinder;
     hintToastShowing = false;
     gestureActive = false;
@@ -896,12 +952,20 @@ void enterSleepMode() {
     // longer depends on us waking up; the timer stays for the breath and the
     // mood's clock, and stretches to SLEEP_TICK_MS once the breath is over.
     //
-    // Only the shutter (GPIO) ends the sleep. Anything else — the BT
+    // Only the shutter or USB ends the sleep. Anything else — the BT
     // controller's own wake source if the radio was not fully down, a
     // rejected sleep call, an undefined cause — is not a person, and treating
     // it as one is exactly how the camera "wakes by itself".
     uint32_t breathUntil = millis() + BREATH_WINDOW_MS;
+    bool usbWake = false;
+    // VBUS is level-triggered: arming HIGH also catches a plug during sleep setup.
+    gpio_wakeup_enable((gpio_num_t)PIN_VBUS, GPIO_INTR_HIGH_LEVEL);
     for (;;) {
+        serviceUsb(true);
+        if (onUsb()) {
+            usbWake = true;
+            break;
+        }
         const bool breathing = (int32_t)(breathUntil - millis()) > 0;
         esp_sleep_enable_timer_wakeup(
             (uint64_t)(breathing ? Display::VCOM_INTERVAL_MS : SLEEP_TICK_MS) * 1000);
@@ -915,14 +979,17 @@ void enterSleepMode() {
             delay(50);
             continue;
         }
-        if (cause == ESP_SLEEP_WAKEUP_GPIO) {
+        serviceUsb(true);
+        if (onUsb()) {
+            usbWake = true;
+            break;
+        }
+        if (cause == ESP_SLEEP_WAKEUP_GPIO && shutterPressed()) {
             // The button — but a tap is not enough. Hold to wake; a release
             // before WAKE_HOLD_MS goes straight back to sleep.
-            if (heldToWake()) break;
-            // A tap does not wake, but it is answered: a chirp at a random
-            // happiness, so a press in a bag is heard for what it was.
-            Serial.println("Sleep: tap, hold to wake");
-            playMoodChirp(moodHappiness(), "Sleep tap");
+            const uint32_t held = heldToWake();
+            if (held >= WAKE_HOLD_MS) break;
+            if (held <= SLEEP_TAP_MAX_MS) playMoodChirp(moodHappiness(), "Sleep tap");
             breathUntil = millis() + BREATH_WINDOW_MS;
             continue;
         }
@@ -935,10 +1002,8 @@ void enterSleepMode() {
             if (breathing) {
                 Display::toggleVcom();
                 breatheSleepFace();
-            } else {
-                // Past the breath there is nothing to redraw, but the standby
-                // log still wants its sample — that is the whole point of it.
-                sampleBattery();
+            } else if (sampleBattery()) {
+                showSleepFace(true);
             }
             serviceMood(true, "Sleep");
             continue;
@@ -950,6 +1015,20 @@ void enterSleepMode() {
     // Disable both wake sources after waking for real
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
     gpio_wakeup_disable((gpio_num_t)PIN_SHUTTER);
+    gpio_wakeup_disable((gpio_num_t)PIN_VBUS);
+
+    if (usbWake) {
+        // USB keeps the console and radio available without powering the sensor.
+        mode = Mode::Asleep;
+        asleepSince = millis();
+        gestureActive = false;
+        lastPressed = false;
+#ifndef LC_NO_BLE
+        Sync::begin();
+        radioOn = true;
+#endif
+        return;
+    }
 
     // Woke up! Reset activity timer and hint state
     Serial.println("Woke up from sleep!");
@@ -957,15 +1036,11 @@ void enterSleepMode() {
     hintToastShowing = false;
     Display::clearToast();
 
-    // The wake-up click, on the hold itself. Bit-banged (see Audio::playClick),
-    // which is what makes it audible straight out of light sleep.
-    Audio::init(PIN_BUZZ);
-    Audio::playClick();
-
     // Bring the sensor back up (torn down before sleep). On failure the loop
     // just gets nullptr frames from capture() and keeps a stale viewfinder,
     // which beats halting a device the user just woke up.
     cameraOn();
+    enterWakeViewfinder();
 
 #ifndef LC_NO_BLE
     if (onUsb()) { Sync::begin(); radioOn = true; }
@@ -1128,16 +1203,7 @@ void loop() {
     Sync::loop();
     handleSyncEvents();
 
-    {
-        bool usb = onUsb();
-        static bool lastUsb = onUsb();
-        if (usb != lastUsb) {
-            lastUsb = usb;
-            sampleBattery();
-            if (mode == Mode::Asleep) showSleepFace(true);
-            if (usb) playMoodChirp(255, "Charger", 1);
-        }
-    }
+    serviceUsb(mode == Mode::Asleep);
 
     // This image got through boot and has been running the loop for a while:
     // end the trial, so the next reset is an ordinary one. A no-op unless the
@@ -1354,25 +1420,27 @@ void loop() {
             } else if (pressed && gestureActive) {
                 Display::drawWakeProgress(millis() - pressStartedAt, WAKE_HOLD_MS);
                 if ((millis() - pressStartedAt) >= WAKE_HOLD_MS) {
-                    wakeFromAsleep();
+                    completeWakeFace();
+                    wakeFromAsleep(true);
                     break;
                 }
             } else if (!pressed && lastPressed && gestureActive) {
+                const uint32_t held = millis() - pressStartedAt;
                 Display::clearWakeProgress();
                 showSleepFace(true);
-                playMoodChirp(moodHappiness(), "Asleep tap");
+                if (held <= SLEEP_TAP_MAX_MS) playMoodChirp(moodHappiness(), "Asleep tap");
             }
             if (!pressed) gestureActive = false;
 
             // The face breathes: the other frame every BREATH_MS.
-            if (millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
+            if (!gestureActive && millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
 
             // On USB power: stay awake indefinitely, keep the radio on.
             if (onUsb()) {
                 asleepSince = millis();
                 break;
             }
-            if (millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
+            if (!gestureActive && millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
                 enterSleepMode();
                 return;
             }

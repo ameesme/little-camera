@@ -50,6 +50,7 @@ public:
     NimBLEAttValue getValue() { return NimBLEAttValue(); }
     bool setValue(const uint8_t*, size_t) { return true; }
     bool notify(uint16_t connHandle = 0xFFFF) { return true; }
+    bool notify(const uint8_t*, size_t, uint16_t = 0xFFFF) { return true; }
     void setCallbacks(NimBLECharacteristicCallbacks*) {}
 };
 
@@ -93,6 +94,8 @@ class NimBLEDevice {
 public:
     static bool init(const char*) { return true; }
     static bool deinit(bool = false) { return true; }
+    static bool isInitialized() { return true; }
+    static bool deleteAllBonds() { return true; }
     static bool setMTU(uint16_t) { return true; }
     static void setSecurityAuth(bool, bool, bool) {}
     static void setSecurityIOCap(uint8_t) {}

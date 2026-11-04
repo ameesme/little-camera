@@ -32,6 +32,7 @@ uint32_t vcomToggleCount();
 
 // Counts of malformed traffic (bad line address, short line, unknown command).
 uint32_t protocolErrors();
+uint32_t bytesWritten();
 
 // scale must be >= 1; the panel is small and 1:1 is unreadable on a hidpi
 // screen. Returns false if the file could not be written.

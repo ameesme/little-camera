@@ -434,6 +434,25 @@ static void eye(int x, int y, bool happy, int b = B) {
     block(x + 2 * b, lo, b);
 }
 
+static void awakeEye(int center, int y, uint8_t band, bool left, int b = B) {
+    const int x = center - 3 * b / 2;
+    if (band == 3) {
+        block(x + b, y, b);
+        block(x, y + b, b);
+        block(x + 2 * b, y + b, b);
+    } else if (band == 2) {
+        fillRoundedRect(center - b / 2, y,
+                        b, 2 * b, 0, true);
+    } else if (band == 1) {
+        fillRoundedRect(center - b, y + b,
+                        2 * b, b, 0, true);
+    } else {
+        fillRoundedRect(x + (left ? b : 0), y,
+                        2 * b, b, 0, true);
+        block(x + (left ? 0 : 2 * b), y + b, b);
+    }
+}
+
 static void mouth(int x, int y, uint8_t band, int b = B) {
     switch (band) {
         case 3:  // Happy: a wide smile, flat with both ends lifted. Wider than
@@ -472,8 +491,8 @@ static void mini(int x, int y, int w, int h, uint8_t band, bool breathIn, int b)
     const int top = y + (h - rows) / 2;
     const int eyeY = top + (breathIn ? 0 : 1);
     const int mouthY = top + 4 * b - (breathIn ? 0 : 1);
-    eye(eyeX, eyeY, band == 3, b);
-    eye(eyeX + 6 * b, eyeY, band == 3, b);
+    awakeEye(eyeX + 2 * b, eyeY, band, true, b);
+    awakeEye(eyeX + 8 * b, eyeY, band, false, b);
     mouth(x + (w - 3 * b) / 2, mouthY, band, b);
 }
 }  // namespace Face
@@ -584,10 +603,10 @@ void setFaceBand(uint8_t band) {
     _faceBand = band > 3 ? 3 : band;
 }
 
-static void drawFaceBlock(int x) {
+static void drawFaceBlock(int x, int faceDy = 0) {
     if (x + BOX_WIDTH <= 0 || x >= WIDTH) return;
     fillRoundedRect(x, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, BOX_RADIUS, false);
-    Face::mini(x, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
+    Face::mini(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
                (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
 }
 
@@ -596,10 +615,10 @@ static void drawFaceBlock(int x) {
 // the save slide can walk it off the left edge. While the phone has asked for a
 // particular shot (docs/protocol.md §3.3 PROMPT) the button says which, because
 // a camera that knows what it is being pointed at should say so.
-static void drawSidebar(int x) {
+static void drawSidebar(int x, int faceDy = 0) {
     const int buttonY = SIDEBAR_PADDING + FACE_BLOCK_HEIGHT + FACE_BLOCK_GAP;
     const int buttonH = INBOX_HEIGHT - FACE_BLOCK_HEIGHT - FACE_BLOCK_GAP;
-    drawFaceBlock(x);
+    drawFaceBlock(x, faceDy);
     switch (_prompt) {
         case Prompt::Verification:
             drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getScanIcon(), "card", "press");
@@ -1009,7 +1028,7 @@ static void renderPhotoCard(int photoX) {
 // off the right edge), t=1 is the save layout (sidebar gone off the left,
 // actions in place). The whole layout moves as one block, so a single offset
 // drives all three elements — that's the "everything shifts over" effect.
-static void renderSaveLayout(float t) {
+static void renderSaveLayout(float t, int faceDy = 0) {
     _holdButton = {};
     _pressButton = {};
     _completedHoldVisible = false;
@@ -1023,7 +1042,7 @@ static void renderSaveLayout(float t) {
     // either the capture moment or the end of the slide.
     renderPhotoCard(PHOTO_X_CAPTURE - shift);
 
-    drawSidebar(SIDEBAR_PADDING - shift);
+    drawSidebar(SIDEBAR_PADDING - shift, faceDy);
     drawActionBar(WIDTH - shift);
     if (!_completedHoldVisible) _completedHoldIcon = nullptr;
 
@@ -1040,6 +1059,20 @@ void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     if (!grayscale) return;
     bayerPhoto(grayscale, srcWidth);
     renderSaveLayout(0.0f);
+}
+
+void drawWakeEnter(const uint8_t* grayscale, int srcWidth, int srcHeight, float t) {
+    if (grayscale) bayerPhoto(grayscale, srcWidth);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    const int dy = -(int)(FACE_BLOCK_HEIGHT * (1.0f - t) + 0.5f);
+    if (grayscale) {
+        renderSaveLayout(0.0f, dy);
+    } else {
+        // Only the miniature moves; resending the photo costs a full panel frame.
+        drawFaceBlock(SIDEBAR_PADDING, dy);
+        flushLines(0, SIDEBAR_PADDING + FACE_BLOCK_HEIGHT);
+    }
 }
 
 void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight) {
@@ -1281,17 +1314,31 @@ static void drawSleepBadge(bool breathIn) {
                    TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
 }
 
-void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* status) {
+static int _wakeFilledRows = 0;
+static bool _wakeExitActive = false;
+static int _wakeExitDy = 0;
+
+static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, const char* status,
+                           bool awake) {
+    _wakeFilledRows = 0;
+    _wakeExitActive = false;
     clearButtonFeedback();
     memset(_framebuffer, 0, sizeof(_framebuffer));  // Black
     const uint8_t band = Chirp::band(happiness);
     const int eyeY = Face::EYE_Y + (breathIn ? Face::BREATH_EYES_DY : 0);
     const int mouthY = Face::MOUTH_Y + (breathIn ? Face::BREATH_MOUTH_DY : 0);
-    Face::eye(Face::EYE_L_X, eyeY, band == 3);
-    Face::eye(Face::EYE_R_X, eyeY, band == 3);
+    if (awake) {
+        const int centers[] = {Face::EYE_L_X + 2 * Face::B, Face::EYE_R_X + 2 * Face::B};
+        for (int center : centers) {
+            Face::awakeEye(center, eyeY, band, center < WIDTH / 2);
+        }
+    } else {
+        Face::eye(Face::EYE_L_X, eyeY, band == 3);
+        Face::eye(Face::EYE_R_X, eyeY, band == 3);
+    }
     Face::mouth(Face::MOUTH_X, mouthY, band);
 
-    if (_showHints) {
+    if (_showHints && !awake) {
         const char* text = "hold to wake";
         int textW = UI::textWidth(text, TOAST_FONT);
         int textH = UI::fontHeight(TOAST_FONT);
@@ -1310,6 +1357,10 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* stat
                  HEIGHT - UI::fontHeight(TOAST_FONT) - TOAST_MARGIN, TOAST_FONT, true);
     }
 
+    if (awake) {
+        // Keep the completed white fill behind the awake face until the sensor is ready.
+        for (uint8_t& byte : _framebuffer) byte = ~byte;
+    }
     if (faceOnly) {
         flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
         flushLines(HEIGHT - SLEEP_BADGE_SIZE, HEIGHT);
@@ -1318,7 +1369,37 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* stat
     }
 }
 
-static int _wakeFilledRows = 0;
+void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* status) {
+    drawSleepFrame(happiness, breathIn, faceOnly, status, false);
+}
+
+void drawAwake(uint8_t happiness) {
+    drawSleepFrame(happiness, false, false, nullptr, true);
+}
+
+void drawWakeExit(uint8_t happiness, float t) {
+    clearButtonFeedback();
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    const int dy = -(int)(HEIGHT * t + 0.5f);
+    const uint8_t band = Chirp::band(happiness);
+    memset(_framebuffer, 0, sizeof(_framebuffer));
+    Face::awakeEye(Face::EYE_L_X + 2 * Face::B, Face::EYE_Y + dy, band, true);
+    Face::awakeEye(Face::EYE_R_X + 2 * Face::B, Face::EYE_Y + dy, band, false);
+    Face::mouth(Face::MOUTH_X, Face::MOUTH_Y + dy, band);
+    drawSleepBadge(false);
+    for (uint8_t& byte : _framebuffer) byte = ~byte;
+    if (!_wakeExitActive || t == 0.0f) {
+        flushFramebuffer();
+    } else {
+        // Erase the old face and draw the new one without resending the fixed badge.
+        const int top = Face::EYE_Y + (dy < _wakeExitDy ? dy : _wakeExitDy);
+        const int bottom = Face::MOUTH_Y + 2 * Face::B + (dy > _wakeExitDy ? dy : _wakeExitDy);
+        if (bottom > 0) flushLines(top > 0 ? top : 0, bottom);
+    }
+    _wakeExitDy = dy;
+    _wakeExitActive = t < 1.0f;
+}
 
 void drawWakeProgress(uint32_t heldMs, uint32_t thresholdMs) {
     int rows = HoldProgress::pixels(heldMs, thresholdMs, HEIGHT);

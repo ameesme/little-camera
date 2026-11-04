@@ -44,6 +44,12 @@ void drawUpdateProgress(int percent);
 // formats it, so this stays free of anything it would need hardware to read.
 void drawSleep(uint8_t happiness = 255, bool breathIn = false, bool faceOnly = false,
                const char* status = nullptr);
+// The completed wake hold: mood-specific awake eyes on the inverted sleep screen.
+void drawAwake(uint8_t happiness = 255);
+// Wake handoff: the full face exits upward, then its miniature enters the sidebar downward.
+void drawWakeExit(uint8_t happiness, float t);
+// Supply a first camera frame at t=0, then nullptr to reuse its cached dither.
+void drawWakeEnter(const uint8_t* grayscale, int srcWidth, int srcHeight, float t);
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight);
 void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight);  // Floyd-Steinberg dither
 // Post-capture save prompt: photo shifts left, send/trash buttons take the

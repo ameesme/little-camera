@@ -17,6 +17,7 @@ bool g_dispHigh = false;
 bool g_vcom = false;
 uint32_t g_vcomToggles = 0;
 uint32_t g_errors = 0;
+uint32_t g_bytesWritten = 0;
 uint32_t g_clockHz = 0;
 
 enum class State {
@@ -87,6 +88,7 @@ void csChanged(bool high) {
 }
 
 void byteOut(uint8_t b) {
+    g_bytesWritten++;
     if (!g_csHigh) {
         // CS is active-HIGH on this panel; clocking with it low goes nowhere.
         g_errors++;
@@ -156,6 +158,7 @@ const uint8_t* pixels() { return g_pixels; }
 bool displayEnabled() { return g_dispHigh; }
 uint32_t vcomToggleCount() { return g_vcomToggles; }
 uint32_t protocolErrors() { return g_errors; }
+uint32_t bytesWritten() { return g_bytesWritten; }
 
 bool writeBMP(const char* path, int scale) {
     if (scale < 1) scale = 1;

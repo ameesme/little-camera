@@ -13,6 +13,13 @@ bool load(Mood::Persisted* out) {
     if (prefs.getBytesLength("state") == sizeof(Mood::Persisted)) {
         prefs.getBytes("state", out, sizeof(Mood::Persisted));
         ok = out->version == Mood::PERSISTED_VERSION;
+    } else if (prefs.getBytesLength("state") == sizeof(Mood::LegacyPersisted)) {
+        Mood::LegacyPersisted old = {};
+        prefs.getBytes("state", &old, sizeof(old));
+        if (old.version == 1) {
+            *out = Mood::migrate(old);
+            ok = true;
+        }
     }
     prefs.end();
     return ok;

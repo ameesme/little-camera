@@ -23,13 +23,10 @@ constexpr uint32_t WEEK_S = 7UL * 24 * 3600;
 constexpr uint32_t HOUR_CHIRP_MIN_S = 55 * 60;
 constexpr uint32_t HOUR_CHIRP_MAX_S = 65 * 60;
 constexpr uint32_t HOUR_CHIRP_GRACE_S = 3600;  // Slept through the night: forget it
-constexpr uint32_t ATTENTION_AFTER_S = 24UL * 3600;
-constexpr uint32_t FIRST_INTERVAL_MAX_S = 8UL * 3600;   // First attention chirp: 0-8h past the day mark
-constexpr uint32_t INTERVAL_MIN_S = 12UL * 3600;        // Then 12-20h apart: at most two in any 24h
-constexpr uint32_t INTERVAL_MAX_S = 20UL * 3600;
+constexpr uint32_t DAY_S = 24UL * 3600;
 constexpr uint8_t NIGHT_FROM_H = 22;
 constexpr uint8_t NIGHT_TO_H = 8;
-constexpr uint32_t MORNING_SPREAD_S = 2 * 3600;         // Deferred chirps land 08:00 + 0-2h
+constexpr uint8_t MAX_DAILY_CHIRPS = 4;
 constexpr uint32_t PERSIST_EVERY_S = 15 * 60;
 constexpr uint32_t EPOCH_VALID_FROM = 1600000000UL;     // Anything smaller is "clock never set"
 
@@ -40,23 +37,52 @@ struct Clock {
     bool tzKnown;
 };
 
-// What goes to flash. Versioned so a future layout can migrate or ignore it.
-struct Persisted {
+// The separate schedule clock keeps photos from resetting the day's appointments.
+struct Daily {
+    uint32_t nowS;
+    uint32_t day;
+    uint32_t atS[MAX_DAILY_CHIRPS];
+    uint8_t count;
+    uint8_t next;
+    bool local;
+};
+
+struct LegacyPersisted {
     uint8_t version;
     uint32_t lastPhotoEpoch;
     uint32_t elapsedS;
     uint32_t hourChirpAtS;
     uint32_t nextChirpAtS;
 };
-constexpr uint8_t PERSISTED_VERSION = 1;
+
+struct Persisted {
+    uint8_t version;
+    uint32_t lastPhotoEpoch;
+    uint32_t elapsedS;
+    uint32_t hourChirpAtS;
+    Daily daily;
+};
+constexpr uint8_t PERSISTED_VERSION = 2;
+
+// Keep the mood and pending hour chirp when upgrading the old interval scheduler.
+inline Persisted migrate(const LegacyPersisted& old) {
+    Persisted p = {};
+    p.version = PERSISTED_VERSION;
+    p.lastPhotoEpoch = old.lastPhotoEpoch;
+    p.elapsedS = old.elapsedS;
+    p.hourChirpAtS = old.hourChirpAtS;
+    return p;
+}
 
 struct State {
-    uint32_t lastPhotoEpoch;      // 0 if unknown when taken; back-filled by onClockSet()
-    uint32_t elapsedS;            // Mood-clock seconds at elapsedAtUptimeS
+    uint32_t lastPhotoEpoch;
+    uint32_t elapsedS;
     uint32_t elapsedAtUptimeS;
-    uint32_t hourChirpAtS;        // Mood-clock time of the one-hour chirp; 0 = none owed
-    uint32_t nextChirpAtS;        // Mood-clock time of the next attention chirp; 0 = not drawn yet
+    uint32_t hourChirpAtS;
     uint32_t lastPersistUptimeS;
+    Daily daily;
+    uint32_t dailyAtUptimeS;
+    bool scheduleDirty;
 };
 
 enum class Due : uint8_t { None, HourChirp, Attention };
@@ -86,24 +112,43 @@ inline uint8_t happinessFor(uint32_t elapsedS) {
 
 namespace detail {
 
-inline uint32_t localSecondOfDay(const Clock& c) {
-    int64_t local = (int64_t)c.epoch + (int64_t)c.tzMin * 60;
-    int64_t sod = local % 86400;
-    if (sod < 0) sod += 86400;
-    return (uint32_t)sod;
+inline uint32_t dailyNow(const State& s, const Clock& c) {
+    if (clockValid(c) && c.tzKnown) return (uint32_t)((int64_t)c.epoch + (int64_t)c.tzMin * 60);
+    return s.daily.nowS + (c.uptimeS - s.dailyAtUptimeS);
 }
 
-inline bool isNight(const Clock& c) {
-    if (!clockValid(c) || !c.tzKnown) return false;  // No clock, no night: decided in docs/mood.md
-    uint32_t h = localSecondOfDay(c) / 3600;
-    return h >= NIGHT_FROM_H || h < NIGHT_TO_H;
-}
-
-// Seconds from now until 08:00 local plus a random 0-2h.
-inline uint32_t untilMorning(const Clock& c, Chirp::Rng& rng) {
-    uint32_t sod = localSecondOfDay(c);
-    uint32_t target = (uint32_t)NIGHT_TO_H * 3600 + rng.below(MORNING_SPREAD_S + 1);
-    return sod < target ? target - sod : 86400 - sod + target;
+inline void scheduleDay(State& s, const Clock& c, Chirp::Rng& rng) {
+    uint32_t now = dailyNow(s, c);
+    bool local = s.daily.local || (clockValid(c) && c.tzKnown);
+    if (s.daily.count && s.daily.day == now / DAY_S && s.daily.local == local) return;
+    const bool skipPast = !s.daily.count || s.daily.local != local || now / DAY_S != s.daily.day + 1;
+    s.daily.day = now / DAY_S;
+    s.daily.local = local;
+    s.daily.count = 3 + rng.below(2);
+    s.daily.next = 0;
+    const uint32_t fromMin = local ? NIGHT_TO_H * 60 : 0;
+    const uint32_t untilMin = local ? NIGHT_FROM_H * 60 : 24 * 60;
+    for (uint8_t i = 0; i < s.daily.count; ++i) {
+        uint32_t at;
+        bool duplicate;
+        do {
+            // Leave the final minute free so a minute-long sleep tick can still pay it today.
+            at = (fromMin + rng.below(untilMin - fromMin - 1)) * 60;
+            duplicate = false;
+            for (uint8_t j = 0; j < i; ++j) if (s.daily.atS[j] == at) duplicate = true;
+        } while (duplicate);
+        uint8_t j = i;
+        while (j && s.daily.atS[j - 1] > at) {
+            s.daily.atS[j] = s.daily.atS[j - 1];
+            --j;
+        }
+        s.daily.atS[j] = at;
+    }
+    // Booting late or returning after days away should not replay missed appointments.
+    if (skipPast) {
+        while (s.daily.next < s.daily.count && s.daily.atS[s.daily.next] < now % DAY_S) ++s.daily.next;
+    }
+    s.scheduleDirty = true;
 }
 
 }  // namespace detail
@@ -114,26 +159,27 @@ inline void onPhoto(State& s, const Clock& c, Chirp::Rng& rng) {
     s.elapsedS = 0;
     s.elapsedAtUptimeS = c.uptimeS;
     s.hourChirpAtS = rng.between(HOUR_CHIRP_MIN_S / 60, HOUR_CHIRP_MAX_S / 60) * 60;
-    s.nextChirpAtS = 0;
 }
 
 // Boot: resume the persisted blob if there is one, else start from what the
 // flash says. A fresh device (no state, no photos) is a happy one that just
 // took a picture: it gets its one-hour chirp too.
 inline void boot(State& s, const Clock& c, const Persisted* p, uint32_t newestPhotoEpoch, Chirp::Rng& rng) {
+    s.daily = {};
+    s.dailyAtUptimeS = c.uptimeS;
+    s.scheduleDirty = false;
     s.elapsedAtUptimeS = c.uptimeS;
     s.lastPersistUptimeS = c.uptimeS;
     if (p && p->version == PERSISTED_VERSION) {
         s.lastPhotoEpoch = p->lastPhotoEpoch;
         s.elapsedS = p->elapsedS;
         s.hourChirpAtS = p->hourChirpAtS;
-        s.nextChirpAtS = p->nextChirpAtS;
+        s.daily = p->daily;
         return;
     }
     s.lastPhotoEpoch = newestPhotoEpoch;
     s.elapsedS = (newestPhotoEpoch && clockValid(c) && c.epoch > newestPhotoEpoch) ? c.epoch - newestPhotoEpoch : 0;
     s.hourChirpAtS = s.elapsedS < HOUR_CHIRP_MIN_S ? rng.between(HOUR_CHIRP_MIN_S / 60, HOUR_CHIRP_MAX_S / 60) * 60 : 0;
-    s.nextChirpAtS = 0;
 }
 
 // The phone set the wall clock. If the last photo predates any clock, pin it
@@ -144,54 +190,50 @@ inline void onClockSet(State& s, const Clock& c) {
     s.lastPhotoEpoch = c.epoch > e ? c.epoch - e : EPOCH_VALID_FROM;
 }
 
-// What is owed right now. Also does the bookkeeping that has to happen at
-// poll time: drawing the first attention interval once the day mark passes,
-// deferring a night-time chirp to the morning, forgetting a one-hour chirp
-// that the night swallowed. Call from a place where a chirp may play; the
-// caller plays it and then calls onChirpPlayed().
+// The caller plays a due chirp on a quiet screen, then acknowledges it below.
 inline Due poll(State& s, const Clock& c, Chirp::Rng& rng) {
+    detail::scheduleDay(s, c, rng);
     const uint32_t e = elapsed(s, c);
-    const bool night = detail::isNight(c);
+    const uint32_t sod = detail::dailyNow(s, c) % DAY_S;
+    const bool night = s.daily.local && (sod < NIGHT_TO_H * 3600UL || sod >= NIGHT_FROM_H * 3600UL);
 
     if (s.hourChirpAtS && e >= s.hourChirpAtS) {
         if (!night) return Due::HourChirp;
         if (e >= s.hourChirpAtS + HOUR_CHIRP_GRACE_S) s.hourChirpAtS = 0;
     }
 
-    if (e >= ATTENTION_AFTER_S) {
-        if (s.nextChirpAtS == 0) {
-            s.nextChirpAtS = e + rng.below(FIRST_INTERVAL_MAX_S + 1);
-            return Due::None;
-        }
-        if (e >= s.nextChirpAtS) {
-            if (night) {
-                s.nextChirpAtS = e + detail::untilMorning(c, rng);
-                return Due::None;
-            }
-            return Due::Attention;
-        }
-    }
+    if (s.daily.next < s.daily.count && sod >= s.daily.atS[s.daily.next] && !night)
+        return Due::Attention;
     return Due::None;
 }
 
-inline void onChirpPlayed(State& s, const Clock& c, Due what, Chirp::Rng& rng) {
-    const uint32_t e = elapsed(s, c);
+inline void onChirpPlayed(State& s, const Clock& c, Due what, Chirp::Rng&) {
     if (what == Due::HourChirp) s.hourChirpAtS = 0;
-    if (what == Due::Attention) s.nextChirpAtS = e + INTERVAL_MIN_S + rng.below(INTERVAL_MAX_S - INTERVAL_MIN_S + 1);
+    if (what == Due::Attention) {
+        // Several appointments missed on a busy screen earn one sound, not a backlog.
+        uint32_t sod = detail::dailyNow(s, c) % DAY_S;
+        while (s.daily.next < s.daily.count && s.daily.atS[s.daily.next] <= sod) ++s.daily.next;
+    }
 }
 
-inline bool persistDue(const State& s, const Clock& c) { return c.uptimeS - s.lastPersistUptimeS >= PERSIST_EVERY_S; }
+inline bool persistDue(const State& s, const Clock& c) {
+    return s.scheduleDirty || c.uptimeS - s.lastPersistUptimeS >= PERSIST_EVERY_S;
+}
 
 inline Persisted snapshot(const State& s, const Clock& c) {
-    Persisted p;
+    Persisted p = {};
     p.version = PERSISTED_VERSION;
     p.lastPhotoEpoch = s.lastPhotoEpoch;
     p.elapsedS = elapsed(s, c);
     p.hourChirpAtS = s.hourChirpAtS;
-    p.nextChirpAtS = s.nextChirpAtS;
+    p.daily = s.daily;
+    p.daily.nowS = detail::dailyNow(s, c);
     return p;
 }
 
-inline void markPersisted(State& s, const Clock& c) { s.lastPersistUptimeS = c.uptimeS; }
+inline void markPersisted(State& s, const Clock& c) {
+    s.lastPersistUptimeS = c.uptimeS;
+    s.scheduleDirty = false;
+}
 
 }  // namespace Mood
