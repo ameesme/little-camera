@@ -9,7 +9,7 @@ brew install xcodegen          # once
 cd app/ios && xcodegen generate && open LittleCamera.xcodeproj
 ```
 
-Set your team under Signing & Capabilities, since the spec leaves `DEVELOPMENT_TEAM` empty, and run on a **physical iPhone** for anything involving the camera, because the simulator has no Bluetooth. The server is `https://lttl.cam` and is not configurable yet.
+The manifest sets Mees's development team (`LD5Z3FL7JH`) for automatic signing. Run on a **physical iPhone** for anything involving the camera, because the simulator has no Bluetooth. The server is `https://lttl.cam` and is not configurable yet.
 
 Press the camera's button so it wakes, tap `CONNECT`, then type the six digits off the camera's screen into iOS's passkey prompt. iOS keeps the bond, the secret goes to the Keychain, and neither is asked for again.
 
@@ -49,7 +49,7 @@ Every call to the server goes through one `perform` in `Blog`, so there is exact
 
 ## Sending firmware to the camera
 
-`FirmwareUpdater` is protocol §3.7. The button only appears when the camera is new enough to say which version it has (Info version 2), has room in its spare slot, is connected, and is not syncing. The app downloads the image, checks its size and SHA-256 before it touches the camera, then streams ~500-byte chunks and rewinds whenever the camera names an offset.
+`FirmwareUpdater` is protocol §3.7. The button only appears when the camera is new enough to say which version it has (Info version 2), has room in its spare slot, is connected, and is not syncing. The published version must be numerically newer than the camera’s version; equal, older or malformed versions never start a transfer. The app downloads the image, checks its size and SHA-256 before it touches the camera, then streams ~500-byte chunks and rewinds whenever the camera names an offset.
 
 Two kinds of flow control run at once and conflating them is the easy mistake: `canSendWriteWithoutResponse` is this phone's controller having room, while the camera's window is what its main loop can stage while it writes flash. Keep to both. Nothing the app gets wrong can brick the camera, since the image lands in the slot the camera is not running from and is checked there before anything is armed, so the worst case is a wasted minute and another go.
 

@@ -84,6 +84,8 @@ final class FirmwareUpdater {
     @discardableResult
     func run(release: FirmwareRelease, info: CameraInfo) async -> Bool {
         guard !isRunning else { return false }
+        // Recheck at the transfer boundary so a stale offer cannot downgrade a camera flashed over USB.
+        guard FirmwareVersion.isNewer(release.version, than: info.firmware) else { return false }
         isRunning = true
         defer { isRunning = false }
         // Minutes of writing against a ~30 s background window, so hold the screen awake and ask the owner to stay put.

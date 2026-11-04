@@ -15,7 +15,8 @@ struct CameraTab: View {
             VStack(spacing: 0) {
                 // Sending, not browsing: the gallery scene is a stock photo and the camera
                 // is not showing anyone a stock photo while it hands pictures over.
-                Device(mood: camera.isSyncing ? .send : DeviceMood(info?.face ?? .content))
+                Device(mood: camera.isSyncing ? .send : DeviceMood(info?.face ?? .content),
+                       lit: camera.isReady)
                     .padding(.top, 8)
 
                 Text(lastSeen)

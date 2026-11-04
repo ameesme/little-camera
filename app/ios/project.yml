@@ -1,7 +1,7 @@
 # XcodeGen spec. `xcodegen generate` writes LittleCamera.xcodeproj (git-ignored).
 name: LittleCamera
 options:
-  bundleIdPrefix: me.amees
+  bundleIdPrefix: cam.lttl
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
@@ -36,7 +36,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: me.amees.littlecamera
+        PRODUCT_BUNDLE_IDENTIFIER: cam.lttl.app
         PRODUCT_NAME: LittleCamera
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -46,6 +46,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: LD5Z3FL7JH
         ENABLE_PREVIEWS: YES
         GENERATE_INFOPLIST_FILE: NO
     info:

@@ -57,7 +57,7 @@ final class FirmwareUpdate {
     /// The two states the camera tab reports: either it is current or there is something to press.
     func isBehind(installed: String?) -> Bool {
         guard let installed, let release else { return false }
-        return release.version != installed
+        return FirmwareVersion.isNewer(release.version, than: installed)
     }
 
     /// Flash is written from the camera's main loop and a brownout halfway leaves it on the old
@@ -75,7 +75,7 @@ final class FirmwareUpdate {
         guard let updater, !updater.isRunning, let release else { return false }
         guard let info = camera.info, info.canTake(imageOf: release.size) else { return false }
         guard camera.isReady, camera.canUpdateFirmware, !camera.isSyncing else { return false }
-        return release.version != info.firmware
+        return isBehind(installed: info.firmware)
     }
 
     /// Against the version the camera itself reported, not the one the server last heard about.
