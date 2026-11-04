@@ -8,6 +8,7 @@ import { createToken } from '../lib/tokens.js';
 import { unsubscribeLink } from '../core/subscribers.js';
 import { feedPhotosSince } from '../repo/photos.js';
 import { findBlogById } from '../repo/blogs.js';
+import { latestOwnerComments } from '../repo/comments.js';
 import { listApprovedSubscribers, setLastNotified } from '../repo/subscribers.js';
 
 /** Returns the number of emails queued. */
@@ -20,6 +21,8 @@ export function runNewsletter(env: Env): number {
     const photos = feedPhotosSince(env.db, blog.id, since);
     if (photos.length === 0) continue;
     const newest = photos[photos.length - 1];
+    const captions = latestOwnerComments(env.db, [newest.id]);
+    const caption = captions.get(newest.id);
     const { token } = createToken(env, {
       kind: 'subscriber',
       blogId: blog.id,
@@ -35,6 +38,7 @@ export function runNewsletter(env: Env): number {
         count: photos.length,
         url,
         unsubscribeUrl: unsubscribeLink(env, blog, sub),
+        caption,
       }),
       newest.id,
     );
@@ -45,7 +49,7 @@ export function runNewsletter(env: Env): number {
   return sent;
 }
 
-export function startNewsletterJob(env: Env, intervalMs = 10 * 60_000): () => void {
+export function startNewsletterJob(env: Env, intervalMs = 60 * 60_000): () => void {
   const timer = setInterval(() => {
     try {
       runNewsletter(env);

@@ -28,6 +28,24 @@ export function insertComment(
 }
 
 /** Comments for a set of photos in one query, oldest first, with display names resolved. */
+export function latestOwnerComments(db: Db, photoIds: number[]): Map<number, string> {
+  const out = new Map<number, string>();
+  if (photoIds.length === 0) return out;
+  const marks = photoIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT photo_id, body FROM comments
+       WHERE photo_id IN (${marks}) AND subscriber_id IS NULL
+       ORDER BY id DESC`,
+    )
+    .all(...photoIds) as { photo_id: number; body: string }[];
+  for (const r of rows) {
+    if (!out.has(r.photo_id)) out.set(r.photo_id, r.body);
+  }
+  return out;
+}
+
+/** Comments for a set of photos in one query, oldest first, with display names resolved. */
 export function commentsForPhotos(db: Db, photoIds: number[], ownerName: string): Map<number, CommentView[]> {
   const out = new Map<number, CommentView[]>();
   if (photoIds.length === 0) return out;

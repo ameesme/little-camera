@@ -123,16 +123,18 @@ export function welcomeMail(p: { ownerName: string; url: string; unsubscribeUrl:
   };
 }
 
-export function newsletterMail(p: { ownerName: string; count: number; url: string; unsubscribeUrl: string }): Mail {
+export function newsletterMail(p: { ownerName: string; count: number; url: string; unsubscribeUrl: string; caption?: string }): Mail {
   const what = p.count === 1 ? 'a picture' : `${p.count} new pictures`;
   const subject = `${p.ownerName} took ${what}`;
+  const paras = p.caption ? [`“${esc(p.caption)}”`, 'The link works for 48 hours.'] : ['The link works for 48 hours.'];
+  const captionText = p.caption ? `\n\n"${p.caption}"` : '';
   return {
     subject,
-    text: `${subject}.\n\n${p.url}\n\nThe link works for 48 hours.\n\nStop getting these: ${p.unsubscribeUrl}\n`,
+    text: `${subject}.${captionText}\n\n${p.url}\n\nThe link works for 48 hours.\n\nStop getting these: ${p.unsubscribeUrl}\n`,
     html: shell({
       title: subject,
       photoCid: 'photo',
-      paragraphs: ['The link works for 48 hours.'],
+      paragraphs: paras,
       button: { label: 'See the pictures', url: p.url },
       footer: unsubscribeFooter(p.unsubscribeUrl),
     }),
