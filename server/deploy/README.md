@@ -1,6 +1,6 @@
 # Deploying the micro-blog
 
-One VPS, Docker Compose, two containers: the Node server, with SQLite, the photos and the firmware images on a volume, and Caddy in front holding a wildcard certificate.
+Production is live on the Hetzner VPS at `135.181.83.145` (SSH alias `lttl-cam`), checked out on `main` at `/opt/little-camera`. Docker Compose runs two containers: the Node server, with SQLite, photos and firmware images on a volume, and Caddy in front obtaining certificates for each approved blog subdomain on demand.
 
 The domain is shared. Caddy forwards `/api/*` and `/app/*` to the server and serves everything else, `/` above all, from `LANDING_DIR`, so the landing page and the app deploy apart from each other. Blog subdomains go straight through, each owning the root of its own subdomain.
 
@@ -11,7 +11,30 @@ https://lttl.cam/api/…       the camera API and firmware releases
 https://mees.lttl.cam/       a blog
 ```
 
-`LANDING_DIR` defaults to `../../site`, which is the teaser in this repo. Today that same `site/` is on Vercel and `lttl.cam` points there, not at the VPS — see `site/DEPLOYMENT.md`. Nothing here is live yet, and these prefixes are what let the two swap later without touching a URL anyone has.
+`lttl.cam` and the blog subdomains point at the VPS. Caddy serves the landing page from `/opt/little-camera/site`, mounted at `/srv/landing` (`LANDING_DIR` defaults to `../../site`). Vercel remains a separate preview deployment — see `site/DEPLOYMENT.md`.
+
+## Updating production
+
+Commit and push locally, then pull on the VPS. Do not copy edited files directly into the production checkout.
+
+```bash
+git add <changed-files>
+git commit -m 'fix: describing the change'
+git push origin main
+ssh lttl-cam 'cd /opt/little-camera && git pull --ff-only origin main && cd server/deploy && docker compose up -d --build server'
+```
+
+The server runs from its Docker image, so pulling alone does not update it. Rebuilding recreates the server container and briefly interrupts requests; Caddy stays running and the data volume is retained. A pull also brings in any other commits on `main`, so check the production revision and working tree before deploying.
+
+```bash
+ssh lttl-cam 'cd /opt/little-camera && git status --short && git rev-parse --short HEAD && cd server/deploy && docker compose ps && docker compose logs --tail=30 server'
+curl -fsS https://mees.lttl.cam/
+curl -I https://lttl.cam/
+```
+
+Check the public response for the changed markup or CSS as well as a successful status. For landing-page-only updates, pulling updates the mounted files immediately without a server rebuild. For Caddy or Compose changes, apply the affected service configuration separately.
+
+## Setting up a new host
 
 1. Point DNS at the box: `A  lttl.cam  → IP` and `A  *.lttl.cam → IP`.
 2. `cp .env.example .env` and fill it in.
