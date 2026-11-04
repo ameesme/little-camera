@@ -1,0 +1,17 @@
+$ORIGIN lttl.cam.
+
+; Server
+@  A  135.181.83.145
+*  A  135.181.83.145
+
+; DKIM
+p5p5qt6seomi2x7yl4fff4ktimh47ain._domainkey  CNAME  p5p5qt6seomi2x7yl4fff4ktimh47ain.dkim.amazonses.com.
+2jxibdawtp33f5wcurq3auxztvxn3gxs._domainkey  CNAME  2jxibdawtp33f5wcurq3auxztvxn3gxs.dkim.amazonses.com.
+j7agjhc3upn56mklhcwbtwwqcnqwymms._domainkey  CNAME  j7agjhc3upn56mklhcwbtwwqcnqwymms.dkim.amazonses.com.
+
+; Custom MAIL FROM
+plunk  MX  10  feedback-smtp.eu-north-1.amazonses.com.
+plunk  TXT "v=spf1 include:amazonses.com ~all"
+
+; Inbound email
+@  MX  10  inbound-smtp.eu-north-1.amazonaws.com.
