@@ -54,6 +54,14 @@ void drawSave(const uint8_t* grayscale, int srcWidth, int srcHeight);
 // reproduces drawSave(). Reuses the photo dithered by the last drawCapture()
 // call rather than re-dithering, so it must follow one.
 void drawSaveTransition(float t);
+// Invert the visible hold button left-to-right after 200ms; heldMs=0 cancels an unfinished hold.
+void drawHoldProgress(uint32_t heldMs, uint32_t thresholdMs);
+void drawWakeProgress(uint32_t heldMs, uint32_t thresholdMs);
+void clearWakeProgress();
+// Keep the triggered button inverted across redraws and slides until it leaves the screen.
+void completeHold();
+// A short, non-blocking inversion for the press action chosen by an early release.
+void flashPress();
 // One frame of the save -> viewfinder slide out, same t convention. Bayer-
 // dithers a live frame instead of reusing the capture, so the viewfinder can
 // come back to life while the columns are still moving. Pass nullptr to keep
@@ -97,8 +105,10 @@ void toggleVcom();  // Force a VCOM toggle now — used by the sleep keep-alive
 
 // UI state for sidebar
 void setBatteryPercent(int percent);  // 0-100
+void setBatteryBars(uint8_t bars);   // 1-4, with hysteresis applied by caller
 void setCharging(bool charging);
 void setUsb(bool usb);
+void setShowHints(bool show);
 void setFaceBand(uint8_t band);       // 0-3 as Chirp::band: the face the viewfinder sidebar wears
 void setPhotoCount(int count);        // Photos on flash (not rendered yet)
 void setSignalLevel(UI::SignalLevel level);

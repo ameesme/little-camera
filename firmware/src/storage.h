@@ -75,6 +75,8 @@ void printLog();   // Streams it to Serial, bracketed by begin/end
 bool clearLog();
 
 uint16_t bootCount();
+uint16_t shotCount();      // Lifetime photos taken, survives power cycles
+void bumpShotCount();      // Called on each successful save
 size_t usedBytes();
 size_t totalBytes();
 

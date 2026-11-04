@@ -47,10 +47,14 @@ struct Entry {
 };
 
 bool _mounted = false;
+size_t _totalBytes = 0;
+size_t _usedBytes = 0;
+bool _usageDirty = true;
 int _nextIndex = 1;
 Entry _entries[MAX_PHOTOS];  // Ascending by index
 int _count = 0;
 uint16_t _boot = 0;
+uint16_t _shots = 0;
 
 void photoPath(int index, bool synced, char* out, size_t outLen) {
     snprintf(out, outLen, "/%04d%s%s", index, synced ? "s" : "", EXTENSION);
@@ -126,6 +130,8 @@ bool init() {
         return false;
     }
     _mounted = true;
+    _totalBytes = LittleFS.totalBytes();
+    _usageDirty = true;
 
     // Boot counter, so a photo's `up=` can be turned into a real time later if
     // the phone connects before the next reboot (docs/protocol.md §2). One NVS
@@ -134,6 +140,7 @@ bool init() {
     if (prefs.begin("storage", false)) {
         _boot = (uint16_t)(prefs.getUShort("boot", 0) + 1);
         prefs.putUShort("boot", _boot);
+        _shots = prefs.getUShort("shots", 0);
         prefs.end();
     }
 
@@ -151,8 +158,8 @@ bool init() {
     }
 
     Serial.printf("Storage: %d photos (%d unsynced), %u/%u bytes used, next #%04d, boot %u\n",
-                  _count, unsyncedCount(), (unsigned)LittleFS.usedBytes(),
-                  (unsigned)LittleFS.totalBytes(), _nextIndex, (unsigned)_boot);
+                  _count, unsyncedCount(), (unsigned)usedBytes(),
+                  (unsigned)totalBytes(), _nextIndex, (unsigned)_boot);
     return true;
 }
 
@@ -194,6 +201,7 @@ Result savePhoto(const uint8_t* bits, int width, int height) {
     char path[24];
     photoPath(_nextIndex, false, path, sizeof(path));
 
+    _usageDirty = true;
     File f = LittleFS.open(path, FILE_WRITE);
     if (!f) {
         Serial.printf("Storage: could not open %s\n", path);
@@ -324,6 +332,7 @@ bool markSynced(int index) {
     char from[24], to[24];
     photoPath(index, false, from, sizeof(from));
     photoPath(index, true, to, sizeof(to));
+    _usageDirty = true;
     // rename() is atomic in LittleFS: the photo is either marked or not, never
     // half-gone, whatever the battery does mid-way.
     if (!LittleFS.rename(from, to)) {
@@ -340,6 +349,7 @@ bool deletePhoto(int index) {
     if (slot < 0) return false;
     char path[24];
     photoPath(index, _entries[slot].synced, path, sizeof(path));
+    _usageDirty = true;
     if (!LittleFS.remove(path)) {
         Serial.printf("Storage: could not remove %s\n", path);
         return false;
@@ -350,6 +360,7 @@ bool deletePhoto(int index) {
 
 bool appendLog(const char* line) {
     if (!_mounted) return false;
+    _usageDirty = true;
     File f = LittleFS.open(LOG_PATH, FILE_APPEND);
     if (!f) return false;
     if (f.size() >= LOG_MAX_BYTES) {
@@ -382,11 +393,30 @@ void printLog() {
 
 bool clearLog() {
     if (!_mounted) return false;
+    _usageDirty = true;
     return LittleFS.remove(LOG_PATH);
 }
 
 uint16_t bootCount() { return _boot; }
-size_t usedBytes() { return _mounted ? LittleFS.usedBytes() : 0; }
-size_t totalBytes() { return _mounted ? LittleFS.totalBytes() : 0; }
+uint16_t shotCount() { return _shots; }
+
+void bumpShotCount() {
+    _shots++;
+    Preferences prefs;
+    if (prefs.begin("storage", false)) {
+        prefs.putUShort("shots", _shots);
+        prefs.end();
+    }
+}
+// Both LittleFS capacity getters scan usage; cache between mutations so BLE's 500ms Info refresh cannot stall the viewfinder.
+size_t usedBytes() {
+    if (!_mounted) return 0;
+    if (_usageDirty) {
+        _usedBytes = LittleFS.usedBytes();
+        _usageDirty = false;
+    }
+    return _usedBytes;
+}
+size_t totalBytes() { return _totalBytes; }
 
 }

@@ -1,4 +1,5 @@
 #include "display.h"
+#include "hold_progress.h"
 #include "splash_data.h"
 #include "chirp.h"  // Chirp::band: the face follows the mood in the same four steps as the sounds
 #include "ui.h"
@@ -182,6 +183,8 @@ static bool _usb = false;
 static Prompt _prompt = Prompt::None;
 static int _photoCount = 0;
 static UI::SignalLevel _signalLevel = UI::SignalLevel::Full;
+static bool _showHints = true;
+static uint8_t _batteryBars = 4;
 
 // Toast state
 static char _toastText[64] = {0};
@@ -478,6 +481,42 @@ static void mini(int x, int y, int w, int h, uint8_t band, bool breathIn, int b)
 // A black box with a centred icon and a label hung under it, plus a footer
 // naming the gesture that triggers it, ruled off by a hairline. Shared by the
 // viewfinder sidebar and the save-screen actions so the two stay identical.
+struct ButtonState {
+    int x = 0, y = 0, w = 0, h = 0, filledPixels = 0;
+    const uint8_t* icon = nullptr;
+};
+static ButtonState _holdButton, _pressButton;
+static const uint8_t* _completedHoldIcon = nullptr;
+static bool _completedHoldVisible = false;
+static const uint8_t* _pressFlashIcon = nullptr;
+static uint32_t _pressFlashUntil = 0;
+constexpr uint32_t PRESS_FLASH_MS = 120;
+static int _pendingHoldPixels = 0;
+
+static void clearButtonFeedback() {
+    _holdButton = {};
+    _pressButton = {};
+    _completedHoldIcon = nullptr;
+    _pressFlashIcon = nullptr;
+    _pendingHoldPixels = 0;
+}
+
+static bool pressFlashActive() {
+    return _pressFlashIcon && (int32_t)(_pressFlashUntil - millis()) > 0;
+}
+
+static void invertButtonColumns(int x, int y, int w, int h, int from, int to) {
+    for (int py = y; py < y + h; py++) {
+        for (int px = x + from; px < x + to; px++) {
+            if (px < 0 || px >= WIDTH) continue;
+            if (isInsideRoundedRect(px, py, x, y, w, h, BOX_RADIUS) &&
+                isInsideRoundedRect(px, py, x + 1, y + 1, w - 2, h - 2, BOX_RADIUS - 1)) {
+                _framebuffer[py * BYTES_PER_LINE + px / 8] ^= (0x80 >> (px % 8));
+            }
+        }
+    }
+}
+
 static void drawBoxButton(int x, int y, int w, int h,
                           const uint8_t* icon, const char* label, const char* gesture) {
     // setPixel clips, so drawing off-panel is harmless — but during the slide
@@ -512,6 +551,19 @@ static void drawBoxButton(int x, int y, int w, int h,
     drawIconCentered(icon, UI::ICON_SIZE, UI::ICON_SIZE, x, w, iconY, true);
     drawTextCenteredAt(label, x, w, labelY, SIDEBAR_FONT, true);
     drawTextCenteredAt(gesture, x, w, gestureY, HINT_FONT, true);
+    drawRoundedRectBorder(x, y, w, h, BOX_RADIUS, false);
+    if (!strcmp(gesture, "hold")) {
+        const bool completed = icon == _completedHoldIcon;
+        if (completed) {
+            invertButtonColumns(x, y, w, h, 0, w);
+            _completedHoldVisible = true;
+        }
+        if (x >= 0 && x + w <= WIDTH) _holdButton = {x, y, w, h, completed ? w : 0, icon};
+    } else if (!strcmp(gesture, "press")) {
+        const bool flashed = icon == _pressFlashIcon && pressFlashActive();
+        if (flashed) invertButtonColumns(x, y, w, h, 0, w);
+        if (x >= 0 && x + w <= WIDTH) _pressButton = {x, y, w, h, flashed ? w : 0, icon};
+    }
 }
 
 // The face block above the sidebar button: the same face the camera sleeps
@@ -673,6 +725,10 @@ void setBatteryPercent(int percent) {
     _batteryPercent = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
 }
 
+void setBatteryBars(uint8_t bars) {
+    _batteryBars = bars < 1 ? 1 : (bars > 4 ? 4 : bars);
+}
+
 void setPhotoCount(int count) {
     _photoCount = count < 0 ? 0 : count;
 }
@@ -687,6 +743,10 @@ void setCharging(bool charging) {
 
 void setUsb(bool usb) {
     _usb = usb;
+}
+
+void setShowHints(bool show) {
+    _showHints = show;
 }
 
 bool promptPending() {
@@ -785,6 +845,39 @@ static void flushLines(int fromY, int toY) {
 }
 
 static void flushFramebuffer() { flushLines(0, HEIGHT); }
+
+static void updateHoldPixels(int pixels) {
+    const int previous = _holdButton.filledPixels;
+    if (pixels == previous) return;
+    invertButtonColumns(_holdButton.x, _holdButton.y, _holdButton.w, _holdButton.h,
+                        pixels < previous ? pixels : previous, pixels > previous ? pixels : previous);
+    _holdButton.filledPixels = pixels;
+    flushLines(_holdButton.y, _holdButton.y + _holdButton.h);
+}
+
+void drawHoldProgress(uint32_t heldMs, uint32_t thresholdMs) {
+    if (_holdButton.icon && _holdButton.icon == _completedHoldIcon) return;
+    int px = HoldProgress::pixels(heldMs, thresholdMs, _holdButton.w);
+    _pendingHoldPixels = px;
+    updateHoldPixels(px);
+}
+
+void completeHold() {
+    _completedHoldIcon = _holdButton.icon;
+    _pendingHoldPixels = 0;
+    updateHoldPixels(_holdButton.w);
+}
+
+void flashPress() {
+    if (!_pressButton.icon) return;
+    _pressFlashIcon = _pressButton.icon;
+    _pressFlashUntil = millis() + PRESS_FLASH_MS;
+    if (!_pressButton.filledPixels) {
+        invertButtonColumns(_pressButton.x, _pressButton.y, _pressButton.w, _pressButton.h, 0, _pressButton.w);
+        _pressButton.filledPixels = _pressButton.w;
+        flushLines(_pressButton.y, _pressButton.y + _pressButton.h);
+    }
+}
 
 // Ordered-Bayer dither the source into _photoBits. Image only — placement on
 // the panel is blitPhoto()'s job.
@@ -917,6 +1010,9 @@ static void renderPhotoCard(int photoX) {
 // actions in place). The whole layout moves as one block, so a single offset
 // drives all three elements — that's the "everything shifts over" effect.
 static void renderSaveLayout(float t) {
+    _holdButton = {};
+    _pressButton = {};
+    _completedHoldVisible = false;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
     const int shift = (int)(SAVE_SLIDE_PX * t + 0.5f);
@@ -929,8 +1025,14 @@ static void renderSaveLayout(float t) {
 
     drawSidebar(SIDEBAR_PADDING - shift);
     drawActionBar(WIDTH - shift);
+    if (!_completedHoldVisible) _completedHoldIcon = nullptr;
 
     renderToast();
+    if (_pendingHoldPixels > 0 && _holdButton.w > 0) {
+        int px = _pendingHoldPixels < _holdButton.w ? _pendingHoldPixels : _holdButton.w;
+        invertButtonColumns(_holdButton.x, _holdButton.y, _holdButton.w, _holdButton.h, 0, px);
+        _holdButton.filledPixels = px;
+    }
     flushFramebuffer();
 }
 
@@ -966,12 +1068,16 @@ void drawDismissTransition(const uint8_t* grayscale, int srcWidth, int srcHeight
 // and the gallery bar walking in from the right. Renders whatever is in
 // _photoBits.
 static void renderGalleryLayout(int index, int total, float t) {
+    _holdButton = {};
+    _pressButton = {};
+    _completedHoldVisible = false;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
     const int shift = (int)(SAVE_SLIDE_PX * t + 0.5f);
     renderPhotoCard(PHOTO_X_CAPTURE - shift);
     drawSidebar(SIDEBAR_PADDING - shift);
     drawGalleryBar(WIDTH - shift, index, total);
+    if (!_completedHoldVisible) _completedHoldIcon = nullptr;
     renderToast();
     flushFramebuffer();
 }
@@ -999,6 +1105,9 @@ void drawGallery(const uint8_t* bits, int index, int total) {
 }
 
 void drawGalleryEmpty() {
+    _holdButton = {};
+    _pressButton = {};
+    _completedHoldVisible = false;
     memset(_framebuffer, 0xFF, sizeof(_framebuffer));
     // The card's outline where the photo would be, with the message inside it,
     // so the empty state has the same shape as the full one.
@@ -1011,6 +1120,7 @@ void drawGalleryEmpty() {
     // the viewfinder's sidebar.
     drawBoxButton(WIDTH - SIDEBAR_PADDING - BOX_WIDTH, SIDEBAR_PADDING, BOX_WIDTH, INBOX_HEIGHT,
                   UI::getCameraIcon(), "back", "hold");
+    if (!_completedHoldVisible) _completedHoldIcon = nullptr;
     renderToast();
     flushFramebuffer();
 }
@@ -1020,6 +1130,7 @@ void drawGalleryEmpty() {
 // paint straight over it. `big` is scaled to fit, so both the six digits and
 // the outcome line use one call.
 void drawPairing(const char* big, const char* hint) {
+    clearButtonFeedback();
     memset(_framebuffer, 0xFF, sizeof(_framebuffer));  // White paper, like every screen but sleep
 
     const int inset = 12;
@@ -1067,6 +1178,7 @@ static void fillUpdateBar(int percent) {
 // for minutes, and a toast would be painted over by the next one. The bar is
 // the only progress indicator in the UI; everything else here is instant.
 void drawUpdate(const char* line, int percent, const char* hint, const uint8_t* mark) {
+    clearButtonFeedback();
     memset(_framebuffer, 0xFF, sizeof(_framebuffer));  // White paper, like every screen but sleep
 
     const int inset = 12;
@@ -1123,6 +1235,7 @@ void drawUpdateProgress(int percent) {
 }
 
 void drawSplash() {
+    clearButtonFeedback();
     digitalWrite(_cs, HIGH);
     delayMicroseconds(6);
 
@@ -1147,33 +1260,29 @@ void drawSplash() {
     digitalWrite(_cs, LOW);
 }
 
-// Below this the camera is asking for a cable rather than reporting a number.
-constexpr int SLEEP_BATTERY_LOW_PCT = 20;
-// The badge sits bottom-left, where the debug readout used to, and is the only
-// thing on the sleep screen besides the face: a battery nobody can ask about is
-// worth an icon, a battery that is merely fine is not.
 constexpr int SLEEP_BADGE_SCALE = 2;
 constexpr int SLEEP_BADGE_SIZE = UI::ICON_SIZE * SLEEP_BADGE_SCALE;
 
-static bool sleepBadgeVisible() {
-    return _usb || _batteryPercent <= SLEEP_BATTERY_LOW_PCT;
-}
-
 static void drawSleepBadge(bool breathIn) {
-    if (!sleepBadgeVisible()) return;
     const int iconY = HEIGHT - SLEEP_BADGE_SIZE;
     if (_usb) {
         drawIconScaled(UI::getChargingIcon(), UI::ICON_SIZE, UI::ICON_SIZE,
                        TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
-    } else {
-        const uint8_t* icon = breathIn ? UI::getBatteryIcon(UI::BatteryLevel::Empty)
-                                       : UI::getBatteryIcon(UI::BatteryLevel::Low);
-        drawIconScaled(icon, UI::ICON_SIZE, UI::ICON_SIZE,
-                       TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
+        return;
     }
+    UI::BatteryLevel level;
+    switch (_batteryBars) {
+        case 1: level = UI::BatteryLevel::Empty; break;
+        case 2: level = UI::BatteryLevel::Low; break;
+        case 3: level = UI::BatteryLevel::Medium; break;
+        default: level = UI::BatteryLevel::Full; break;
+    }
+    drawIconScaled(UI::getBatteryIcon(level), UI::ICON_SIZE, UI::ICON_SIZE,
+                   TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
 }
 
 void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* status) {
+    clearButtonFeedback();
     memset(_framebuffer, 0, sizeof(_framebuffer));  // Black
     const uint8_t band = Chirp::band(happiness);
     const int eyeY = Face::EYE_Y + (breathIn ? Face::BREATH_EYES_DY : 0);
@@ -1182,37 +1291,50 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* stat
     Face::eye(Face::EYE_R_X, eyeY, band == 3);
     Face::mouth(Face::MOUTH_X, mouthY, band);
 
-    // Draw "hold to wake" top-right, inverted (white on black). A hold, not
-    // a press: main.cpp ignores taps on the sleeping camera.
-    const char* text = "hold to wake";
-    int textW = UI::textWidth(text, TOAST_FONT);
-    int textH = UI::fontHeight(TOAST_FONT);
-    int boxW = textW + TOAST_PADDING_H * 2;
-    int boxH = textH + TOAST_PADDING_V * 2;
-    int boxX = WIDTH - boxW - TOAST_MARGIN;
-    int boxY = TOAST_MARGIN;
-
-    fillRoundedRect(boxX, boxY, boxW, boxH, TOAST_RADIUS, false);  // Black bg
-    drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);  // White border
-    drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);  // White text
+    if (_showHints) {
+        const char* text = "hold to wake";
+        int textW = UI::textWidth(text, TOAST_FONT);
+        int textH = UI::fontHeight(TOAST_FONT);
+        int boxW = textW + TOAST_PADDING_H * 2;
+        int boxH = textH + TOAST_PADDING_V * 2;
+        int boxX = WIDTH - boxW - TOAST_MARGIN;
+        int boxY = TOAST_MARGIN;
+        fillRoundedRect(boxX, boxY, boxW, boxH, TOAST_RADIUS, false);
+        drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);
+        drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);
+    }
 
     drawSleepBadge(breathIn);
-    // The voltage readout is a bench tool, so it goes under the badge rather
-    // than where the badge is: console `log` is the one that matters.
     if (status) {
-        drawText(status, TOAST_MARGIN + (sleepBadgeVisible() ? SLEEP_BADGE_SIZE + TOAST_MARGIN : 0),
+        drawText(status, TOAST_MARGIN + SLEEP_BADGE_SIZE + TOAST_MARGIN,
                  HEIGHT - UI::fontHeight(TOAST_FONT) - TOAST_MARGIN, TOAST_FONT, true);
     }
 
-    // A breath frame only touches the face rows; the rest of the panel keeps
-    // what it has. The band spans both breath positions of eyes and mouth, and
-    // the badge animates on the same beat, so its strip goes too.
     if (faceOnly) {
         flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
-        if (sleepBadgeVisible()) flushLines(HEIGHT - SLEEP_BADGE_SIZE, HEIGHT);
+        flushLines(HEIGHT - SLEEP_BADGE_SIZE, HEIGHT);
     } else {
         flushFramebuffer();
     }
+}
+
+static int _wakeFilledRows = 0;
+
+void drawWakeProgress(uint32_t heldMs, uint32_t thresholdMs) {
+    int rows = HoldProgress::pixels(heldMs, thresholdMs, HEIGHT);
+    if (rows <= _wakeFilledRows) return;
+    int prevStart = HEIGHT - _wakeFilledRows;
+    int newStart = HEIGHT - rows;
+    for (int y = newStart; y < prevStart; y++) {
+        uint8_t* row = &_framebuffer[y * BYTES_PER_LINE];
+        for (int x = 0; x < BYTES_PER_LINE; x++) row[x] = ~row[x];
+    }
+    flushLines(newStart, prevStart);
+    _wakeFilledRows = rows;
+}
+
+void clearWakeProgress() {
+    _wakeFilledRows = 0;
 }
 
 void toggleVcom() {
@@ -1229,6 +1351,14 @@ void toggleVcom() {
 }
 
 void refresh() {
+    if (_pressFlashIcon && !pressFlashActive()) {
+        _pressFlashIcon = nullptr;
+        if (_pressButton.filledPixels) {
+            invertButtonColumns(_pressButton.x, _pressButton.y, _pressButton.w, _pressButton.h, 0, _pressButton.w);
+            _pressButton.filledPixels = 0;
+            flushLines(_pressButton.y, _pressButton.y + _pressButton.h);
+        }
+    }
     // Toggle VCOM at least every VCOM_INTERVAL_MS to prevent DC bias / burn-in
     if (millis() - _lastVcomToggle >= VCOM_INTERVAL_MS) {
         toggleVcom();

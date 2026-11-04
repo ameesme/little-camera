@@ -53,7 +53,7 @@ static inline bool shutterPressed() {
 }
 
 // Timing constants
-constexpr uint32_t IDLE_TIMEOUT_MS = 10000;  // 10 seconds idle -> sleep
+constexpr uint32_t IDLE_TIMEOUT_MS = 20000;  // 20 seconds idle -> sleep
 // Looking at a photo is slower than framing one: the gallery, and the save
 // screen with a photo waiting on a decision, get longer before the sleep
 // face comes up.
@@ -67,8 +67,9 @@ constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
 // long enough to be read.
 constexpr uint32_t PAIRING_TIMEOUT_MS = 60000;
 constexpr uint32_t PAIRING_RESULT_MS = 6000;
-// Between two chirps the phone asked for: long enough to be two and not a stutter.
-constexpr uint32_t CHIRP_GAP_MS = 220;
+// Between two chirps: long enough to be two and not a stutter, short enough to feel like one phrase.
+constexpr uint32_t CHIRP_GAP_MIN_MS = 40;
+constexpr uint32_t CHIRP_GAP_MAX_MS = 350;
 
 // A firmware update owns the screen until the phone is done with it or gives
 // up; sync.cpp's own timeouts are the escape hatch, so there is none here.
@@ -276,10 +277,11 @@ static void moodOnClock(bool tzKnown, int16_t tzMin) {
 // Compose, log, then play. The play blocks for up to 300ms, so the line is on
 // the monitor before the sound. Audio::init first: this is also called straight
 // out of light sleep, where the pin has to be claimed again.
-static void playMoodChirp(uint8_t happiness, const char* why, int count = 2) {
+static void playMoodChirp(uint8_t happiness, const char* why, int count = 0) {
     Audio::init(PIN_BUZZ);
+    if (count <= 0) count = 1 + (int)(esp_random() % 3);
     for (int i = 0; i < count; i++) {
-        if (i) delay(CHIRP_GAP_MS);
+        if (i) delay(CHIRP_GAP_MIN_MS + esp_random() % (CHIRP_GAP_MAX_MS - CHIRP_GAP_MIN_MS + 1));
         Chirp::Rng rng(esp_random());
         Chirp::Score s = Chirp::compose(happiness, rng);
         char desc[64];
@@ -376,6 +378,8 @@ static void logBattery(uint32_t mv, bool chg, bool chgChanged) {
 // Reads the battery, keeps `sleepStatus` in step with it, logs a standby
 // sample. True when the text moved. Separate from the face because once the
 // breath stops the sleep tick still has to sample, with nothing to draw.
+static uint8_t prevBatteryBars = 0;
+
 static bool sampleBattery() {
     const uint32_t mv = batteryMv();
     const bool chg = onCharge();
@@ -386,12 +390,16 @@ static bool sampleBattery() {
         sleepStatusMv = mv;
         sleepStatusChg = chg;
         bool usb = digitalRead(PIN_VBUS) == HIGH;
-        Display::setBatteryPercent(Power::percent(mv, chg, usb));
+        uint8_t pct = Power::percent(mv, chg, usb);
+        Display::setBatteryPercent(pct);
         Display::setCharging(chg);
         Display::setUsb(usb);
+        uint8_t bars = Power::bars(pct, prevBatteryBars);
+        if (bars != prevBatteryBars) { prevBatteryBars = bars; moved = true; }
+        Display::setBatteryBars(bars);
         snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV", (unsigned)(mv / 1000),
                  (unsigned)(mv % 1000 / 10));
-        moved = true;
+        if (!moved) moved = true;
     }
     logBattery(mv, chg, chgChanged);
     return moved;
@@ -408,11 +416,7 @@ static void showSleepFace(bool full) {
     // rather than asking mood.h from inside the panel driver.
     Display::setFaceBand(band);
 
-    // The debug readout sits outside the face rows, so a breath frame cannot
-    // repaint it and a moved reading has to pay for a full frame.
-    if (sampleBattery()) full = true;
-
-    Display::drawSleep(h, sleepBreathIn, !full, onUsb() ? nullptr : sleepStatus);
+    Display::drawSleep(h, sleepBreathIn, !full);
     sleepFaceDrawnAt = millis();
 }
 
@@ -520,6 +524,7 @@ void setup() {
     // Photo storage. Non-fatal: the camera still works without it, saves just
     // report an error, and refusing to boot over a bad partition would be worse.
     Storage::init();
+    Display::setShowHints(Storage::shotCount() < 2);
 
     Identity::init();
     moodBoot();
@@ -546,12 +551,16 @@ void setup() {
     lastActivityTime = millis();
 }
 
-// True if the shutter stays down for WAKE_HOLD_MS from now; false the moment
-// it is released. Polls, so only for the moments when nothing else runs.
 static bool heldToWake() {
+    Display::clearWakeProgress();
     uint32_t start = millis();
     while (millis() - start < WAKE_HOLD_MS) {
-        if (!shutterPressed()) return false;
+        if (!shutterPressed()) {
+            Display::clearWakeProgress();
+            showSleepFace(true);
+            return false;
+        }
+        Display::drawWakeProgress(millis() - start, WAKE_HOLD_MS);
         delay(10);
     }
     return true;
@@ -572,9 +581,10 @@ static void enterAsleep() {
     if (!radioOn) { Sync::begin(); radioOn = true; }
 #endif
     Serial.println("Asleep (radio on)");
+    cameraOff();
+    sampleBattery();
     sleepBreathIn = false;
     showSleepFace(true);
-    cameraOff();
     asleepSince = millis();
     gestureActive = false;
     holdFired = false;
@@ -1075,6 +1085,7 @@ static void leaveGallery() {
         }
     }
     mode = Mode::Viewfinder;
+    gestureActive = false;
     lastActivityTime = millis();
     hintToastShowing = false;
 }
@@ -1083,6 +1094,7 @@ static void leaveGallery() {
 static void returnToViewfinder() {
     savedFrame = nullptr;
     mode = Mode::Viewfinder;
+    gestureActive = false;
     lastActivityTime = millis();
     hintToastShowing = false;
     Display::clearToast();
@@ -1116,6 +1128,17 @@ void loop() {
     Sync::loop();
     handleSyncEvents();
 
+    {
+        bool usb = onUsb();
+        static bool lastUsb = onUsb();
+        if (usb != lastUsb) {
+            lastUsb = usb;
+            sampleBattery();
+            if (mode == Mode::Asleep) showSleepFace(true);
+            if (usb) playMoodChirp(255, "Charger", 1);
+        }
+    }
+
     // This image got through boot and has been running the loop for a while:
     // end the trial, so the next reset is an ordinary one. A no-op unless the
     // camera is actually running something the phone sent.
@@ -1148,68 +1171,53 @@ void loop() {
             }
 #endif
 
-            // Show hint toast after 5s of inactivity
-            if (!hintToastShowing && (now - lastActivityTime) >= HINT_TOAST_DELAY_MS) {
+            if (!hintToastShowing && Storage::shotCount() < 2 &&
+                (now - lastActivityTime) >= HINT_TOAST_DELAY_MS) {
                 Display::showToast("press to shoot", Display::ToastHAlign::Right,
                                    Display::ToastVAlign::Top, false, 0);
                 hintToastShowing = true;
             }
 
-            uint8_t* frame = Camera::capture();
-            if (frame) {
-                Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
+            if (!gestureActive) {
+                uint8_t* frame = Camera::capture();
+                if (frame) {
+                    Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
+                }
             }
 
-            if (pressed && !lastPressed && confirmPressed()) {
+            if (pressed && !lastPressed) {
+                pressStartedAt = millis();
+                gestureActive = true;
+            } else if (pressed && gestureActive) {
+                Display::drawHoldProgress(millis() - pressStartedAt, GALLERY_HOLD_MS);
+                if (millis() - pressStartedAt >= GALLERY_HOLD_MS) {
+                    Display::completeHold();
+                    enterGallery();
+                    break;
+                }
+            } else if (!pressed && lastPressed && gestureActive) {
+                gestureActive = false;
+                Display::drawHoldProgress(0, GALLERY_HOLD_MS);
+                lastActivityTime = millis();
                 Serial.println("Shutter — capturing");
-
-                // A screen switch always drops the toast. A timed toast only
-                // expires when something re-renders, and the capture screen
-                // is drawn once — carried over, it would sit there for good.
                 Display::clearToast();
                 hintToastShowing = false;
-
-                // Re-grab so the saved frame is the one taken at the press, not
-                // the viewfinder frame from the top of this iteration.
                 savedFrame = Camera::capture();
                 if (savedFrame) {
                     Display::drawCapture(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+                    Audio::playClick();
+                    Audio::playMelody(Audio::Melody::TaDaDa);
+                    captureShownAt = millis();
+                    mode = Mode::Capture;
                 }
-
-                Audio::playClick();
-
-                // Fresh clock, same rule as the Save hold: confirmPressed()
-                // just spent 10ms, so `now` is stale.
-                pressStartedAt = millis();
-                captureShownAt = pressStartedAt;
-                captureHeld = savedFrame != nullptr;
-                lastActivityTime = captureShownAt;
-                mode = savedFrame ? Mode::Capture : Mode::Viewfinder;
             }
+            if (!pressed) gestureActive = false;
             break;
         }
 
         case Mode::Capture: {
-            if (captureHeld) {
-                if (pressed) {
-                    // Still deciding. The frozen frame stays up — for a normal
-                    // tap this window closes inside the dwell, so nothing
-                    // looks different from a plain capture.
-                    if (millis() - pressStartedAt >= GALLERY_HOLD_MS) enterGallery();
-                    break;
-                }
-                // Released before the threshold: it's a shot.
-                captureHeld = false;
-                Audio::playMelody(Audio::Melody::TaDaDa);
-                // Held past the dwell? Start the slide now rather than jumping
-                // into the middle of it.
-                if (millis() - captureShownAt > CAPTURE_DWELL_MS) {
-                    captureShownAt = millis() - CAPTURE_DWELL_MS;
-                }
-            }
-
             uint32_t elapsed = millis() - captureShownAt;
-            if (elapsed < CAPTURE_DWELL_MS) break;  // Frame frozen, nothing to do
+            if (elapsed < CAPTURE_DWELL_MS) break;
 
             uint32_t slid = elapsed - CAPTURE_DWELL_MS;
             if (slid < SAVE_SLIDE_MS) {
@@ -1221,21 +1229,15 @@ void loop() {
             saveToastWasVisible = false;
             Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
             mode = Mode::Save;
-            // The shot is dithered and cached in Display now, so the sensor has
-            // nothing left to do until the slide back out. A photo can wait a
-            // long time for a decision — 30s of idle — and it must not wait at
-            // 105mA. The rail comes back in startDismiss().
             cameraOff();
-            // Start the gesture from a clean slate. If the shutter is still
-            // held from the capture, lastPressed is already true and the edge
-            // test in Save won't fire until it's released — which is what we
-            // want: that press belongs to the capture.
             gestureActive = false;
             holdFired = false;
             break;
         }
 
         case Mode::Save: {
+            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+                                      TRASH_HOLD_MS);
             if (pressed && !lastPressed && confirmPressed()) {
                 pressStartedAt = millis();
                 gestureActive = true;
@@ -1251,10 +1253,12 @@ void loop() {
                 // Fire on the threshold rather than on release, so the hold has
                 // a definite end the user can feel instead of a silent wait.
                 Serial.println("Save: trash");
+                Display::completeHold();
                 holdFired = true;
                 Audio::playMelody(Audio::Melody::DaDaTa);
                 startDismiss("deleted");
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+                Display::flashPress();
                 // Released before the threshold: a tap. No modem on this board,
                 // so "send" writes the photo to flash and stops there
                 // — the file is staged for whatever eventually uploads it.
@@ -1269,6 +1273,7 @@ void loop() {
                 Audio::playClick();
                 switch (r) {
                     case Storage::Result::Ok:
+                        Storage::bumpShotCount();
                         moodOnPhoto();
                         // Whatever the phone was waiting for, it has it now.
                         Display::setPrompt(Display::Prompt::None);
@@ -1293,12 +1298,16 @@ void loop() {
                     // Not drawSave(): the camera is off and its framebuffer is
                     // gone. t=1 is the same layout off the cached dither.
                     Display::drawSaveTransition(1.0f);
+                    Display::drawHoldProgress(pressed && gestureActive ? millis() - pressStartedAt : 0,
+                                              TRASH_HOLD_MS);
                 }
             }
             break;
         }
 
         case Mode::Gallery: {
+            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+                                      GALLERY_HOLD_MS);
             if (pressed && !lastPressed && confirmPressed()) {
                 pressStartedAt = millis();
                 gestureActive = true;
@@ -1307,10 +1316,12 @@ void loop() {
             } else if (pressed && gestureActive && !holdFired &&
                        (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
                 // Fires on the threshold, like trash, so the hold has an end.
+                Display::completeHold();
                 holdFired = true;
                 leaveGallery();
                 break;
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+                Display::flashPress();
                 // A tap: next photo, wrapping. With one forward gesture,
                 // stopping at the oldest would strand the user; the counter
                 // makes the wrap legible.
@@ -1329,22 +1340,26 @@ void loop() {
             if (galleryDirty || toastNow != galleryToastWasVisible) {
                 galleryToastWasVisible = toastNow;
                 showGalleryPhoto();
+                Display::drawHoldProgress(pressed && gestureActive ? millis() - pressStartedAt : 0,
+                                          GALLERY_HOLD_MS);
             }
             break;
         }
 
         case Mode::Asleep: {
             if (pressed && !lastPressed && confirmPressed()) {
+                Display::clearWakeProgress();
                 pressStartedAt = millis();
                 gestureActive = true;
-            } else if (pressed && gestureActive && (millis() - pressStartedAt) >= WAKE_HOLD_MS) {
-                wakeFromAsleep();
-                break;
+            } else if (pressed && gestureActive) {
+                Display::drawWakeProgress(millis() - pressStartedAt, WAKE_HOLD_MS);
+                if ((millis() - pressStartedAt) >= WAKE_HOLD_MS) {
+                    wakeFromAsleep();
+                    break;
+                }
             } else if (!pressed && lastPressed && gestureActive) {
-                // Released before the hold: a tap. Answered with a chirp in
-                // the camera's current mood, so an accidental press explains
-                // itself and says how the camera is doing. Not activity: it
-                // must not stretch the radio window.
+                Display::clearWakeProgress();
+                showSleepFace(true);
                 playMoodChirp(moodHappiness(), "Asleep tap");
             }
             if (!pressed) gestureActive = false;

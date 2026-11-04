@@ -15,12 +15,16 @@ OUT  = out
 
 SCENES = splash pairing pairing-done update update-done update-failed sleep sleep-content sleep-glum sleep-sad sleep-breath sleep-battery sleep-charging sleep-low prompt-card prompt-selfie viewfinder capture save slide toast gallery gallery-empty
 
-$(BIN): $(SRCS) shim/Arduino.h shim/SPI.h sim_panel.h ../../src/display.cpp ../../src/display.h ../../src/pbm_header.h
+$(BIN): $(SRCS) shim/Arduino.h shim/SPI.h sim_panel.h ../../src/display.cpp ../../src/display.h ../../src/pbm_header.h ../../src/hold_progress.h
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o $(BIN)
 
 scenes: $(BIN)
 	@mkdir -p $(OUT)
 	@for s in $(SCENES); do ./$(BIN) $$s --out $(OUT)/$$s.bmp --scale 2; done
+
+test_hold: test_hold.cpp sim_panel.cpp sim_arduino.cpp ../../src/display.cpp ../../src/display.h ../../src/hold_progress.h
+	$(CXX) $(CXXFLAGS) $(INCLUDES) test_hold.cpp sim_panel.cpp sim_arduino.cpp ../../src/display.cpp -o /private/tmp/lc-test-hold
+	/private/tmp/lc-test-hold
 
 open: scenes
 	@open $(OUT)/*.bmp
@@ -31,4 +35,4 @@ clean:
 help:
 	@./$(BIN) 2>&1 || true
 
-.PHONY: scenes open clean help
+.PHONY: scenes open clean help test_hold

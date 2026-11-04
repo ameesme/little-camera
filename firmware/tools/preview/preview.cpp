@@ -182,6 +182,10 @@ static void usage(const char* argv0) {
         "  --total N    total shown in the gallery counter, default 12\n"
         "  --happiness N  mood 0-255 for the sleep face, default 255\n"
         "  --percent N  progress 0-100 for the 'update' scene, default 42\n"
+        "  --hold-ms N  elapsed hold time, default 0 (fill starts after 200ms)\n"
+        "  --hold-threshold N  hold action threshold, default 700ms (trash: 1500)\n"
+        "  --hold-reset  release the button after drawing its progress\n"
+        "  --press-flash  show the brief inversion after an early release\n"
         "  --breath     draw the second breath frame of the sleep face\n",
         argv0);
 }
@@ -204,6 +208,10 @@ int main(int argc, char** argv) {
     bool breath = false;
     int galleryIndex = 2;
     int galleryTotal = 12;
+    uint32_t holdMs = 0;
+    uint32_t holdThreshold = 700;
+    bool holdReset = false;
+    bool pressFlash = false;
 
     for (int i = 2; i < argc; i++) {
         bool hasValue = (i + 1 < argc);
@@ -225,6 +233,14 @@ int main(int argc, char** argv) {
             happiness = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--percent") && hasValue) {
             percent = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--hold-ms") && hasValue) {
+            holdMs = (uint32_t)strtoul(argv[++i], nullptr, 10);
+        } else if (!strcmp(argv[i], "--hold-threshold") && hasValue) {
+            holdThreshold = (uint32_t)strtoul(argv[++i], nullptr, 10);
+        } else if (!strcmp(argv[i], "--hold-reset")) {
+            holdReset = true;
+        } else if (!strcmp(argv[i], "--press-flash")) {
+            pressFlash = true;
         } else if (!strcmp(argv[i], "--breath")) {
             breath = true;
         } else if (!strcmp(argv[i], "--total") && hasValue) {
@@ -322,6 +338,10 @@ int main(int argc, char** argv) {
         usage(argv[0]);
         return 2;
     }
+
+    Display::drawHoldProgress(holdMs, holdThreshold);
+    if (holdReset) Display::drawHoldProgress(0, holdThreshold);
+    if (pressFlash) Display::flashPress();
 
     if (!SimPanel::displayEnabled()) {
         fprintf(stderr, "warning: DISP is low — a real panel would show nothing\n");

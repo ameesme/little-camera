@@ -14,6 +14,7 @@
 #include "../../src/shortcode.h"
 #include "../../src/sync_protocol.h"
 #include "../../src/power.h"
+#include "../../src/hold_progress.h"
 #include "../../src/chirp.h"
 #include "../../src/mood.h"
 
@@ -133,24 +134,27 @@ static void testSyncProtocol() {
     CHECK(p[23] == 0x03);
     CHECK(p[24] == 0 && p[25] == 2 && p[26] == 0 && p[27] == UPDATE_IDLE);
     CHECK(get32(p + 28) == 0x330000u);
-    CHECK(get16(p + 32) == 3820 && p[34] == 44);
+    CHECK(get16(p + 32) == 3820 && p[34] == 57);
     CHECK(get32(p + 35) == 1234567u && get32(p + 39) == 6553600u);
     CHECK(p[43] == 200 && get32(p + 44) == 90061u);
     i.flags |= INFO_TRIAL | INFO_USB | INFO_CHARGING;
     packInfo(i, p);
     CHECK(p[23] == (INFO_TIME_VALID | INFO_STORAGE_OK | INFO_TRIAL | INFO_USB | INFO_CHARGING));
 
-    // Monotonic, saturating at both ends, 44% at 3.82 V.
+    // Exact voltage anchors and interpolation stay monotonic and saturate at both ends.
     CHECK(Power::fromCurve(4300) == 100 && Power::fromCurve(4200) == 100);
     CHECK(Power::fromCurve(3300) == 0 && Power::fromCurve(3000) == 0);
     for (uint16_t mv = 3300; mv < 4200; mv += 10) CHECK(Power::fromCurve(mv) <= Power::fromCurve(mv + 10));
-    CHECK(Power::fromCurve(3820) == 44 && Power::fromCurve(3700) == 15);
+    const uint16_t curveMv[] = {3500, 3600, 3700, 3800, 3900, 4000, 4200};
+    const uint8_t curvePct[] = {10, 20, 40, 55, 65, 80, 100};
+    for (int n = 0; n < 7; n++) CHECK(Power::fromCurve(curveMv[n]) == curvePct[n]);
+    CHECK(Power::fromCurve(3400) == 5 && Power::fromCurve(3650) == 30);
+    CHECK(Power::fromCurve(3820) == 57 && Power::fromCurve(4100) == 90);
 
-    // Charging reads low on this board, so it is corrected down and capped off
-    // 100; only CHG going high with USB still in says full.
-    CHECK(Power::percent(3820, false, false) == 44);
+    // Charging lifts the voltage, so correct it down and reserve 100% for the charger's full signal.
+    CHECK(Power::percent(3820, false, false) == 57);
     CHECK(Power::percent(3820, true, true) == Power::fromCurve(3820 - Power::CHARGING_OFFSET_MV));
-    CHECK(Power::percent(4200, true, true) == 95);
+    CHECK(Power::percent(4200, true, true) == 94);
     CHECK(Power::percent(4400, true, true) == 99);
     CHECK(Power::percent(4200, false, true) == 100 && Power::percent(3500, false, true) == 100);
 
@@ -526,6 +530,17 @@ static void testMood() {
 }
 
 int main() {
+    CHECK(HoldProgress::pixels(0, 700, 184) == 0);
+    CHECK(HoldProgress::pixels(199, 700, 184) == 0);
+    CHECK(HoldProgress::pixels(200, 700, 184) == 0);
+    CHECK(HoldProgress::pixels(450, 700, 184) == 92);
+    CHECK(HoldProgress::pixels(699, 700, 184) == 183);
+    CHECK(HoldProgress::pixels(700, 700, 184) == 184);
+    CHECK(HoldProgress::pixels(800, 700, 184) == 184);
+    CHECK(HoldProgress::pixels(850, 1500, 112) == 56);
+    CHECK(HoldProgress::pixels(1500, 1500, 112) == 112);
+    CHECK(HoldProgress::pixels(500, 0, 112) == 0);
+    CHECK(HoldProgress::pixels(500, 700, 0) == 0);
     testMood();
     testChirp();
     testSyncProtocol();

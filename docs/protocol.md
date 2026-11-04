@@ -196,7 +196,7 @@ read Info; done when unsynced_count == 0
 
 ### 3.6 Power rules
 
-- The camera runs the radio while awake and for 30 s after the 10 s idle timeout: the sleep face is already up, but the chip keeps advertising behind it, which gives a backgrounded iPhone time to notice.
+- The camera runs the radio while awake and for 30 s after the 20 s idle timeout: the sleep face is already up, but the chip keeps advertising behind it, which gives a backgrounded iPhone time to notice.
 - While a phone is connected and active (connect, write, notification, ACK within the last 60 s) that window stretches.
 - Then light sleep tears the BLE stack down; a one-second hold on the shutter wakes the camera and brings the radio back.
 - Pressing the shutter always wins; a transfer in progress simply continues alongside.
@@ -435,6 +435,10 @@ person can `curl` it.
 optional and only decides `update_available`, which compares the two versions
 as dotted numbers (`0.10.0` is newer than `0.9.9`). `404 { "error": "no_release" }`
 when that channel has nothing published.
+
+The phone offers and sends firmware only when the published version is numerically
+newer than the version in the connected camera's Info. Equal, older or malformed
+versions must not start a transfer, even if a cached server response says an update is available.
 
 `GET /api/firmware/<hardware>/<version>.bin` → the image, `application/octet-stream`,
 with `ETag` (its SHA-256) and an immutable `Cache-Control`. The `sha256` above
