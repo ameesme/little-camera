@@ -537,7 +537,8 @@ static void invertButtonColumns(int x, int y, int w, int h, int from, int to) {
 }
 
 static void drawBoxButton(int x, int y, int w, int h,
-                          const uint8_t* icon, const char* label, const char* gesture) {
+                          const uint8_t* icon, const char* label, const char* gesture,
+                          bool feedback = true) {
     // setPixel clips, so drawing off-panel is harmless — but during the slide
     // one column is always fully off-screen, and skipping it saves ~16k
     // no-op setPixel calls per frame.
@@ -572,14 +573,14 @@ static void drawBoxButton(int x, int y, int w, int h,
     drawTextCenteredAt(gesture, x, w, gestureY, HINT_FONT, true);
     drawRoundedRectBorder(x, y, w, h, BOX_RADIUS, false);
     if (!strcmp(gesture, "hold")) {
-        const bool completed = icon == _completedHoldIcon;
+        const bool completed = feedback && icon == _completedHoldIcon;
         if (completed) {
             invertButtonColumns(x, y, w, h, 0, w);
             _completedHoldVisible = true;
         }
         if (x >= 0 && x + w <= WIDTH) _holdButton = {x, y, w, h, completed ? w : 0, icon};
     } else if (!strcmp(gesture, "press")) {
-        const bool flashed = icon == _pressFlashIcon && pressFlashActive();
+        const bool flashed = feedback && icon == _pressFlashIcon && pressFlashActive();
         if (flashed) invertButtonColumns(x, y, w, h, 0, w);
         if (x >= 0 && x + w <= WIDTH) _pressButton = {x, y, w, h, flashed ? w : 0, icon};
     }
@@ -591,8 +592,7 @@ static void drawBoxButton(int x, int y, int w, int h,
 constexpr int FACE_BLOCK_HEIGHT = SPLEEN8X16_HEIGHT + TOAST_PADDING_V * 2 + 12;
 constexpr int FACE_BLOCK_GAP = ACTION_GAP;
 constexpr int FACE_BLOCK_B = 3;  // Block size of the miniature, a fifth of the sleep face
-// It breathes on the same beat the sleep face does, off the clock rather than
-// off a caller: every screen that draws the sidebar redraws it whole anyway.
+// Breathing follows the clock so restoring the static sidebar never freezes the face.
 constexpr uint32_t FACE_BLOCK_BREATH_MS = 2500;
 
 // The mood the face wears while awake, as the last telemetry read it. The
@@ -615,20 +615,58 @@ static void drawFaceBlock(int x, int faceDy = 0) {
 // the save slide can walk it off the left edge. While the phone has asked for a
 // particular shot (docs/protocol.md §3.3 PROMPT) the button says which, because
 // a camera that knows what it is being pointed at should say so.
-static void drawSidebar(int x, int faceDy = 0) {
+static void drawSidebarButton(int x, bool feedback = true) {
     const int buttonY = SIDEBAR_PADDING + FACE_BLOCK_HEIGHT + FACE_BLOCK_GAP;
     const int buttonH = INBOX_HEIGHT - FACE_BLOCK_HEIGHT - FACE_BLOCK_GAP;
-    drawFaceBlock(x, faceDy);
     switch (_prompt) {
         case Prompt::Verification:
-            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getScanIcon(), "card", "press");
+            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getScanIcon(), "card", "press", feedback);
             break;
         case Prompt::Selfie:
-            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getUserIcon(), "you", "press");
+            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getUserIcon(), "you", "press", feedback);
             break;
         default:
-            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getImagesIcon(), "photos", "hold");
+            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getImagesIcon(), "photos", "hold", feedback);
             break;
+    }
+}
+
+static void drawSidebar(int x, int faceDy = 0) {
+    drawFaceBlock(x, faceDy);
+    drawSidebarButton(x);
+}
+
+static void drawCachedSidebar() {
+    // Spend 2.4 KB of DRAM on the stationary column; slides keep the uncached renderer.
+    constexpr int bytes = PHOTO_X_CAPTURE / 8;
+    static uint8_t cache[HEIGHT * bytes];
+    static bool valid = false;
+    static Prompt prompt;
+    static ButtonState hold, press;
+    if (!valid || prompt != _prompt) {
+        for (int y = 0; y < HEIGHT; y++) memset(_framebuffer + y * BYTES_PER_LINE, 0xFF, bytes);
+        fillRoundedRect(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, BOX_RADIUS, false);
+        // Cache plain button pixels, then apply current gesture feedback after every restore.
+        drawSidebarButton(SIDEBAR_PADDING, false);
+        hold = _holdButton;
+        press = _pressButton;
+        for (int y = 0; y < HEIGHT; y++) memcpy(cache + y * bytes, _framebuffer + y * BYTES_PER_LINE, bytes);
+        prompt = _prompt;
+        valid = true;
+    }
+    for (int y = 0; y < HEIGHT; y++) memcpy(_framebuffer + y * BYTES_PER_LINE, cache + y * bytes, bytes);
+    _holdButton = hold;
+    _pressButton = press;
+    Face::mini(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
+               (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
+    if (_holdButton.icon && _holdButton.icon == _completedHoldIcon) {
+        invertButtonColumns(hold.x, hold.y, hold.w, hold.h, 0, hold.w);
+        _holdButton.filledPixels = hold.w;
+        _completedHoldVisible = true;
+    }
+    if (_pressButton.icon && _pressButton.icon == _pressFlashIcon && pressFlashActive()) {
+        invertButtonColumns(press.x, press.y, press.w, press.h, 0, press.w);
+        _pressButton.filledPixels = press.w;
     }
 }
 
@@ -1023,11 +1061,12 @@ static void renderPhotoCard(int photoX) {
     applyImagePaddingAndCorners(photoX, PHOTO_WIDTH, photoX, photoX + CARD_WIDTH);
 }
 
-// Render the photo card and both columns at an arbitrary point on the capture
-// -> save slide. t=0 is the capture layout (sidebar in place, actions parked
-// off the right edge), t=1 is the save layout (sidebar gone off the left,
-// actions in place). The whole layout moves as one block, so a single offset
-// drives all three elements — that's the "everything shifts over" effect.
+#ifdef LC_PROFILE_VIEWFINDER
+static ViewfinderTiming _viewfinderTiming{};
+ViewfinderTiming viewfinderTiming() { return _viewfinderTiming; }
+#endif
+
+// A shared offset keeps the photo and both columns together through the save slide.
 static void renderSaveLayout(float t, int faceDy = 0) {
     _holdButton = {};
     _pressButton = {};
@@ -1040,9 +1079,21 @@ static void renderSaveLayout(float t, int faceDy = 0) {
     // crops. Keeping the crop identical everywhere means the slide is a pure
     // translation and the photo doesn't jump sideways relative to itself at
     // either the capture moment or the end of the slide.
+#ifdef LC_PROFILE_VIEWFINDER
+    const uint32_t photoStart = micros();
+#endif
     renderPhotoCard(PHOTO_X_CAPTURE - shift);
+#ifdef LC_PROFILE_VIEWFINDER
+    _viewfinderTiming.photoUs = micros() - photoStart;
+    const uint32_t sidebarStart = micros();
+#endif
 
-    drawSidebar(SIDEBAR_PADDING - shift, faceDy);
+    if (shift == 0 && faceDy == 0) drawCachedSidebar();
+    else drawSidebar(SIDEBAR_PADDING - shift, faceDy);
+#ifdef LC_PROFILE_VIEWFINDER
+    _viewfinderTiming.sidebarUs = micros() - sidebarStart;
+    const uint32_t overlayStart = micros();
+#endif
     drawActionBar(WIDTH - shift);
     if (!_completedHoldVisible) _completedHoldIcon = nullptr;
 
@@ -1052,13 +1103,30 @@ static void renderSaveLayout(float t, int faceDy = 0) {
         invertButtonColumns(_holdButton.x, _holdButton.y, _holdButton.w, _holdButton.h, 0, px);
         _holdButton.filledPixels = px;
     }
+#ifdef LC_PROFILE_VIEWFINDER
+    _viewfinderTiming.overlayUs = micros() - overlayStart;
+    const uint32_t spiStart = micros();
+#endif
     flushFramebuffer();
+#ifdef LC_PROFILE_VIEWFINDER
+    _viewfinderTiming.spiUs = micros() - spiStart;
+#endif
 }
 
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight) {
     if (!grayscale) return;
+#ifdef LC_PROFILE_VIEWFINDER
+    const uint32_t ditherStart = micros();
+#endif
     bayerPhoto(grayscale, srcWidth);
+#ifdef LC_PROFILE_VIEWFINDER
+    _viewfinderTiming.ditherUs = micros() - ditherStart;
+    const uint32_t layoutStart = micros();
+#endif
     renderSaveLayout(0.0f);
+#ifdef LC_PROFILE_VIEWFINDER
+    _viewfinderTiming.layoutUs = micros() - layoutStart - _viewfinderTiming.spiUs;
+#endif
 }
 
 void drawWakeEnter(const uint8_t* grayscale, int srcWidth, int srcHeight, float t) {

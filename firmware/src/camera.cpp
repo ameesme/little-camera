@@ -56,8 +56,10 @@ bool init() {
     delay(20);
 
     camera_config_t config = {};
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer = LEDC_TIMER_0;
+    // CH5/TIMER3: tone() auto-allocates from CH0 upward through Arduino's
+    // peripheral manager, which doesn't see channels claimed via ESP-IDF.
+    config.ledc_channel = LEDC_CHANNEL_5;
+    config.ledc_timer = LEDC_TIMER_3;
     config.pin_d0 = PIN_CAM_D[0];
     config.pin_d1 = PIN_CAM_D[1];
     config.pin_d2 = PIN_CAM_D[2];

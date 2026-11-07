@@ -295,9 +295,9 @@ int main(int argc, char** argv) {
     } else if (!strcmp(scene, "wake-awake")) {
         Display::drawAwake((uint8_t)happiness);
     } else if (!strcmp(scene, "wake-exit")) {
-        Display::drawWakeExit((uint8_t)happiness, t);
+        Display::drawWakeExit((uint8_t)happiness, slideT);
     } else if (!strcmp(scene, "wake-enter")) {
-        Display::drawWakeEnter(g_source, Camera::WIDTH, Camera::HEIGHT, t);
+        Display::drawWakeEnter(g_source, Camera::WIDTH, Camera::HEIGHT, slideT);
     } else if (!strcmp(scene, "sleep")) {
         Display::drawSleep((uint8_t)happiness, breath);
     } else if (!strcmp(scene, "sleep-content")) {

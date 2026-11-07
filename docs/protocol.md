@@ -123,7 +123,7 @@ MTU: the camera requests 512. The usable notification payload is `MTU − 3` ATT
 | 34 | u8 | `battery_percent` — 0–100, the camera's own reading of its curve |
 | 35 | u32 | `used_bytes` — LittleFS bytes in use |
 | 39 | u32 | `total_bytes` — LittleFS bytes total, 0 if the mount failed |
-| 43 | u8 | `happiness` — 0–255 (§mood). The face is `happiness >> 6`, the same split the camera draws |
+| 43 | u8 | `happiness` — 0–255 ([mood](mood.md)), including battery mood limits: low caps at glum (127), empty at sad (63), following the camera's battery bars and hysteresis. The face is `happiness >> 6`, the same split the camera draws |
 | 44 | u32 | `mood_elapsed_s` — seconds since the last photo on the mood clock, which runs without a wall clock |
 
 48 bytes. Read it after connecting and after every `ACK`; it is not notified.

@@ -1,8 +1,8 @@
 # Mood
 
-The camera wants to be used. Left alone it gets anxious over a week and asks for attention, the way a tamagotchi would but quieter. The face and sound follow **how long ago the last photo was taken**; the daily chirp times are independent of photos. Built and running on board 1, host-tested over a simulated month, but the first real week on hardware is still ahead.
+The camera wants to be used. Left alone it gets anxious over a week and asks for attention, the way a tamagotchi would but quieter. The face and sound follow **how long ago the last photo was taken, capped by battery level**; the daily chirp times are independent of photos. Built and running on board 1, host-tested over a simulated month, but the first real week on hardware is still ahead.
 
-`happiness` is 1.0 the moment a photo is saved and falls linearly to 0.0 over 7 days without one. Taking a photo resets happiness and schedules a chirp about an hour later, without changing the daily chirp times.
+`happiness` is 1.0 the moment a photo is saved and falls linearly to 0.0 over 7 days without one. Taking a photo resets the time-based happiness and schedules a chirp about an hour later, without changing the daily chirp times. Low battery can still make a freshly used camera look and sound unhappy.
 
 | Since last photo | Happiness | Face | Sound |
 |---|---|---|---|
@@ -14,6 +14,16 @@ The camera wants to be used. Left alone it gets anxious over a week and asks for
 | > 7 d | 0.0 | as sad as it gets | the same, no further escalation |
 
 The eyes carry the happiness, so the happy face needs no smile — just lifted eyes over the same square mouth. Below the top band they go flat and stay flat and the mouth does the rest. The face breathes for its first two minutes, and a tap restarts that window, since it means someone is there. After it the sleep tick stretches to 60 s, still checking for due chirps.
+
+## Battery mood
+
+The battery icon and mood use the same hysteretic bars from `power.h`:
+
+- **Low (two bars):** happiness is capped at 127, the glum band. Enter below 35%; recover to three bars at 45%.
+- **Empty (one bar):** happiness is capped at 63, the sad band. Enter below 15%; recover to two bars at 20%. “Empty” here means the icon's empty state, not a zero-volt battery.
+- Battery can only worsen the time-based mood. A naturally sad camera stays sad when charged; charging removes the battery limit as its percentage recovers.
+
+This is applied to sleep and awake faces, mood chirps and the `happiness` sent to the phone. The happy charger-connection chirp remains an acknowledgement of power arriving. Battery does not change photo timestamps, the neglect clock, the daily chirp schedule or the persisted time-based mood. ADC samples are shared with telemetry, refreshed at most every five seconds in the viewfinder or when charge/USB status changes; sleep continues using its existing battery ticks.
 
 ## The rules
 

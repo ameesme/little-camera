@@ -51,6 +51,10 @@ void drawWakeExit(uint8_t happiness, float t);
 // Supply a first camera frame at t=0, then nullptr to reuse its cached dither.
 void drawWakeEnter(const uint8_t* grayscale, int srcWidth, int srcHeight, float t);
 void drawViewfinder(const uint8_t* grayscale, int srcWidth, int srcHeight);
+#ifdef LC_PROFILE_VIEWFINDER
+struct ViewfinderTiming { uint32_t ditherUs, layoutUs, spiUs, photoUs, sidebarUs, overlayUs; };
+ViewfinderTiming viewfinderTiming();
+#endif
 void drawCapture(const uint8_t* grayscale, int srcWidth, int srcHeight);  // Floyd-Steinberg dither
 // Post-capture save prompt: photo shifts left, send/trash buttons take the
 // right column. Not the (future) gallery — this only acts on the frame you

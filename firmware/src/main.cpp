@@ -111,6 +111,7 @@ constexpr uint32_t RADIO_LINGER_MS = 30000;
 constexpr uint32_t WAKE_HOLD_MS = 1000;
 constexpr uint32_t SLEEP_TAP_MAX_MS = 300;
 constexpr uint32_t WAKE_SLIDE_MS = 180;
+constexpr uint32_t WAKE_FACE_DELAY_MS = 300;
 
 // One button drives everything, so the UI is a strict mode machine: the
 // meaning of a press depends entirely on which screen is up.
@@ -260,7 +261,7 @@ static void moodBoot() {
     if (!have) moodPersist("first boot");
 }
 
-static uint8_t moodHappiness() { return Mood::happiness(moodState, moodClock()); }
+static uint8_t moodHappiness();
 
 static void moodOnPhoto() {
     Mood::onPhoto(moodState, moodClock(), moodRng);
@@ -304,7 +305,7 @@ static void serviceMood(bool quiet, const char* why) {
     Mood::Clock c = moodClock();
     Mood::Due d = Mood::poll(moodState, c, moodRng);
     if (d != Mood::Due::None && quiet) {
-        playMoodChirp(Mood::happiness(moodState, c), why);
+        playMoodChirp(moodHappiness(), why);
         Mood::onChirpPlayed(moodState, c, d, moodRng);
         moodPersist(d == Mood::Due::HourChirp ? "hour chirp" : "attention chirp");
     } else if (Mood::persistDue(moodState, c)) {
@@ -336,21 +337,18 @@ static bool onUsb() {
 // Info asks twice a second while a phone is connected; the ADC does not need
 // telling that often, and the mood and the clock are free.
 constexpr uint32_t TELEMETRY_SAMPLE_MS = 5000;
+static uint32_t batterySampledAt = 0;
+static uint16_t batterySampleMv = 0;
+static uint8_t prevBatteryBars = 4;
 
 static void readTelemetry(Sync::Telemetry* out) {
-    static uint32_t sampledAt = 0;
-    static uint16_t mv = 0;
-    const uint32_t now = millis();
-    if (!mv || now - sampledAt >= TELEMETRY_SAMPLE_MS) {
-        mv = (uint16_t)batteryMv();
-        sampledAt = now;
-    }
-    out->vbatMv = mv;
+    const uint8_t happiness = moodHappiness();
+    out->vbatMv = batterySampleMv;
     out->usb = onUsb();
     out->charging = onCharge();
-    out->batteryPercent = Power::percent(mv, out->charging, out->usb);
+    out->batteryPercent = Power::percent(batterySampleMv, out->charging, out->usb);
     const Mood::Clock c = moodClock();
-    out->happiness = Mood::happiness(moodState, c);
+    out->happiness = happiness;
     out->moodElapsedS = Mood::elapsed(moodState, c);
 }
 
@@ -382,39 +380,50 @@ static void logBattery(uint32_t mv, bool chg, bool chgChanged) {
 // Reads the battery, keeps `sleepStatus` in step with it, logs a standby
 // sample. True when the text moved. Separate from the face because once the
 // breath stops the sleep tick still has to sample, with nothing to draw.
-static uint8_t prevBatteryBars = 0;
-
-static bool sampleBattery() {
+static bool sampleBattery(bool standby = true) {
     const uint32_t mv = batteryMv();
     const bool chg = onCharge();
     const bool usb = onUsb();
+    batterySampleMv = (uint16_t)mv;
+    batterySampledAt = millis();
     const bool chgChanged = sleepStatus[0] && chg != sleepStatusChg;
     const bool usbChanged = sleepStatus[0] && usb != sleepStatusUsb;
     const uint32_t drift = mv > sleepStatusMv ? mv - sleepStatusMv : sleepStatusMv - mv;
-    bool moved = false;
+    const uint8_t pct = Power::percent(mv, chg, usb);
+    const uint8_t bars = Power::bars(pct, prevBatteryBars);
+    bool moved = bars != prevBatteryBars;
+    prevBatteryBars = bars;
+    Display::setBatteryPercent(pct);
+    Display::setBatteryBars(bars);
     if (!sleepStatus[0] || chgChanged || usbChanged || drift >= BATTERY_DEADBAND_MV) {
         sleepStatusMv = mv;
         sleepStatusChg = chg;
         sleepStatusUsb = usb;
-        uint8_t pct = Power::percent(mv, chg, usb);
-        Display::setBatteryPercent(pct);
         Display::setCharging(chg);
         Display::setUsb(usb);
-        uint8_t bars = Power::bars(pct, prevBatteryBars);
-        if (bars != prevBatteryBars) { prevBatteryBars = bars; moved = true; }
-        Display::setBatteryBars(bars);
         snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV", (unsigned)(mv / 1000),
                  (unsigned)(mv % 1000 / 10));
         if (!moved) moved = true;
     }
-    logBattery(mv, chg, chgChanged || usbChanged);
+    if (standby) logBattery(mv, chg, chgChanged || usbChanged);
     return moved;
+}
+
+static uint8_t moodHappiness() {
+    // Share the telemetry sample instead of running the ADC on every viewfinder frame.
+    if (!batterySampleMv || millis() - batterySampledAt >= TELEMETRY_SAMPLE_MS ||
+        onUsb() != sleepStatusUsb || onCharge() != sleepStatusChg) sampleBattery(false);
+    uint8_t h = Mood::happiness(moodState, moodClock());
+    const uint8_t ceiling = prevBatteryBars <= 1 ? 63 : (prevBatteryBars == 2 ? 127 : 255);
+    if (h > ceiling) h = ceiling;
+    Display::setFaceBand(Chirp::band(h));
+    return h;
 }
 
 // The sleep face for the current mood. A full frame when it first goes up or
 // the band moved; a breath (the other frame, face rows only) otherwise.
 static void showSleepFace(bool full) {
-    const uint8_t h = Mood::happiness(moodState, moodClock());
+    const uint8_t h = moodHappiness();
     const uint8_t band = Chirp::band(h);
     if (band != sleepFaceBand) full = true;
     sleepFaceBand = band;
@@ -485,6 +494,9 @@ static void cameraOff() {
     savedFrame = nullptr;
 }
 
+static void completeWakeFace(bool fromHold = true);
+static void enterWakeViewfinder();
+
 void setup() {
     // Plain INPUT: R26 is the pull-up, so the internal one would only fight
     // the RC. Buzzer gate low before anything else can float it.
@@ -540,17 +552,19 @@ void setup() {
     // Photo storage. Non-fatal: the camera still works without it, saves just
     // report an error, and refusing to boot over a bad partition would be worse.
     Storage::init();
-    Display::setShowHints(Storage::shotCount() < 2);
+    Display::setShowHints(Storage::photoCount() < 2);
 
     Identity::init();
     moodBoot();
     Console::begin();
+    completeWakeFace(false);
 
     // Initialize camera (OV2640 on J2)
     // Non-fatal, like storage above: cameraOn() tries again every time the viewfinder wants a
     // frame, and halting here would take the radio and the console down with it — leaving no way
     // to reach the photos already on flash, which is the one thing worth protecting.
-    if (!cameraOn()) Serial.println("Camera init failed — carrying on without it");
+    if (cameraOn()) enterWakeViewfinder();
+    else Serial.println("Camera init failed — carrying on without it");
 
     // Radio last: everything it advertises (photo counts, the secret) exists
     // by now, and the camera init above is the slow part of boot anyway.
@@ -569,9 +583,9 @@ void setup() {
 
 static float easeOutCubic(float p);
 
-static void completeWakeFace() {
+static void completeWakeFace(bool fromHold) {
     const uint8_t happiness = moodHappiness();
-    Display::drawWakeProgress(WAKE_HOLD_MS, WAKE_HOLD_MS);
+    if (fromHold) Display::drawWakeProgress(WAKE_HOLD_MS, WAKE_HOLD_MS);
     Display::drawAwake(happiness);
     playMoodChirp(happiness, "Wake", 1);
 }
@@ -591,6 +605,10 @@ static void enterWakeViewfinder() {
         if (t >= 1.0f) break;
         delay(1);
     }
+    Display::drawWakeEnter(frame, Camera::WIDTH, Camera::HEIGHT, 0.0f);
+    frame = nullptr;
+    // Hold the cached first frame during the wake handoff so the miniature gets its own beat.
+    delay(WAKE_FACE_DELAY_MS);
     const uint32_t start = millis();
     for (;;) {
         const uint32_t elapsed = millis() - start;
@@ -1226,6 +1244,7 @@ void loop() {
     serviceMood((mode == Mode::Viewfinder || mode == Mode::Asleep) && !pressed && !Audio::isPlaying() &&
                     !Sync::busy(),
                 mode == Mode::Asleep ? "Asleep" : "Viewfinder");
+    if (mode == Mode::Viewfinder) moodHappiness();
 
     switch (mode) {
         case Mode::Viewfinder: {
@@ -1237,7 +1256,7 @@ void loop() {
             }
 #endif
 
-            if (!hintToastShowing && Storage::shotCount() < 2 &&
+            if (!hintToastShowing && Storage::photoCount() < 2 &&
                 (now - lastActivityTime) >= HINT_TOAST_DELAY_MS) {
                 Display::showToast("press to shoot", Display::ToastHAlign::Right,
                                    Display::ToastVAlign::Top, false, 0);
@@ -1245,9 +1264,42 @@ void loop() {
             }
 
             if (!gestureActive) {
+#ifdef LC_PROFILE_VIEWFINDER
+                const uint32_t captureStart = micros();
+#endif
                 uint8_t* frame = Camera::capture();
+#ifdef LC_PROFILE_VIEWFINDER
+                const uint32_t captureUs = micros() - captureStart;
+#endif
                 if (frame) {
                     Display::drawViewfinder(frame, Camera::WIDTH, Camera::HEIGHT);
+#ifdef LC_PROFILE_VIEWFINDER
+                    static uint32_t start = captureStart, frames = 0;
+                    static uint32_t captureSum = 0, ditherSum = 0, layoutSum = 0, spiSum = 0, captureMax = 0;
+                    static uint32_t photoSum = 0, sidebarSum = 0, overlaySum = 0;
+                    const auto timing = Display::viewfinderTiming();
+                    captureSum += captureUs;
+                    ditherSum += timing.ditherUs;
+                    layoutSum += timing.layoutUs;
+                    spiSum += timing.spiUs;
+                    photoSum += timing.photoUs;
+                    sidebarSum += timing.sidebarUs;
+                    overlaySum += timing.overlayUs;
+                    if (captureUs > captureMax) captureMax = captureUs;
+                    frames++;
+                    const uint32_t elapsed = micros() - start;
+                    // Aggregate before logging so USB output never sits in the per-frame timings.
+                    if (elapsed >= 1000000) {
+                        Serial.printf("FPS: n=%lu fps=%.2f capture=%.3f dither=%.3f layout=%.3f spi=%.3f capture_max=%.3f photo=%.3f sidebar=%.3f overlay=%.3f ms\n",
+                                      (unsigned long)frames, frames * 1000000.0 / elapsed,
+                                      captureSum / (frames * 1000.0), ditherSum / (frames * 1000.0),
+                                      layoutSum / (frames * 1000.0), spiSum / (frames * 1000.0), captureMax / 1000.0,
+                                      photoSum / (frames * 1000.0), sidebarSum / (frames * 1000.0), overlaySum / (frames * 1000.0));
+                        start = micros();
+                        frames = captureSum = ditherSum = layoutSum = spiSum = captureMax = 0;
+                        photoSum = sidebarSum = overlaySum = 0;
+                    }
+#endif
                 }
             }
 

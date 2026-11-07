@@ -14,8 +14,8 @@
 // firmware knowing its own name, and reports itself as Info version 1.
 
 #define LC_VERSION_MAJOR 0
-#define LC_VERSION_MINOR 8
-#define LC_VERSION_PATCH 3
+#define LC_VERSION_MINOR 9
+#define LC_VERSION_PATCH 0
 
 // Built from the numbers rather than typed out again, so the two can't drift.
 #define LC_STRINGIFY_(x) #x
