@@ -26,6 +26,8 @@
 #include "sync.h"
 #include "sync_protocol.h"
 #include "version.h"
+#include <Preferences.h>
+#include <LittleFS.h>
 
 // Sharp Memory LCD (LS027B7DH01) on J3, each line through a 330R guard
 constexpr uint8_t PIN_LCD_SCLK = 4;
@@ -100,6 +102,8 @@ constexpr uint32_t TRASH_HOLD_MS = 1500;
 // 3.5x the measured ~200ms press, so a tap never becomes a hold by accident,
 // and well short of TRASH_HOLD_MS so the two holds stay apart by feel.
 constexpr uint32_t GALLERY_HOLD_MS = 700;
+// Keep holding past the gallery threshold and the system menu opens instead.
+constexpr uint32_t MENU_HOLD_MS = 2000;
 
 // After the idle timeout the sleep face goes up at once, but the radio keeps
 // advertising behind it for this long so a phone can still collect photos.
@@ -121,6 +125,7 @@ enum class Mode {
     Save,        // Frame plus send/trash; press sends, hold trashes
     Dismissing,  // Slide back out after an action, then resume the viewfinder
     Gallery,     // Stored photos, newest first; press = next, hold = back
+    Menu,        // System menu; press = next item, hold = select
     Asleep,      // Sleep face up, radio still advertising; hold wakes
     Pairing,     // The phone is asking for the passkey; the code owns the screen
     Updating,    // New firmware coming in over BLE; progress owns the screen
@@ -162,6 +167,11 @@ static bool saveToastWasVisible = false;
 // to the 77KB camera frame, and Display keeps its bitmaps-in, pixels-out
 // contract (which is what lets the preview tool render the gallery).
 static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
+// System menu
+static const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "exit"};
+constexpr int MENU_COUNT = 7;
+static int menuSelected = 0;
+
 // When the sleep face went up (the radio window counts from here).
 // Camera::deinit() is not idempotent, so the driver's state is tracked too.
 static uint32_t asleepSince = 0;
@@ -635,6 +645,143 @@ static uint32_t heldToWake() {
     }
     completeWakeFace();
     return WAKE_HOLD_MS;
+}
+
+// ---- System menu -----------------------------------------------------------
+
+static void showMenu() {
+    Display::drawMenu(MENU_ITEMS, MENU_COUNT, menuSelected);
+}
+
+static void enterMenu() {
+    cameraOff();
+    captureHeld = false;
+    gestureActive = false;
+    holdFired = false;
+    Display::clearToast();
+    hintToastShowing = false;
+    menuSelected = 0;
+    mode = Mode::Menu;
+    lastActivityTime = millis();
+    Audio::playClick();
+    Serial.println("Menu: open");
+    showMenu();
+}
+
+static void leaveMenu() {
+    Audio::playClick();
+    Serial.println("Menu: close");
+    cameraOn();
+    mode = Mode::Viewfinder;
+    gestureActive = false;
+    holdFired = false;
+    lastActivityTime = millis();
+    hintToastShowing = false;
+}
+
+static void menuRunDiagnostics() {
+    char versionBuf[16], bootBuf[16], shotsBuf[16], photosBuf[16], storageBuf[32], battBuf[16], uptimeBuf[16];
+    snprintf(versionBuf, sizeof(versionBuf), "%s", LC_VERSION_STRING);
+    snprintf(bootBuf, sizeof(bootBuf), "%u", (unsigned)Storage::bootCount());
+    snprintf(shotsBuf, sizeof(shotsBuf), "%u", (unsigned)Storage::shotCount());
+    snprintf(photosBuf, sizeof(photosBuf), "%d (%d unsynced)", Storage::photoCount(), Storage::unsyncedCount());
+    snprintf(storageBuf, sizeof(storageBuf), "%uK / %uK",
+             (unsigned)(Storage::usedBytes() / 1024), (unsigned)(Storage::totalBytes() / 1024));
+    snprintf(battBuf, sizeof(battBuf), "%umV", (unsigned)batterySampleMv);
+    const uint32_t upS = millis() / 1000;
+    if (upS >= 3600) snprintf(uptimeBuf, sizeof(uptimeBuf), "%uh%02um", (unsigned)(upS / 3600), (unsigned)((upS % 3600) / 60));
+    else snprintf(uptimeBuf, sizeof(uptimeBuf), "%um%02us", (unsigned)(upS / 60), (unsigned)(upS % 60));
+    Display::DiagLine lines[] = {
+        {"firmware", versionBuf},
+        {"camera", Identity::deviceName()},
+        {"code", Identity::shortCode()},
+        {"boots", bootBuf},
+        {"photos", photosBuf},
+        {"storage", storageBuf},
+        {"battery", battBuf},
+        {"uptime", uptimeBuf},
+    };
+    Display::drawDiagnostics(lines, 8);
+    Serial.println("Menu: diagnostics");
+    while (!shutterPressed()) delay(10);
+    while (shutterPressed()) delay(10);
+    showMenu();
+}
+
+static void menuShareBlog() {
+    Display::drawShareBlog(Identity::shortCode(), "lttl.cam");
+    Serial.printf("Menu: share blog — code %s\n", Identity::shortCode());
+    while (!shutterPressed()) delay(10);
+    while (shutterPressed()) delay(10);
+    showMenu();
+}
+
+static void menuSoundTest() {
+    Serial.println("Menu: sound test");
+    while (shutterPressed()) delay(5);
+    Display::showToast("sound test", Display::ToastHAlign::Center, Display::ToastVAlign::Top, true, 0);
+    showMenu();
+    for (int band = 3; band >= 0; band--) {
+        uint8_t h = band == 3 ? 240 : band == 2 ? 160 : band == 1 ? 80 : 20;
+        playMoodChirp(h, "Sound test", 1);
+        delay(400);
+    }
+    Display::clearToast();
+    showMenu();
+}
+
+static void menuContrastTest() {
+    Serial.println("Menu: contrast test");
+    Display::drawTestPattern();
+    while (!shutterPressed()) delay(10);
+    while (shutterPressed()) delay(10);
+    showMenu();
+}
+
+static void menuFactoryReset() {
+    Display::drawPairing("reset?", "hold to confirm, press to cancel");
+    Serial.println("Menu: factory reset prompt");
+    while (!shutterPressed()) delay(10);
+    uint32_t start = millis();
+    while (shutterPressed()) {
+        if (millis() - start >= TRASH_HOLD_MS) {
+            Serial.println("Menu: FACTORY RESET");
+            Display::drawPairing("resetting", "goodbye");
+            delay(500);
+            // Erase NVS and LittleFS
+            {
+                Preferences prefs;
+                prefs.begin("storage", false); prefs.clear(); prefs.end();
+                prefs.begin("sync", false);    prefs.clear(); prefs.end();
+                prefs.begin("mood", false);    prefs.clear(); prefs.end();
+            }
+            LittleFS.format();
+            delay(200);
+            esp_restart();
+            return;
+        }
+        delay(10);
+    }
+    showMenu();
+}
+
+static void menuReboot() {
+    Serial.println("Menu: reboot");
+    Display::drawPairing("reboot", nullptr);
+    delay(300);
+    esp_restart();
+}
+
+static void menuSelect() {
+    switch (menuSelected) {
+        case 0: menuRunDiagnostics(); break;
+        case 1: menuShareBlog(); break;
+        case 2: menuSoundTest(); break;
+        case 3: menuContrastTest(); break;
+        case 4: menuReboot(); break;
+        case 5: menuFactoryReset(); break;
+        case 6: leaveMenu(); break;
+    }
 }
 
 // Idle timeout: sleep face up, camera driver down, radio still on. To the
@@ -1121,8 +1268,6 @@ static void showGalleryPhoto() {
 // already true and the gallery's press-edge test can't fire until the button
 // is released — the hold that opened it doesn't also advance it.
 static void enterGallery() {
-    // Nothing here is live, and browsing gets 30s of idle before the sleep
-    // face: the rail would otherwise burn 105mA showing a stored photo.
     cameraOff();
     captureHeld = false;
     galleryOrdinal = 0;
@@ -1133,23 +1278,29 @@ static void enterGallery() {
     galleryToastWasVisible = false;
     mode = Mode::Gallery;
     lastActivityTime = millis();
-    Audio::playClick(true);  // Light: into the gallery
     Serial.println("Gallery: open");
-    // Same slide as capture -> save, with the newest photo standing in for the
-    // viewfinder from the first frame. Blocking is fine here: the button is
-    // still held (the hold is what got us here) and the gallery ignores it
-    // until release anyway. If the newest photo won't load, skip the slide and
-    // let showGalleryPhoto()'s skip loop deal with it.
     int total = Storage::photoCount();
     int index = total > 0 ? Storage::photoAt(0) : 0;
     if (index > 0 && Storage::loadPhoto(index, galleryBits, sizeof(galleryBits))) {
         uint32_t start = millis();
         uint32_t slid;
         while ((slid = millis() - start) < SAVE_SLIDE_MS) {
+            if (shutterPressed() && (millis() - pressStartedAt) >= MENU_HOLD_MS) {
+                enterMenu();
+                return;
+            }
             Display::drawGalleryTransition(galleryBits, 0, total,
                                            easeOutCubic((float)slid / SAVE_SLIDE_MS));
             Audio::update();
         }
+    }
+    // The button may still be held from the viewfinder — wait for menu or release.
+    while (shutterPressed()) {
+        if ((millis() - pressStartedAt) >= MENU_HOLD_MS) {
+            enterMenu();
+            return;
+        }
+        delay(5);
     }
     showGalleryPhoto();
 }
@@ -1207,7 +1358,7 @@ void loop() {
     // unanswered prompt is still an idle device.
     const uint32_t idleLimit =
         Display::promptPending()                      ? PROMPT_IDLE_TIMEOUT_MS
-        : (mode == Mode::Gallery || mode == Mode::Save) ? REVIEW_IDLE_TIMEOUT_MS
+        : (mode == Mode::Gallery || mode == Mode::Save || mode == Mode::Menu) ? REVIEW_IDLE_TIMEOUT_MS
                                                         : IDLE_TIMEOUT_MS;
     // Pairing is the phone's moment, not an idle camera: it runs on its own
     // timeout in the mode switch below. An update is the same, only longer —
@@ -1306,10 +1457,15 @@ void loop() {
             if (pressed && !lastPressed) {
                 pressStartedAt = millis();
                 gestureActive = true;
+                holdFired = false;
             } else if (pressed && gestureActive) {
-                Display::drawHoldProgress(millis() - pressStartedAt, GALLERY_HOLD_MS);
-                if (millis() - pressStartedAt >= GALLERY_HOLD_MS) {
+                const uint32_t held = millis() - pressStartedAt;
+                if (held < GALLERY_HOLD_MS) {
+                    Display::drawHoldProgress(held, GALLERY_HOLD_MS);
+                } else if (!holdFired) {
                     Display::completeHold();
+                    holdFired = true;
+                    Audio::playClick(true);
                     enterGallery();
                     break;
                 }
@@ -1461,6 +1617,31 @@ void loop() {
                 Display::drawHoldProgress(pressed && gestureActive ? millis() - pressStartedAt : 0,
                                           GALLERY_HOLD_MS);
             }
+            break;
+        }
+
+        case Mode::Menu: {
+            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+                                      GALLERY_HOLD_MS);
+            if (pressed && !lastPressed) {
+                pressStartedAt = millis();
+                gestureActive = true;
+                holdFired = false;
+                lastActivityTime = millis();
+            } else if (pressed && gestureActive && !holdFired &&
+                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+                Display::completeHold();
+                holdFired = true;
+                menuSelect();
+                break;
+            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+                Display::flashPress();
+                int prev = menuSelected;
+                menuSelected = (menuSelected + 1) % MENU_COUNT;
+                Audio::playClick(true);
+                Display::drawMenuSelect(MENU_ITEMS, MENU_COUNT, prev, menuSelected);
+            }
+            if (!pressed) gestureActive = false;
             break;
         }
 

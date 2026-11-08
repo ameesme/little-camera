@@ -97,6 +97,20 @@ void drawGalleryDismissTransition(const uint8_t* grayscale, int srcWidth, int sr
 // Gallery with nothing to show: an empty card and only the back button.
 void drawGalleryEmpty();
 
+// System menu: a full-screen list of items with the selected row inverted.
+// items is an array of count labels; selected is 0-based. The right column
+// has next (press) and select (hold) buttons, like the gallery.
+void drawMenu(const char* const* items, int count, int selected);
+// Move the selection from `prev` to `next` without redrawing the whole screen.
+void drawMenuSelect(const char* const* items, int count, int prev, int next);
+
+// Diagnostics: a full screen of key-value lines. Each line is "label: value".
+struct DiagLine { const char* label; const char* value; };
+void drawDiagnostics(const DiagLine* lines, int count);
+
+// Share blog: shows the short code big, with "lttl.cam" as the context.
+void drawShareBlog(const char* code, const char* hint);
+
 // True while a toast is on screen and not yet expired. Static screens (the
 // gallery) redraw only when this changes; the viewfinder redraws every frame
 // anyway.

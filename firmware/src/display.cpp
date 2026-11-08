@@ -1226,6 +1226,123 @@ void drawGalleryEmpty() {
     flushFramebuffer();
 }
 
+// System menu: full-screen list, selected row inverted, right-side buttons.
+// The card area holds the rows; the right column mirrors the gallery's layout.
+void drawMenu(const char* const* items, int count, int selected) {
+    clearButtonFeedback();
+    memset(_framebuffer, 0xFF, sizeof(_framebuffer));
+
+    const int cardX = VF_PADDING_LEFT;
+    const int cardY = VF_PADDING_TOP;
+    const int cardW = CARD_WIDTH;
+    const int cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
+    drawRoundedRectBorder(cardX, cardY, cardW, cardH, VF_CORNER_RADIUS, false);
+
+    const int rowH = cardH / count;
+    const int fontH = UI::fontHeight(SIDEBAR_FONT);
+
+    for (int i = 0; i < count; i++) {
+        const int ry = cardY + i * rowH;
+        if (i > 0) {
+            for (int px = cardX + 1; px < cardX + cardW - 1; px++)
+                setPixel(px, ry, false);
+        }
+        if (i == selected) {
+            for (int py = ry + (i > 0 ? 1 : 0); py < ry + rowH; py++)
+                for (int px = cardX + 1; px < cardX + cardW - 1; px++)
+                    if (isInsideRoundedRect(px, py, cardX, cardY, cardW, cardH, VF_CORNER_RADIUS))
+                        setPixel(px, py, false);
+        }
+        drawText(items[i], cardX + 16, ry + (rowH - fontH) / 2, SIDEBAR_FONT, i == selected);
+    }
+
+    const int barX = WIDTH - SIDEBAR_PADDING - BOX_WIDTH;
+    char counter[8];
+    snprintf(counter, sizeof(counter), "%d/%d", selected + 1, count);
+    drawBoxButton(barX, SIDEBAR_PADDING, BOX_WIDTH, ACTION_BUTTON_HEIGHT,
+                  UI::getNextIcon(), counter, "press");
+    drawBoxButton(barX, SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
+                  BOX_WIDTH, ACTION_BUTTON_HEIGHT, UI::getNextIcon(), "select", "hold");
+    if (!_completedHoldVisible) _completedHoldIcon = nullptr;
+    renderToast();
+    flushFramebuffer();
+}
+
+void drawMenuSelect(const char* const* items, int count, int prev, int next) {
+    const int cardX = VF_PADDING_LEFT;
+    const int cardY = VF_PADDING_TOP;
+    const int cardW = CARD_WIDTH;
+    const int cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
+    const int rowH = cardH / count;
+    const int fontH = UI::fontHeight(SIDEBAR_FONT);
+
+    int flushTop = HEIGHT, flushBot = 0;
+
+    for (int which = 0; which < 2; which++) {
+        int i = which == 0 ? prev : next;
+        bool sel = (i == next);
+        int ry = cardY + i * rowH;
+        int rowTop = ry + (i > 0 ? 1 : 0);
+        int rowBot = ry + rowH;
+        bool nearEdge = (i == 0 || i == count - 1);
+        for (int py = rowTop; py < rowBot; py++)
+            for (int px = cardX + 1; px < cardX + cardW - 1; px++) {
+                if (nearEdge && !isInsideRoundedRect(px, py, cardX, cardY, cardW, cardH, VF_CORNER_RADIUS))
+                    continue;
+                setPixel(px, py, sel ? false : true);
+            }
+        if (nearEdge)
+            drawRoundedRectBorder(cardX, cardY, cardW, cardH, VF_CORNER_RADIUS, false);
+        drawText(items[i], cardX + 16, ry + (rowH - fontH) / 2, SIDEBAR_FONT, sel);
+        if (ry < flushTop) flushTop = ry;
+        if (rowBot > flushBot) flushBot = rowBot;
+    }
+
+    const int barX = WIDTH - SIDEBAR_PADDING - BOX_WIDTH;
+    char counter[8];
+    snprintf(counter, sizeof(counter), "%d/%d", next + 1, count);
+    drawBoxButton(barX, SIDEBAR_PADDING, BOX_WIDTH, ACTION_BUTTON_HEIGHT,
+                  UI::getNextIcon(), counter, "press");
+    if (SIDEBAR_PADDING < flushTop) flushTop = SIDEBAR_PADDING;
+    if (SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT > flushBot)
+        flushBot = SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT;
+
+    flushLines(flushTop, flushBot);
+}
+
+// Diagnostics: key-value lines in a bordered card, like a receipt.
+void drawDiagnostics(const DiagLine* lines, int count) {
+    clearButtonFeedback();
+    memset(_framebuffer, 0xFF, sizeof(_framebuffer));
+
+    const int inset = 12;
+    const int cardX = inset;
+    const int cardY = inset;
+    const int cardW = WIDTH - 2 * inset;
+    const int cardH = HEIGHT - 2 * inset;
+    drawRoundedRectBorder(cardX, cardY, cardW, cardH, VF_CORNER_RADIUS, false);
+
+    const int fontH = UI::fontHeight(HINT_FONT);
+    const int lineH = fontH + 6;
+    const int startY = cardY + (cardH - count * lineH) / 2;
+    const int labelX = cardX + 16;
+    const int valueX = cardX + cardW / 2 + 10;
+
+    for (int i = 0; i < count; i++) {
+        const int y = startY + i * lineH;
+        drawText(lines[i].label, labelX, y, HINT_FONT, false);
+        drawText(lines[i].value, valueX, y, HINT_FONT, false);
+    }
+
+    drawTextCenteredAt("press to close", 0, WIDTH, cardY + cardH - inset - fontH, HINT_FONT, false);
+    flushFramebuffer();
+}
+
+// Share blog: the short code in big text with "lttl.cam" underneath.
+void drawShareBlog(const char* code, const char* hint) {
+    drawPairing(code, hint);
+}
+
 // Pairing gets a screen of its own rather than a toast: the code has to stay
 // readable while the phone asks for it, and the viewfinder's own hint used to
 // paint straight over it. `big` is scaled to fit, so both the six digits and
@@ -1361,7 +1478,7 @@ void drawSplash() {
     digitalWrite(_cs, LOW);
 }
 
-constexpr int SLEEP_BADGE_SCALE = 2;
+constexpr int SLEEP_BADGE_SCALE = 1;
 constexpr int SLEEP_BADGE_SIZE = UI::ICON_SIZE * SLEEP_BADGE_SCALE;
 
 static void drawSleepBadge(bool breathIn) {
