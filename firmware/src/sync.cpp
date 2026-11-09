@@ -136,6 +136,7 @@ struct UpdateSession {
     uint32_t ackedAt = 0;      // Bytes accepted when the last status went out
     uint32_t lastChunkMs = 0;  // For the idle and resume timeouts
     uint32_t lastNakMs = 0;
+    uint32_t lastProgressMs = 0;
     int lastPercent = -1;      // Only raise an event when the screen would change
 } _update;
 
@@ -160,7 +161,8 @@ size_t updateChunkSize() {
     return payload;
 }
 
-size_t updateWindow() { return updateChunkSize() * UPDATE_SLOTS; }
+// The ring holds UPDATE_SLOTS - 1 items (head == tail means empty).
+size_t updateWindow() { return updateChunkSize() * (UPDATE_SLOTS - 1); }
 
 uint32_t epochNow() {
     time_t t = time(nullptr);
@@ -233,6 +235,7 @@ class UpdateCallbacks : public NimBLECharacteristicCallbacks {
             // its own offset, so the loop notices the gap and asks the phone
             // to rewind. Writes without response have nowhere to push back.
             _ringDropped++;
+            Serial.printf("Sync: ring full, dropped chunk at %u\n", offset);
             return;
         }
         _ring[head].offset = offset;
@@ -351,8 +354,11 @@ void sendUpdateStatus(uint8_t op, uint8_t status) {
     packUpdateStatus(u, _frame + FRAME_HEADER_SIZE);
     // A frame the stack refused never went out, so it must not consume a
     // sequence number either.
-    if (_data->notify(_frame, FRAME_HEADER_SIZE + UPDATE_STATUS_SIZE)) _update.seq++;
-    _update.ackedAt = Ota::received();
+    bool ok = _data->notify(_frame, FRAME_HEADER_SIZE + UPDATE_STATUS_SIZE);
+    if (ok) {
+        _update.seq++;
+        _update.ackedAt = Ota::received();
+    }
     _lastBleActivity = millis();
 }
 
@@ -413,13 +419,11 @@ void pumpUpdate() {
         _update.lastNakMs = now;
         sendUpdateStatus(OP_PROGRESS, STATUS_OFFSET);
     } else if (got > _update.ackedAt && (got >= Ota::total() || got - _update.ackedAt >= updateWindow() / 2)) {
-        // Halfway through the window: let the phone push the next half before
-        // it runs out of credit, so the link never idles. And always on the
-        // last byte, however little of a window it took — the phone is waiting
-        // to hear that the image is complete before it sends UPDATE_END, and a
-        // tail shorter than half a window would otherwise go unanswered until
-        // its timeout. `got > ackedAt` keeps that from repeating every loop.
         sendUpdateStatus(OP_PROGRESS, STATUS_OK);
+        _update.lastProgressMs = now;
+    } else if (got > 0 && got < Ota::total() && now - _update.lastProgressMs >= 500) {
+        sendUpdateStatus(OP_PROGRESS, STATUS_OK);
+        _update.lastProgressMs = now;
     }
 
     const int pct = Ota::percent();
@@ -428,7 +432,7 @@ void pumpUpdate() {
         pushEvent(Event::UpdateProgress, (uint32_t)pct);
     }
 
-    if (now - _update.lastChunkMs >= UPDATE_IDLE_MS) {
+    if (millis() - _update.lastChunkMs >= UPDATE_IDLE_MS) {
         Serial.printf("Sync: update stalled at %u of %u bytes\n", (unsigned)Ota::received(),
                       (unsigned)Ota::total());
         sendUpdateStatus(OP_PROGRESS, STATUS_ABORTED);
@@ -531,6 +535,7 @@ void handleCommand(const uint8_t* b, size_t len) {
             // from before the phone rewound. Start the ring empty.
             __atomic_store_n(&_ringTail, __atomic_load_n(&_ringHead, __ATOMIC_ACQUIRE), __ATOMIC_RELEASE);
             _update.lastChunkMs = millis();
+            _update.lastProgressMs = millis();
             _update.lastNakMs = 0;
             if (!_update.active) {
                 _update.active = true;
