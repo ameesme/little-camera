@@ -354,8 +354,8 @@ int main(int argc, char** argv) {
     } else if (!strcmp(scene, "gallery-empty")) {
         Display::drawGalleryEmpty();
     } else if (!strcmp(scene, "menu")) {
-        static const char* items[] = {"diagnostics", "share blog", "sound test", "contrast test", "factory reset", "exit"};
-        Display::drawMenu(items, 6, galleryIndex < 6 ? galleryIndex : 0);
+        static const char* items[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "pal screen", "exit"};
+        Display::drawMenu(items, 9, galleryIndex < 9 ? galleryIndex : 0);
     } else if (!strcmp(scene, "menu-diagnostics")) {
         Display::DiagLine lines[] = {
             {"firmware", "0.9.0"},

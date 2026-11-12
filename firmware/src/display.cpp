@@ -1708,7 +1708,7 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
         if (pi.dim && pi.idle) {
             // Always the first idle frame: a breath re-sends only the face rows,
             // which overlap the pal, so an animated pal would tear across them.
-            const int ps = 8;
+            const int ps = 6;
             int ph = pi.dim->h * ps;
             int px = TOAST_MARGIN;
             int py = HEIGHT - ph;

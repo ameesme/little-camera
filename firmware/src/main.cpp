@@ -169,8 +169,8 @@ static bool saveToastWasVisible = false;
 // contract (which is what lets the preview tool render the gallery).
 static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 // System menu
-static const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "exit"};
-constexpr int MENU_COUNT = 8;
+static const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "pal screen", "exit"};
+constexpr int MENU_COUNT = 9;
 // One slot that reads "unmute" while muted, so the list and its indices never shift.
 constexpr int MENU_MUTE = 6;
 static int menuSelected = 0;
@@ -183,6 +183,9 @@ static uint8_t equippedPal = 0;
 static uint8_t offeredPal = 0;
 static uint32_t palShownAt = 0;
 static uint32_t palDrawnAt = 0;
+// Opened from the menu to test the screen: it goes back to the menu afterwards
+// instead of sliding out a save layout that has no photo behind it.
+static bool palFromMenu = false;
 
 static uint8_t palLoad() {
     Preferences prefs;
@@ -832,6 +835,16 @@ static void menuUnmute() {
     Display::showToast("sound on", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
 }
 
+static void enterPalFound();
+
+// Test entry: offers a random pal whether or not one is equipped, and equipping
+// replaces it.
+static void menuPalScreen() {
+    Serial.println("Menu: pal screen");
+    enterPalFound();
+    palFromMenu = true;
+}
+
 static void menuSelect() {
     switch (menuSelected) {
         case 0: menuRunDiagnostics(); break;
@@ -841,7 +854,8 @@ static void menuSelect() {
         case 4: menuReboot(); break;
         case 5: menuFactoryReset(); break;
         case MENU_MUTE: Audio::muted() ? menuUnmute() : menuMute(); break;
-        case 7: leaveMenu(); break;
+        case 7: menuPalScreen(); break;
+        case 8: leaveMenu(); break;
     }
 }
 
@@ -1306,6 +1320,7 @@ static void startDismiss(const char* toast) {
 // the radio, toasts and the idle timeout keep running; walking away counts as
 // a skip, and the next photo offers again.
 static void enterPalFound() {
+    palFromMenu = false;
     offeredPal = 1 + (uint8_t)(esp_random() % PAL_COUNT);
     Serial.printf("Pal: offering %u\n", offeredPal);
     Audio::playMelody(Audio::Melody::PalFound);
@@ -1316,6 +1331,19 @@ static void enterPalFound() {
     palShownAt = palDrawnAt = millis();
     Display::drawPalDialog(offeredPal, 0);
     mode = Mode::PalFound;
+}
+
+static void leavePalFound(const char* toast) {
+    if (!palFromMenu) {
+        startDismiss(toast);
+        return;
+    }
+    mode = Mode::Menu;
+    gestureActive = false;
+    holdFired = false;
+    lastActivityTime = millis();
+    // No toast: the menu never repaints when one expires, so it would stick.
+    showMenu();
 }
 
 // Draw the current gallery photo. Files that fail to decode are skipped — a
@@ -1798,7 +1826,7 @@ void loop() {
                 Display::completeHold();
                 holdFired = true;
                 Audio::playClick(true);
-                startDismiss("saved");
+                leavePalFound("saved");
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
                 Display::flashPress();
                 Audio::playClick();
@@ -1806,7 +1834,7 @@ void loop() {
                 palSave(equippedPal);
                 Display::setPal(equippedPal);
                 Serial.printf("Pal: equipped %u\n", equippedPal);
-                startDismiss("new pal!");
+                leavePalFound("new pal!");
             }
             if (!pressed) gestureActive = false;
 
