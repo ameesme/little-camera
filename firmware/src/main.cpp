@@ -21,6 +21,7 @@
 #include "mood.h"
 #include "mood_store.h"
 #include "ota.h"
+#include "pal.h"
 #include "power.h"
 #include "storage.h"
 #include "sync.h"
@@ -176,12 +177,12 @@ constexpr int MENU_COUNT = 9;
 constexpr int MENU_MUTE = 6;
 static int menuSelected = 0;
 
-// Companion pal — persisted in NVS("pal")
-constexpr uint8_t PAL_COUNT = 4;
+// Companion pal — persisted in NVS("pal"): its care as a blob under "care",
+// and under "id" the bare id that firmware before pal care stored.
 // 30 fps. A frame redraws and sends only the badge's rows (~2/3 of the panel),
 // so the loop keeps time for the melody and the hold fill between frames.
 constexpr uint32_t PAL_FRAME_MS = 33;
-static uint8_t equippedPal = 0;
+static Pal::State palState;
 static uint8_t offeredPal = 0;
 static uint32_t palShownAt = 0;
 static uint32_t palDrawnAt = 0;
@@ -199,19 +200,42 @@ static uint32_t palWelcomeAt = 0;
 // Read once on entry: the face should not change expression mid-welcome.
 static uint8_t palWelcomeHappiness = 255;
 
-static uint8_t palLoad() {
+static Mood::Clock moodClock();
+
+// After moodBoot(): the pal's life runs on the mood's clock.
+static void palBoot() {
+    Pal::Persisted p = {};
+    bool have = false;
+    uint8_t legacyId = 0;
     Preferences prefs;
-    if (!prefs.begin("pal", true)) return 0;
-    uint8_t id = prefs.getUChar("id", 0);
-    prefs.end();
-    return id;
+    if (prefs.begin("pal", true)) {
+        have = prefs.getBytes("care", &p, sizeof p) == sizeof p;
+        legacyId = prefs.getUChar("id", 0);
+        prefs.end();
+    }
+    const Mood::Clock c = moodClock();
+    Pal::boot(palState, c, have ? &p : nullptr, legacyId);
+    Serial.printf("Pal: %u%s food=%u life=%lus\n", palState.id, palState.dead ? " (dead)" : "",
+                  palState.food, (unsigned long)Pal::left(palState, c));
 }
 
-static void palSave(uint8_t id) {
+// On every change, and on the mood's own cadence, so a reset loses at most
+// the 15 minutes the mood would.
+static void palPersist(const char* why) {
+    if (!palState.id) return;
+    const Pal::Persisted p = Pal::snapshot(palState, moodClock());
     Preferences prefs;
     if (!prefs.begin("pal", false)) return;
-    prefs.putUChar("id", id);
+    prefs.putBytes("care", &p, sizeof p);
+    prefs.putUChar("id", palState.id);
     prefs.end();
+    Serial.printf("Pal: saved (%s) food=%u life=%lus%s\n", why, p.food, (unsigned long)p.leftS,
+                  p.dead ? " dead" : "");
+}
+
+// Hand the sleep face the pal's bar, food and fate. True while the panel shows them out of date.
+static bool palShowCare() {
+    return Display::setPalCare(Pal::life(palState, moodClock()), palState.food, palState.dead);
 }
 
 // When the sleep face went up (the radio window counts from here).
@@ -291,6 +315,7 @@ static void moodPersist(const char* why) {
     Mood::markPersisted(moodState, c);
     Serial.printf("Mood: saved (%s) elapsed=%lus happiness=%u\n", why,
                   (unsigned long)Mood::elapsed(moodState, c), Mood::happiness(moodState, c));
+    if (Pal::alive(palState)) palPersist(why);
 }
 
 // After Storage::init(): the newest photo's header is the fallback when NVS
@@ -338,6 +363,7 @@ static void moodOnClock(bool tzKnown, int16_t tzMin) {
         MoodStore::saveTz(tzMin);
     }
     Mood::onClockSet(moodState, moodClock());
+    Pal::onClockSet(palState, moodClock());
     moodPersist("clock");
 }
 
@@ -365,6 +391,12 @@ static void playMoodChirp(uint8_t happiness, const char* why, int count = 0) {
 // transfer running. A chirp that is not paid stays due for the next call.
 static void serviceMood(bool quiet, const char* why) {
     Mood::Clock c = moodClock();
+    // Silently: a pal can run out at three in the morning. The tombstone says it.
+    if (Pal::poll(palState, c)) {
+        Serial.printf("Pal: %u died\n", palState.id);
+        palPersist("died");
+        palShowCare();
+    }
     Mood::Due d = Mood::poll(moodState, c, moodRng);
     if (d != Mood::Due::None && quiet) {
         playMoodChirp(moodHappiness(), why);
@@ -492,9 +524,52 @@ static void showSleepFace(bool full) {
     // The viewfinder's sidebar wears the same face, so it learns the band here
     // rather than asking mood.h from inside the panel driver.
     Display::setFaceBand(band);
+    // The pal's corner sits outside the face rows a breath sends.
+    if (palShowCare()) full = true;
 
     Display::drawSleep(h, sleepBreathIn, !full);
     sleepFaceDrawnAt = millis();
+}
+
+// A tap on the sleep face with food in hand feeds the pal: the item hops over,
+// the pal eats with a sound, a heart rises and the bar fills. Blocking for
+// ~1.5 s, like the chirp it replaces, because it also runs straight out of
+// light sleep where there is no loop to animate from.
+static void feedPal(const char* why) {
+    const Mood::Clock c = moodClock();
+    const uint8_t from = Pal::life(palState, c);
+    if (!Pal::feed(palState, c)) return;
+    Serial.printf("%s: fed pal %u, life %u -> %u/255, %u food left\n", why, palState.id, from,
+                  Pal::life(palState, c), palState.food);
+    palPersist("fed");
+    palShowCare();
+    Audio::init(PIN_BUZZ);
+    const uint8_t h = moodHappiness();
+    Display::drawPalFeed(h, sleepBreathIn, 0, from, true);
+    uint32_t start = millis();
+    bool chomped = false;
+    for (;;) {
+        const uint32_t t = millis() - start;
+        if (t >= Display::PAL_FEED_MS) break;
+        if (!chomped && t >= Display::PAL_FEED_TOSS_MS) {
+            chomped = true;
+            Display::drawPalFeed(h, sleepBreathIn, Display::PAL_FEED_TOSS_MS, from, false);
+            const uint32_t before = millis();
+            Audio::playFeed();
+            // The animation waits out the blocking sound instead of skipping ahead.
+            start += millis() - before;
+            continue;
+        }
+        Display::drawPalFeed(h, sleepBreathIn, t, from, false);
+        delay(PAL_FRAME_MS);
+    }
+    showSleepFace(true);
+}
+
+// What a tap on the sleep face does: feed the pal if there is food for it, chirp otherwise.
+static void sleepTap(const char* why) {
+    if (Pal::alive(palState) && palState.food) feedPal(why);
+    else playMoodChirp(moodHappiness(), why);
 }
 
 static void breatheSleepFace() {
@@ -612,8 +687,9 @@ void setup() {
     // Before the melody: a muted camera keeps its mute through a reboot, chime included.
     moodBoot();
     applyMute();
-    equippedPal = palLoad();
-    Display::setPal(equippedPal);
+    palBoot();
+    Display::setPal(palState.id);
+    palShowCare();
     Audio::playMelody(Audio::Melody::TaDaDa);
 
     // Play melody during splash (non-blocking update loop)
@@ -1241,7 +1317,7 @@ void enterSleepMode() {
             // before WAKE_HOLD_MS goes straight back to sleep.
             const uint32_t held = heldToWake();
             if (held >= WAKE_HOLD_MS) break;
-            if (held <= SLEEP_TAP_MAX_MS) playMoodChirp(moodHappiness(), "Sleep tap");
+            if (held <= SLEEP_TAP_MAX_MS) sleepTap("Sleep tap");
             breathUntil = millis() + BREATH_WINDOW_MS;
             continue;
         }
@@ -1251,13 +1327,15 @@ void enterSleepMode() {
             // nothing but the sound. The VCOM flip is now a no-op on the panel
             // (EXTMODE is high) but stays so tools/preview keeps exercising the
             // same byte stream.
+            serviceMood(true, "Sleep");
             if (breathing) {
                 Display::toggleVcom();
                 breatheSleepFace();
-            } else if (sampleBattery()) {
-                showSleepFace(true);
+            } else {
+                // Both, not ||: the battery sample has to be taken either way.
+                const bool battery = sampleBattery();
+                if (palShowCare() || battery) showSleepFace(true);
             }
-            serviceMood(true, "Sleep");
             continue;
         }
         Serial.printf("Sleep: ignoring wake cause %d\n", (int)cause);
@@ -1333,7 +1411,7 @@ static void startDismiss(const char* toast) {
 // a skip, and the next photo offers again.
 static void enterPalFound() {
     palFromMenu = false;
-    offeredPal = 1 + (uint8_t)(esp_random() % PAL_COUNT);
+    offeredPal = 1 + (uint8_t)(esp_random() % Pal::COUNT);
     Serial.printf("Pal: offering %u\n", offeredPal);
     Audio::playMelody(Audio::Melody::PalFound);
     Display::clearToast();
@@ -1370,7 +1448,7 @@ static void enterPalWelcome() {
     lastActivityTime = millis();
     palWelcomeAt = palDrawnAt = millis();
     palWelcomeHappiness = moodHappiness();
-    Display::drawPalWelcome(palWelcomeHappiness, equippedPal, 0.0f, 0, true);
+    Display::drawPalWelcome(palWelcomeHappiness, palState.id, 0.0f, 0, true);
     mode = Mode::PalWelcome;
 }
 
@@ -1698,8 +1776,17 @@ void loop() {
                         moodOnPhoto();
                         // Whatever the phone was waiting for, it has it now.
                         Display::setPrompt(Display::Prompt::None);
-                        if (equippedPal == 0) {
+                        // No pal, or only its tombstone: offer one.
+                        if (!Pal::alive(palState)) {
                             enterPalFound();
+                        } else if (Pal::onPhoto(palState, moodRng)) {
+                            palPersist("found food");
+                            palShowCare();
+                            static char foundToast[24];
+                            snprintf(foundToast, sizeof foundToast, "saved +1 %s", Display::palFoodName(palState.id));
+                            Serial.printf("Pal: found a %s, %u in hand\n", Display::palFoodName(palState.id), palState.food);
+                            Audio::playMelody(Audio::Melody::Saved);
+                            startDismiss(foundToast);
                         } else {
                             Audio::playMelody(Audio::Melody::Saved);
                             startDismiss("saved");
@@ -1812,7 +1899,7 @@ void loop() {
                 const uint32_t held = millis() - pressStartedAt;
                 Display::clearWakeProgress();
                 showSleepFace(true);
-                if (held <= SLEEP_TAP_MAX_MS) playMoodChirp(moodHappiness(), "Asleep tap");
+                if (held <= SLEEP_TAP_MAX_MS) sleepTap("Asleep tap");
             }
             if (!pressed) gestureActive = false;
 
@@ -1871,10 +1958,11 @@ void loop() {
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
                 Display::flashPress();
                 Audio::playClick();
-                equippedPal = offeredPal;
-                palSave(equippedPal);
-                Display::setPal(equippedPal);
-                Serial.printf("Pal: equipped %u\n", equippedPal);
+                Pal::equip(palState, moodClock(), offeredPal);
+                palPersist("equipped");
+                Display::setPal(palState.id);
+                palShowCare();
+                Serial.printf("Pal: equipped %u\n", palState.id);
                 enterPalWelcome();
             }
             if (!pressed) gestureActive = false;
@@ -1914,7 +2002,7 @@ void loop() {
             if (millis() - palDrawnAt >= PAL_FRAME_MS) {
                 palDrawnAt = millis();
                 const float p = shown >= PAL_WELCOME_SLIDE_MS ? 1.0f : (float)shown / PAL_WELCOME_SLIDE_MS;
-                Display::drawPalWelcome(palWelcomeHappiness, equippedPal, easeOutCubic(p), shown, false);
+                Display::drawPalWelcome(palWelcomeHappiness, palState.id, easeOutCubic(p), shown, false);
             }
             break;
         }

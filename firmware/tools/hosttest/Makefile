@@ -5,7 +5,7 @@
 CXX      ?= c++
 CXXFLAGS ?= -std=c++17 -O1 -g -Wall -Wextra -Wno-unused-parameter
 
-HEADERS = ../../src/mood.h ../../src/chirp.h ../../src/pbm_header.h ../../src/crc32.h ../../src/sha256.h ../../src/shortcode.h ../../src/sync_protocol.h ../../src/version.h ../../src/power.h ../../src/hold_progress.h
+HEADERS = ../../src/mood.h ../../src/pal.h ../../src/chirp.h ../../src/pbm_header.h ../../src/crc32.h ../../src/sha256.h ../../src/shortcode.h ../../src/sync_protocol.h ../../src/version.h ../../src/power.h ../../src/hold_progress.h
 
 hosttest: test_main.cpp $(HEADERS)
 	$(CXX) $(CXXFLAGS) test_main.cpp -o hosttest

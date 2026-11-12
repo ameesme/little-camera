@@ -26,6 +26,9 @@ bool muted();
 // Chirp::MAX_TOTAL_MS plus one wave period per segment. Cancels a melody in
 // flight — the pin is ours for the duration.
 void playChirp(const Chirp::Score& score);
+// A pal eating: nom, nom, and a bright ping. Bit-banged and blocking like a
+// chirp (~260 ms), because it plays straight out of light sleep too.
+void playFeed();
 void playMelody(Melody type = Melody::Random);
 void update();
 void stop();

@@ -177,6 +177,9 @@ static void usage(const char* argv0) {
         "  pal-welcome  the equip confirmation, pal sliding in (see --t/--at/--happiness)\n"
         "  viewfinder-swap  the face block mid face->pal slide (see --at, 0-450)\n"
         "  sleep-pal, viewfinder-pal  the equipped pal on the sleep face and in the sidebar\n"
+        "               (see --life/--food/--dead)\n"
+        "  sleep-tomb, viewfinder-tomb  the same after the pal died\n"
+        "  sleep-feed   feeding on the sleep face at --at MS (0-1220), bar from --life to full\n"
         "\n"
         "options:\n"
         "  --out PATH   output BMP (default preview.bmp)\n"
@@ -189,6 +192,9 @@ static void usage(const char* argv0) {
         "  --index N    0-based position shown in the gallery counter, default 2\n"
         "  --total N    total shown in the gallery counter, default 12\n"
         "  --pal N      pal 1-4 for the pal scenes, default 1\n"
+        "  --life N     pal life 0-255 for its bar, default 200\n"
+        "  --food N     food in hand, default 3\n"
+        "  --dead       the pal has died: a tombstone\n"
         "  --happiness N  mood 0-255 for the sleep face, default 255\n"
         "  --percent N  progress 0-100 for the 'update' scene, default 42\n"
         "  --hold-ms N  elapsed hold time, default 0 (fill starts after 200ms)\n"
@@ -222,6 +228,9 @@ int main(int argc, char** argv) {
     bool holdReset = false;
     bool pressFlash = false;
     int pal = 1;
+    int life = 200;
+    int food = 3;
+    bool dead = false;
 
     for (int i = 2; i < argc; i++) {
         bool hasValue = (i + 1 < argc);
@@ -255,6 +264,12 @@ int main(int argc, char** argv) {
             breath = true;
         } else if (!strcmp(argv[i], "--pal") && hasValue) {
             pal = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--life") && hasValue) {
+            life = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--food") && hasValue) {
+            food = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--dead")) {
+            dead = true;
         } else if (!strcmp(argv[i], "--total") && hasValue) {
             galleryTotal = atoi(argv[++i]);
         } else {
@@ -263,6 +278,10 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+
+    // The tombstone scenes are the pal scenes after it died.
+    if (!strcmp(scene, "sleep-tomb")) { scene = "sleep-pal"; dead = true; }
+    if (!strcmp(scene, "viewfinder-tomb")) { scene = "viewfinder-pal"; dead = true; }
 
     if (src) {
         if (!loadPGM(src)) return 1;
@@ -394,10 +413,18 @@ int main(int argc, char** argv) {
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "sleep-pal")) {
         Display::setPal((uint8_t)pal);
+        Display::setPalCare((uint8_t)life, (uint8_t)food, dead);
         Display::drawSleep((uint8_t)happiness, breath);
+    } else if (!strcmp(scene, "sleep-feed")) {
+        // Drawn at 0 in full, then only the moving rows at --at, as main.cpp does.
+        Display::setPal((uint8_t)pal);
+        Display::setPalCare(255, (uint8_t)food, false);
+        Display::drawPalFeed((uint8_t)happiness, breath, 0, (uint8_t)life, true);
+        Display::drawPalFeed((uint8_t)happiness, breath, at, (uint8_t)life, false);
     } else if (!strcmp(scene, "viewfinder-pal")) {
         Display::setPal((uint8_t)pal);
-        Sim::setMillis(5000);  // odd period: shows pal instead of face
+        Display::setPalCare((uint8_t)life, (uint8_t)food, dead);
+        Sim::setMillis(5500);  // odd period, past the 450 ms swap slide: shows pal instead of face
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else {
         fprintf(stderr, "error: unknown scene '%s'\n\n", scene);
