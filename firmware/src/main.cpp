@@ -1782,14 +1782,15 @@ void loop() {
                         } else if (Pal::onPhoto(palState, moodRng)) {
                             palPersist("found food");
                             palShowCare();
+                            // The melody says it saved; the toast is only for what turned up.
                             static char foundToast[24];
-                            snprintf(foundToast, sizeof foundToast, "saved +1 %s", Display::palFoodName(palState.id));
+                            snprintf(foundToast, sizeof foundToast, "found a %s!", Display::palFoodName(palState.id));
                             Serial.printf("Pal: found a %s, %u in hand\n", Display::palFoodName(palState.id), palState.food);
                             Audio::playMelody(Audio::Melody::Saved);
                             startDismiss(foundToast);
                         } else {
                             Audio::playMelody(Audio::Melody::Saved);
-                            startDismiss("saved");
+                            startDismiss(nullptr);
                         }
                         break;
                     // Full means every photo on the flash is one the phone
@@ -1954,7 +1955,7 @@ void loop() {
                 Display::completeHold();
                 holdFired = true;
                 Audio::playClick(true);
-                leavePalFound("saved");
+                leavePalFound(nullptr);
             } else if (!pressed && lastPressed && gestureActive && !holdFired) {
                 Display::flashPress();
                 Audio::playClick();
