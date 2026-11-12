@@ -168,8 +168,8 @@ static bool saveToastWasVisible = false;
 // contract (which is what lets the preview tool render the gallery).
 static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 // System menu
-static const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "exit"};
-constexpr int MENU_COUNT = 7;
+static const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "exit"};
+constexpr int MENU_COUNT = 8;
 static int menuSelected = 0;
 
 // When the sleep face went up (the radio window counts from here).
@@ -269,6 +269,16 @@ static void moodBoot() {
                   Chirp::band(Mood::happiness(moodState, c)), c.epoch ? "set" : "unset",
                   moodTzKnown ? "" : "unknown ", moodTzMin);
     if (!have) moodPersist("first boot");
+}
+
+// Mute holds until midnight on the chirp schedule's day: local once the phone has set the clock, else a powered-on 24 h period.
+static void applyMute() {
+    const uint32_t now = Mood::detail::dailyNow(moodState, moodClock());
+    uint32_t day;
+    if (!MoodStore::loadMuteDay(&day) || day != now / Mood::DAY_S) return;
+    const uint32_t leftS = Mood::DAY_S - now % Mood::DAY_S;
+    Audio::muteUntil(esp_timer_get_time() + (int64_t)leftS * 1000000);
+    Serial.printf("Audio: muted for %lus\n", (unsigned long)leftS);
 }
 
 static uint8_t moodHappiness();
@@ -550,6 +560,16 @@ void setup() {
     // Show splash screen with ta-da-da melody
     Display::drawSplash();
     Serial.println("Splash screen drawn");
+
+    // Photo storage. Non-fatal: the camera still works without it, saves just
+    // report an error, and refusing to boot over a bad partition would be worse.
+    Storage::init();
+    Display::setShowHints(Storage::photoCount() < 2);
+
+    Identity::init();
+    // Before the melody: a muted camera keeps its mute through a reboot, chime included.
+    moodBoot();
+    applyMute();
     Audio::playMelody(Audio::Melody::TaDaDa);
 
     // Play melody during splash (non-blocking update loop)
@@ -559,13 +579,6 @@ void setup() {
         delay(10);
     }
 
-    // Photo storage. Non-fatal: the camera still works without it, saves just
-    // report an error, and refusing to boot over a bad partition would be worse.
-    Storage::init();
-    Display::setShowHints(Storage::photoCount() < 2);
-
-    Identity::init();
-    moodBoot();
     Console::begin();
     completeWakeFace(false);
 
@@ -772,6 +785,13 @@ static void menuReboot() {
     esp_restart();
 }
 
+static void menuMute() {
+    MoodStore::saveMuteDay(Mood::detail::dailyNow(moodState, moodClock()) / Mood::DAY_S);
+    applyMute();
+    leaveMenu();
+    Display::showToast("muted till midnight", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
+}
+
 static void menuSelect() {
     switch (menuSelected) {
         case 0: menuRunDiagnostics(); break;
@@ -780,7 +800,8 @@ static void menuSelect() {
         case 3: menuContrastTest(); break;
         case 4: menuReboot(); break;
         case 5: menuFactoryReset(); break;
-        case 6: leaveMenu(); break;
+        case 6: menuMute(); break;
+        case 7: leaveMenu(); break;
     }
 }
 

@@ -16,6 +16,8 @@ enum class Melody {
 
 void init(uint8_t buzzerPin);
 void playClick(bool light = false);
+// Every sound is a no-op until esp_timer reaches this.
+void muteUntil(int64_t uptimeUs);
 
 // A composed chirp (chirp.h, docs/mood.md). Blocking and bit-banged like the
 // click, so it is heard straight out of light sleep; at most

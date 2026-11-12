@@ -1,8 +1,14 @@
 #include "audio.h"
 
+#include <esp_timer.h>
+
 namespace Audio {
 
 static uint8_t _buzzerPin = 0;
+static int64_t _mutedUntilUs = 0;
+
+void muteUntil(int64_t uptimeUs) { _mutedUntilUs = uptimeUs; }
+static bool muted() { return esp_timer_get_time() < _mutedUntilUs; }
 
 struct MelodyData {
     const uint16_t* freqs;
@@ -97,6 +103,7 @@ static void square(uint32_t freq, uint32_t us) {
 }
 
 void playClick(bool light) {
+    if (muted()) return;
     // Same sweep and step timing as the original tone()-based click, but no
     // two clicks are quite alike: every frequency in the sweep is scaled by
     // a random 85-115%, which shifts the whole click brighter or duller
@@ -137,6 +144,7 @@ struct PinOut {
 };
 
 void playChirp(const Chirp::Score& score) {
+    if (muted()) return;
     melodyStep = -1;
     noteStarted = false;
     release();
@@ -146,7 +154,7 @@ void playChirp(const Chirp::Score& score) {
 }
 
 void playMelody(Melody type) {
-    if (melodyStep >= 0) return;  // Already playing
+    if (melodyStep >= 0 || muted()) return;
 
     if (type == Melody::Random) {
         // Random picks TaDaDa (0) or ChirpChirp (2), skipping DaDaTa (sleep melody)

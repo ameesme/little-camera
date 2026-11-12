@@ -14,5 +14,7 @@ bool load(Mood::Persisted* out);            // Migrates v1; false if absent or u
 void save(const Mood::Persisted& p);
 bool loadTz(int16_t* tzMin);                // false if the phone never sent one
 void saveTz(int16_t tzMin);
+bool loadMuteDay(uint32_t* day);           // false if never muted
+void saveMuteDay(uint32_t day);
 
 }

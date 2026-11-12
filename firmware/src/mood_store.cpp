@@ -41,6 +41,22 @@ bool loadTz(int16_t* tzMin) {
     return ok;
 }
 
+bool loadMuteDay(uint32_t* day) {
+    Preferences prefs;
+    if (!prefs.begin(NS, true)) return false;
+    bool ok = prefs.isKey("mute");
+    if (ok) *day = prefs.getUInt("mute", 0);
+    prefs.end();
+    return ok;
+}
+
+void saveMuteDay(uint32_t day) {
+    Preferences prefs;
+    if (!prefs.begin(NS, false)) return;
+    prefs.putUInt("mute", day);
+    prefs.end();
+}
+
 void saveTz(int16_t tzMin) {
     Preferences prefs;
     if (!prefs.begin(NS, false)) return;

@@ -3,6 +3,7 @@
 class LittleFSClass {
 public:
     bool begin(bool, const char*, int, const char*) { return false; }
+    bool format() { return false; }
     File open(const char*, const char* = FILE_READ) { return File(); }
     bool remove(const char*) { return false; }
     bool rename(const char*, const char*) { return false; }

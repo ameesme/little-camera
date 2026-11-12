@@ -6,6 +6,8 @@ public:
     bool begin(const char*, bool) { return false; }
     void end() {}
     bool remove(const char*) { return true; }
+    bool clear() { return true; }
+    bool isKey(const char*) { return false; }
     uint8_t getUChar(const char*, uint8_t d) { return d; }
     size_t putUChar(const char*, uint8_t) { return 0; }
     uint16_t getUShort(const char*, uint16_t d) { return d; }
