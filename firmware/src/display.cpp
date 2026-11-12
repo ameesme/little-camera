@@ -669,31 +669,42 @@ static void drawPalInBox(int boxX, int boxY, int boxW, int boxH, uint8_t id, int
     drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr, x, y, scale, white);
 }
 
-// Integer 16-sector angle classification for the starburst pattern.
-static int angleSector16(int dx, int dy) {
-    int adx = dx < 0 ? -dx : dx;
-    int ady = dy < 0 ? -dy : dy;
-    int sub;
-    if (ady * 1000 < adx * 414)      sub = 0;
-    else if (ady * 1000 < adx * 1000) sub = 1;
-    else if (ady * 414 < adx * 1000)  sub = 2;
-    else                               sub = 3;
-    if (dx >= 0 && dy >= 0) return sub;
-    if (dx <  0 && dy >= 0) return 7 - sub;
-    if (dx <  0 && dy <  0) return 8 + sub;
-    return 15 - sub;
-}
-
-static void drawStarBurst(int cx, int cy, int radius, int step) {
-    const int r2 = radius * radius;
-    for (int py = cy - radius; py <= cy + radius; py++) {
-        for (int px = cx - radius; px <= cx + radius; px++) {
+// Scalloped badge: a circle whose edge wobbles in and out with `bumps`
+// lobes rotating by `step`. Integer-only: the radius at each pixel is
+// compared against a threshold that varies with the angle, approximated
+// by a piecewise-linear triangle wave over `bumps` sectors.
+static void drawRoundedStar(int cx, int cy, int outerR, int innerR, int bumps, int step) {
+    for (int py = cy - outerR; py <= cy + outerR; py++) {
+        for (int px = cx - outerR; px <= cx + outerR; px++) {
             int dx = px - cx, dy = py - cy;
             int d2 = dx * dx + dy * dy;
-            if (d2 > r2 || d2 < 4) continue;
-            int sector = angleSector16(dx, dy);
-            int shifted = (sector + 16 - (step & 15)) & 15;
-            setPixel(px, py, (shifted & 3) < 2);
+            if (d2 > outerR * outerR) continue;
+            // Angle → sector position within one bump period, 0..999.
+            // atan2 approximated by the octant method, scaled to 0..8000
+            // (one full turn) then modded into the bump period.
+            int adx = dx < 0 ? -dx : dx;
+            int ady = dy < 0 ? -dy : dy;
+            int angle;
+            if (adx == 0 && ady == 0) { setPixel(px, py, false); continue; }
+            if (adx >= ady)
+                angle = (int)((int64_t)ady * 1000 / adx);
+            else
+                angle = 2000 - (int)((int64_t)adx * 1000 / ady);
+            if (dx < 0) angle = 4000 - angle;
+            if (dy < 0) angle = 8000 - angle;
+            angle = (angle + step * 8000 / (bumps * 2) + 80000) % 8000;
+            int period = 8000 / bumps;
+            int pos = angle % period;
+            // Triangle wave 0→500→0 over one period
+            int half = period / 2;
+            int tri = pos < half ? pos * 500 / half : (period - pos) * 500 / half;
+            int threshold = innerR + (outerR - innerR) * tri / 500;
+            int dist = 0;
+            // Integer sqrt via Newton's method
+            int s = outerR;
+            for (int i = 0; i < 6; i++) s = (s + d2 / s) / 2;
+            dist = s;
+            if (dist <= threshold) setPixel(px, py, false);
         }
     }
 }
@@ -711,6 +722,21 @@ void drawPalDialogFrame(uint8_t palId, int starStep) {
     PalInfo info = palLookup(palId);
     if (!info.dim) { flushFramebuffer(); return; }
 
+    // Battery icon, top-left corner
+    UI::BatteryLevel blevel;
+    switch (_batteryBars) {
+        case 1: blevel = UI::BatteryLevel::Empty; break;
+        case 2: blevel = UI::BatteryLevel::Low; break;
+        case 3: blevel = UI::BatteryLevel::Medium; break;
+        default: blevel = UI::BatteryLevel::Full; break;
+    }
+    if (_usb)
+        drawIconScaled(UI::getChargingIcon(), UI::ICON_SIZE, UI::ICON_SIZE,
+                       TOAST_MARGIN, TOAST_MARGIN, false, 1);
+    else
+        drawIconScaled(UI::getBatteryIcon(blevel), UI::ICON_SIZE, UI::ICON_SIZE,
+                       TOAST_MARGIN, TOAST_MARGIN, false, 1);
+
     // Card: rounded border in the left column, same geometry as the save card.
     const int cardX = VF_PADDING_LEFT;
     const int cardY = VF_PADDING_TOP;
@@ -722,16 +748,16 @@ void drawPalDialogFrame(uint8_t palId, int starStep) {
     drawTextCenteredAt("you got a", cardX, cardW, cardY + 18, SIDEBAR_FONT, false);
     drawTextCenteredAt("little pal!", cardX, cardW, cardY + 38, SIDEBAR_FONT, false);
 
-    // Starburst + pal, centred between title and name
+    // Rounded star badge + pal, centred between title and name
     const int contentTop = cardY + 56;
     const int contentBot = cardY + cardH - 30;
     int cx = cardX + cardW / 2;
     int cy = (contentTop + contentBot) / 2;
-    drawStarBurst(cx, cy, 50, starStep);
+    drawRoundedStar(cx, cy, 50, 35, 14, starStep);
 
     int8_t dx = 0, dy = 0;
     const uint8_t* bmp = palIdleFrame(info.idle, millis(), &dx, &dy);
-    int palScale = 6;
+    int palScale = 4;
     int pw = info.dim->w * palScale, ph = info.dim->h * palScale;
     drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr,
                cx - pw / 2 + dx * palScale, cy - ph / 2 + dy * palScale, palScale, true);
