@@ -13,7 +13,7 @@ SRCS = preview.cpp sim_panel.cpp sim_arduino.cpp ../../src/display.cpp
 BIN  = preview
 OUT  = out
 
-SCENES = splash pairing pairing-done update update-done update-failed sleep sleep-content sleep-glum sleep-sad sleep-breath sleep-battery sleep-charging sleep-low wake-hold wake-awake prompt-card prompt-selfie viewfinder capture save slide toast gallery gallery-empty pal-dialog pal-welcome sleep-pal viewfinder-pal
+SCENES = splash pairing pairing-done update update-done update-failed sleep sleep-content sleep-glum sleep-sad sleep-breath sleep-battery sleep-charging sleep-low wake-hold wake-awake prompt-card prompt-selfie viewfinder capture save slide toast gallery gallery-empty pal-dialog pal-welcome sleep-pal sleep-tomb sleep-feed viewfinder-pal viewfinder-tomb
 
 $(BIN): $(SRCS) shim/Arduino.h shim/SPI.h sim_panel.h ../../src/display.cpp ../../src/display.h ../../src/pbm_header.h ../../src/hold_progress.h
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o $(BIN)

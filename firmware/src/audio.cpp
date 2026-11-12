@@ -159,6 +159,16 @@ void playChirp(const Chirp::Score& score) {
     digitalWrite(_buzzerPin, LOW);
 }
 
+void playFeed() {
+    Chirp::Score s = {};
+    s.seg[0] = {Chirp::Kind::Sweep, 660, 990, 45, 45};
+    s.seg[1] = {Chirp::Kind::Sweep, 740, 1109, 45, 55};
+    s.seg[2] = {Chirp::Kind::Tone, 1760, 0, 70, 0};
+    s.n = 3;
+    s.happiness = 255;
+    playChirp(s);
+}
+
 void playMelody(Melody type) {
     if (melodyStep >= 0 || muted()) return;
 

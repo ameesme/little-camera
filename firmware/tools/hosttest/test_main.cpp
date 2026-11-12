@@ -17,6 +17,7 @@
 #include "../../src/hold_progress.h"
 #include "../../src/chirp.h"
 #include "../../src/mood.h"
+#include "../../src/pal.h"
 
 static int failures = 0;
 static int checks = 0;
@@ -627,6 +628,111 @@ static void testMood() {
     }
 }
 
+static void testPal() {
+    const uint32_t DAY = Mood::DAY_S;
+    Mood::Clock c = {1000, 0, 0, false};
+    Pal::State s;
+    Pal::boot(s, c, nullptr, 0);
+    CHECK(!Pal::alive(s) && Pal::life(s, c) == 0);
+    CHECK(!Pal::poll(s, c));
+
+    // A new pal: a full week, nothing to eat.
+    Pal::equip(s, c, 2);
+    CHECK(Pal::alive(s) && s.food == 0 && Pal::life(s, c) == 255);
+    CHECK(Pal::left(s, c) == Pal::LIFE_S);
+    CHECK(!Pal::feed(s, c));
+
+    // Half a week on, half a bar; any life at all shows at least a sliver.
+    c.uptimeS += Pal::LIFE_S / 2;
+    CHECK(Pal::life(s, c) == 128);
+    c.uptimeS += Pal::LIFE_S / 2 - 1;
+    CHECK(Pal::left(s, c) == 1 && Pal::life(s, c) == 1);
+    CHECK(!Pal::poll(s, c));
+
+    // Feeding adds FEED_S and spends one item.
+    s.food = 2;
+    CHECK(Pal::feed(s, c));
+    CHECK(s.food == 1 && Pal::left(s, c) == 1 + Pal::FEED_S);
+    // Never past a full bar.
+    s.food = 9;
+    for (int i = 0; i < 9; i++) Pal::feed(s, c);
+    CHECK(s.food == 0 && Pal::left(s, c) == Pal::LIFE_S);
+
+    // Food turns up about one save in three, never past FOOD_MAX.
+    Chirp::Rng rng(7);
+    int found = 0;
+    for (int i = 0; i < 3000; i++) {
+        if (Pal::onPhoto(s, rng)) found++;
+        if (s.food >= Pal::FOOD_MAX) s.food = 0;
+    }
+    CHECK(found > 900 && found < 1100);
+    s.food = Pal::FOOD_MAX;
+    for (int i = 0; i < 50; i++) Pal::onPhoto(s, rng);
+    CHECK(s.food == Pal::FOOD_MAX);
+
+    // Running out kills it once, takes the food, and leaves a tombstone that eats and finds nothing.
+    c.uptimeS += Pal::LIFE_S;
+    CHECK(Pal::poll(s, c));
+    CHECK(s.dead && s.food == 0 && !Pal::alive(s) && s.id == 2);
+    CHECK(!Pal::poll(s, c));
+    CHECK(!Pal::onPhoto(s, rng));
+    s.food = 1;
+    CHECK(!Pal::feed(s, c));
+    // A new pal replaces the tombstone.
+    Pal::equip(s, c, 3);
+    CHECK(Pal::alive(s) && s.id == 3 && Pal::life(s, c) == 255);
+
+    // Across a reset: resumed from the snapshot, uptime starts over.
+    c.uptimeS += 2 * DAY;
+    s.food = 4;
+    Pal::Persisted p = Pal::snapshot(s, c);
+    Mood::Clock r = {5, 0, 0, false};
+    Pal::State t;
+    Pal::boot(t, r, &p, 0);
+    CHECK(t.id == 3 && t.food == 4 && !t.dead && Pal::left(t, r) == Pal::LIFE_S - 2 * DAY);
+    r.uptimeS += DAY;
+    CHECK(Pal::left(t, r) == Pal::LIFE_S - 3 * DAY);
+    // A dead pal stays dead.
+    Pal::State d = t;
+    d.dead = true;
+    p = Pal::snapshot(d, r);
+    Pal::boot(t, r, &p, 0);
+    CHECK(t.dead && !Pal::alive(t) && t.id == 3);
+    // Garbage or a newer version is ignored; a bare legacy id starts a fresh week.
+    p.version = 99;
+    Pal::boot(t, r, &p, 0);
+    CHECK(t.id == 0);
+    Pal::boot(t, r, nullptr, 4);
+    CHECK(t.id == 4 && Pal::left(t, r) == Pal::LIFE_S);
+    Pal::boot(t, r, nullptr, 9);
+    CHECK(t.id == 0);
+
+    // With the wall clock known, powered-off time counts: the wall clock wins when it says more.
+    Mood::Clock w = {100, 1700000000, 0, true};
+    Pal::equip(s, w, 1);
+    CHECK(s.dueEpoch == 1700000000 + Pal::LIFE_S);
+    p = Pal::snapshot(s, w);
+    Mood::Clock w2 = {10, 1700000000 + 3 * DAY, 0, true};  // Off for three days, then back
+    Pal::boot(t, w2, &p, 0);
+    CHECK(Pal::left(t, w2) == Pal::LIFE_S - 3 * DAY);
+    // Without it, powered-off time is unknown and does not count.
+    Mood::Clock w3 = {10, 0, 0, false};
+    CHECK(Pal::left(t, w3) == Pal::LIFE_S);
+    // Setting the clock pins the end, so time off from there on counts.
+    Pal::equip(s, c, 1);
+    CHECK(s.dueEpoch == 0);
+    Mood::Clock cs = c;
+    cs.uptimeS += DAY;
+    cs.epoch = 1700000000;
+    Pal::onClockSet(s, cs);
+    CHECK(s.dueEpoch == 1700000000 + Pal::LIFE_S - DAY);
+    // Feeding moves the wall-clock end too.
+    s.food = 1;
+    CHECK(Pal::feed(s, cs));
+    CHECK(s.dueEpoch == 1700000000 + Pal::LIFE_S);
+    CHECK(Pal::left(s, cs) == Pal::LIFE_S);
+}
+
 int main() {
     CHECK(HoldProgress::pixels(0, 700, 184) == 0);
     CHECK(HoldProgress::pixels(199, 700, 184) == 0);
@@ -640,6 +746,7 @@ int main() {
     CHECK(HoldProgress::pixels(500, 0, 112) == 0);
     CHECK(HoldProgress::pixels(500, 700, 0) == 0);
     testMood();
+    testPal();
     testChirp();
     testSyncProtocol();
     testUpdateProtocol();

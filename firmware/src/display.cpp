@@ -676,7 +676,54 @@ static void drawPalBmp(const uint8_t* bmp, uint8_t bmpW, uint8_t bmpH, uint8_t b
     }
 }
 
+// Pal care, as main.cpp last reported it: the bar, the food in hand, the tombstone.
+static uint8_t _palLife = 255;
+static uint8_t _palFood = 0;
+static bool _palDead = false;
+
+// Each pal eats what its kind eats. Drawn facing left, towards the pal.
+// Mochi the cat: a fish.
+static const uint8_t FOOD_FISH_BMP[] = {0x3c, 0x40, 0x7e, 0xc0, 0xbf, 0xc0, 0xff, 0xc0, 0x7e, 0xc0, 0x3c, 0x40};
+// Sir Croaks the frog: a fly.
+static const uint8_t FOOD_FLY_BMP[] = {0x63, 0x00, 0x94, 0x80, 0x88, 0x80, 0x6b, 0x00, 0x1c, 0x00, 0x3e, 0x00, 0x1c, 0x00};
+// Tweet Seat the bird: a worm.
+static const uint8_t FOOD_WORM_BMP[] = {0x00, 0x60, 0x30, 0xf0, 0x79, 0xb0, 0xcf, 0x00, 0x86, 0x00};
+// Pillowcase, a pillow with a face: a feather, what pillows are stuffed with.
+static const uint8_t FOOD_FEATHER_BMP[] = {0x07, 0x0f, 0x1e, 0x2c, 0x58, 0x30, 0x40, 0x80};
+
+struct PalFood {
+    const uint8_t* bmp;
+    uint8_t w, h, bpr;
+    const char* name;
+};
+
+static PalFood palFood(uint8_t id) {
+    switch (id) {
+        case 1: return {FOOD_FISH_BMP, 10, 6, 2, "fish"};
+        case 2: return {FOOD_FLY_BMP, 9, 7, 2, "fly"};
+        case 3: return {FOOD_WORM_BMP, 12, 5, 2, "worm"};
+        case 4: return {FOOD_FEATHER_BMP, 8, 8, 1, "feather"};
+        default: return {nullptr, 0, 0, 0, ""};
+    }
+}
+
+const char* palFoodName(uint8_t palId) { return palFood(palId).name; }
+
+// Where a pal used to be: a headstone with a cross cut out of it.
+static const uint8_t PAL_TOMB_BMP[] = {0x3f, 0x00, 0x7f, 0x80, 0xff, 0xc0, 0xf3, 0xc0, 0xe1, 0xc0, 0xf3, 0xc0,
+                                       0xf3, 0xc0, 0xff, 0xc0, 0xff, 0xc0, 0xff, 0xc0, 0xff, 0xc0, 0xff, 0xc0};
+constexpr uint8_t PAL_TOMB_W = 10, PAL_TOMB_H = 12, PAL_TOMB_BPR = 2;
+// Rises over a pal that has just eaten.
+static const uint8_t PAL_HEART_BMP[] = {0x6c, 0xfe, 0xfe, 0x7c, 0x38, 0x10};
+constexpr uint8_t PAL_HEART_W = 7, PAL_HEART_H = 6;
+
 static void drawPalInBox(int boxX, int boxY, int boxW, int boxH, uint8_t id, int scale, bool white) {
+    if (_palDead && id == _palId) {
+        const int tw = PAL_TOMB_W * scale, th = PAL_TOMB_H * scale;
+        drawPalBmp(PAL_TOMB_BMP, PAL_TOMB_W, PAL_TOMB_H, PAL_TOMB_BPR,
+                   boxX + (boxW - tw) / 2, boxY + (boxH - th) / 2, scale, white);
+        return;
+    }
     PalInfo info = palLookup(id);
     if (!info.dim || !info.idle) return;
     int8_t dx = 0, dy = 0;
@@ -1777,12 +1824,96 @@ static void drawSleepBadge(bool breathIn) {
                    TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
 }
 
+// The pal's corner of the sleep face: flush bottom-left, the bar above it.
+constexpr int SLEEP_PAL_SCALE = 6;
+constexpr int PAL_BAR_W = 60;
+constexpr int PAL_BAR_H = 8;
+constexpr int PAL_BAR_GAP = 8;  // Clear of the one-pixel bob the pal makes while eating
+// The food in hand, bottom-right: the item, then the count.
+constexpr int SLEEP_FOOD_SCALE = 3;
+constexpr int SLEEP_FOOD_GAP = 6;
+
+// Pixels of fill inside the bar's outline, rounded up so a pal with any life left shows some.
+static int palBarFill(uint8_t life) {
+    const int inner = PAL_BAR_W - 4;
+    return (life * inner + 254) / 255;
+}
+
+// What the last full sleep frame sent, so a change stays owed until one goes
+// out: a breath sends only the face rows, which miss the corners.
+static int _sentBarFill = -1;
+static uint8_t _sentFood = 0;
+static bool _sentDead = false;
+static uint8_t _sentPalId = 0;
+
+bool setPalCare(uint8_t life, uint8_t food, bool dead) {
+    _palLife = life;
+    _palFood = food;
+    _palDead = dead;
+    return palBarFill(life) != _sentBarFill || food != _sentFood || dead != _sentDead || _palId != _sentPalId;
+}
+
+static int sleepPalHeight() {
+    if (_palDead) return PAL_TOMB_H * SLEEP_PAL_SCALE;
+    PalInfo pi = palLookup(_palId);
+    return pi.dim ? pi.dim->h * SLEEP_PAL_SCALE : 0;
+}
+
+static int palBarY() { return HEIGHT - sleepPalHeight() - PAL_BAR_GAP - PAL_BAR_H; }
+
+static void drawPalBar(int fill) {
+    const int y = palBarY();
+    drawRoundedRectBorder(TOAST_MARGIN, y, PAL_BAR_W, PAL_BAR_H, 2, true);
+    if (fill > 0) fillRoundedRect(TOAST_MARGIN + 2, y + 2, fill, PAL_BAR_H - 4, 0, true);
+}
+
+// The food badge's item: where it sits, so the feed toss can start from it.
+static void foodBadgeItem(const PalFood& f, int* x, int* y) {
+    char text[8];
+    snprintf(text, sizeof(text), "x%u", (unsigned)_palFood);
+    const int textX = WIDTH - TOAST_MARGIN - UI::textWidth(text, TOAST_FONT);
+    *x = textX - SLEEP_FOOD_GAP - f.w * SLEEP_FOOD_SCALE;
+    *y = HEIGHT - TOAST_MARGIN - UI::fontHeight(TOAST_FONT) / 2 - f.h * SLEEP_FOOD_SCALE / 2;
+}
+
+static void drawFoodBadge() {
+    const PalFood f = palFood(_palId);
+    if (!f.bmp || !_palFood) return;
+    char text[8];
+    snprintf(text, sizeof(text), "x%u", (unsigned)_palFood);
+    const int textX = WIDTH - TOAST_MARGIN - UI::textWidth(text, TOAST_FONT);
+    drawText(text, textX, HEIGHT - TOAST_MARGIN - UI::fontHeight(TOAST_FONT), TOAST_FONT, true);
+    int ix, iy;
+    foodBadgeItem(f, &ix, &iy);
+    drawPalBmp(f.bmp, f.w, f.h, f.bpr, ix, iy, SLEEP_FOOD_SCALE, true);
+}
+
+// The pal (or what is left of it) in its corner, with its bar. `bmp` overrides
+// the first idle frame, `dy` lifts it, `fill` is the bar's.
+static void drawSleepPalCorner(const uint8_t* bmp, int dy, int fill) {
+    if (_palDead) {
+        drawPalBmp(PAL_TOMB_BMP, PAL_TOMB_W, PAL_TOMB_H, PAL_TOMB_BPR, TOAST_MARGIN,
+                   HEIGHT - PAL_TOMB_H * SLEEP_PAL_SCALE, SLEEP_PAL_SCALE, true);
+        return;
+    }
+    PalInfo pi = palLookup(_palId);
+    if (!pi.dim || !pi.idle) return;
+    // The first idle frame unless told otherwise: a breath re-sends only the
+    // face rows, which overlap the pal, so an animated pal would tear across them.
+    if (!bmp) bmp = pi.idle->steps[0].bmp;
+    drawPalBmp(bmp, pi.dim->w, pi.dim->h, pi.dim->bpr, TOAST_MARGIN,
+               HEIGHT - pi.dim->h * SLEEP_PAL_SCALE + dy * SLEEP_PAL_SCALE, SLEEP_PAL_SCALE, true);
+    drawPalBar(fill);
+}
+
 static int _wakeFilledRows = 0;
 static bool _wakeExitActive = false;
 static int _wakeExitDy = 0;
 
-static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, const char* status,
-                           bool awake) {
+// The sleep face into the framebuffer, sent by the caller. Without `palCorner`
+// the pal's corner and the food are left out, for drawPalFeed() to draw.
+static void renderSleepFrame(uint8_t happiness, bool breathIn, const char* status, bool awake,
+                             bool palCorner) {
     _wakeFilledRows = 0;
     _wakeExitActive = false;
     clearButtonFeedback();
@@ -1814,17 +1945,9 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
         drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);
     }
 
-    if (_palId > 0 && !awake) {
-        PalInfo pi = palLookup(_palId);
-        if (pi.dim && pi.idle) {
-            // Always the first idle frame: a breath re-sends only the face rows,
-            // which overlap the pal, so an animated pal would tear across them.
-            const int ps = 6;
-            int ph = pi.dim->h * ps;
-            int px = TOAST_MARGIN;
-            int py = HEIGHT - ph;
-            drawPalBmp(pi.idle->steps[0].bmp, pi.dim->w, pi.dim->h, pi.dim->bpr, px, py, ps, true);
-        }
+    if (_palId > 0 && !awake && palCorner) {
+        drawSleepPalCorner(nullptr, 0, palBarFill(_palLife));
+        if (!_palDead) drawFoodBadge();
     }
 
     drawSleepBadge(breathIn);
@@ -1837,12 +1960,113 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
         // Keep the completed white fill behind the awake face until the sensor is ready.
         for (uint8_t& byte : _framebuffer) byte = ~byte;
     }
+}
+
+static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, const char* status,
+                           bool awake) {
+    renderSleepFrame(happiness, breathIn, status, awake, true);
+    if (!faceOnly && !awake) {
+        _sentBarFill = palBarFill(_palLife);
+        _sentFood = _palFood;
+        _sentDead = _palDead;
+        _sentPalId = _palId;
+    }
     if (faceOnly) {
         flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
         flushLines(SLEEP_BADGE_Y, SLEEP_BADGE_Y + SLEEP_BADGE_SIZE);
     } else {
         flushFramebuffer();
     }
+}
+
+// Eating: a chomp-chomp from each pal's own frames, a pixel of bob at most so
+// it never reaches the bar above it.
+static const pal_step_t PAL_MOCHI_EAT_STEPS[] = {
+    {PAL_MOCHI_BMP_PERK, 0, -1, 150}, {PAL_MOCHI_BMP_IDLE_A, 0, 0, 150},
+    {PAL_MOCHI_BMP_PERK, 0, -1, 150}, {PAL_MOCHI_BMP_IDLE_A, 0, 0, 350},
+};
+static const pal_step_t PAL_CROAKS_EAT_STEPS[] = {
+    {PAL_CROAKS_BMP_CROUCH, 0, 0, 150}, {PAL_CROAKS_BMP_IDLE_A, 0, 0, 150},
+    {PAL_CROAKS_BMP_CROUCH, 0, 0, 150}, {PAL_CROAKS_BMP_BLINK, 0, 0, 350},
+};
+static const pal_step_t PAL_TWEET_EAT_STEPS[] = {
+    {PAL_TWEET_BMP_CHIRP, 0, 0, 150}, {PAL_TWEET_BMP_IDLE_A, 0, 0, 150},
+    {PAL_TWEET_BMP_CHIRP, 0, 0, 150}, {PAL_TWEET_BMP_IDLE_A, 0, 0, 350},
+};
+static const pal_step_t PAL_PILLOWCASE_EAT_STEPS[] = {
+    {PAL_PILLOWCASE_BMP_IDLE_B, 0, -1, 150}, {PAL_PILLOWCASE_BMP_IDLE_A, 0, 0, 150},
+    {PAL_PILLOWCASE_BMP_IDLE_B, 0, -1, 150}, {PAL_PILLOWCASE_BMP_IDLE_A, 0, 0, 350},
+};
+
+static const pal_step_t* palEatStep(uint8_t id, uint32_t ms) {
+    const pal_step_t* steps;
+    switch (id) {
+        case 1: steps = PAL_MOCHI_EAT_STEPS; break;
+        case 2: steps = PAL_CROAKS_EAT_STEPS; break;
+        case 3: steps = PAL_TWEET_EAT_STEPS; break;
+        case 4: steps = PAL_PILLOWCASE_EAT_STEPS; break;
+        default: return nullptr;
+    }
+    uint32_t acc = 0;
+    for (int i = 0; i < 4; i++) {
+        acc += steps[i].ms;
+        if (ms < acc) return &steps[i];
+    }
+    return &steps[3];
+}
+
+constexpr int PAL_FEED_ARC_PX = 16;  // Low enough to pass under the widest mouth
+constexpr int PAL_HEART_SCALE = 3;
+constexpr int PAL_HEART_RISE_PX = 28;
+
+void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, uint8_t fromLife, bool full) {
+    renderSleepFrame(happiness, breathIn, nullptr, false, false);
+    drawFoodBadge();
+    PalInfo pi = palLookup(_palId);
+    const PalFood f = palFood(_palId);
+    if (!pi.dim || !f.bmp) {
+        flushFramebuffer();
+        return;
+    }
+    const int pw = pi.dim->w * SLEEP_PAL_SCALE, ph = pi.dim->h * SLEEP_PAL_SCALE;
+    const int fromFill = palBarFill(fromLife), toFill = palBarFill(_palLife);
+    if (ms < PAL_FEED_TOSS_MS) {
+        drawSleepPalCorner(nullptr, 0, fromFill);
+        // From the badge to just in front of the pal's face, eased out, in a low hop.
+        // The badge already shows one fewer, so the item reads as taken from it.
+        int x0, y0;
+        const int savedFood = _palFood;
+        _palFood = savedFood + 1;
+        foodBadgeItem(f, &x0, &y0);
+        _palFood = savedFood;
+        const int fh = f.h * SLEEP_FOOD_SCALE;
+        const int x1 = TOAST_MARGIN + pw;
+        const int y1 = HEIGHT - ph / 2 - fh / 2;
+        const float t = (float)ms / PAL_FEED_TOSS_MS;
+        const float e = 1.0f - (1.0f - t) * (1.0f - t);
+        const int x = x0 + (int)((x1 - x0) * e);
+        const int y = y0 + (int)((y1 - y0) * t) - (int)(4.0f * PAL_FEED_ARC_PX * t * (1.0f - t));
+        drawPalBmp(f.bmp, f.w, f.h, f.bpr, x, y, SLEEP_FOOD_SCALE, true);
+    } else {
+        const uint32_t eat = ms - PAL_FEED_TOSS_MS;
+        const uint32_t eatMs = PAL_FEED_MS - PAL_FEED_TOSS_MS;
+        const pal_step_t* step = palEatStep(_palId, eat);
+        float p = (float)eat / eatMs;
+        if (p > 1.0f) p = 1.0f;
+        drawSleepPalCorner(step ? step->bmp : nullptr, step ? step->dy : 0,
+                           fromFill + (int)((toFill - fromFill) * p + 0.5f));
+        const int hw = PAL_HEART_W * PAL_HEART_SCALE, hh = PAL_HEART_H * PAL_HEART_SCALE;
+        const int hy = palBarY() - 4 - hh - (int)(PAL_HEART_RISE_PX * p);
+        drawPalBmp(PAL_HEART_BMP, PAL_HEART_W, PAL_HEART_H, 1, TOAST_MARGIN + (PAL_BAR_W - hw) / 2, hy,
+                   PAL_HEART_SCALE, true);
+    }
+    if (full) {
+        flushFramebuffer();
+        return;
+    }
+    // Everything that moves is below the heart's highest point: send from there down.
+    const int top = palBarY() - 4 - PAL_HEART_H * PAL_HEART_SCALE - PAL_HEART_RISE_PX;
+    flushLines(top < 0 ? 0 : top, HEIGHT);
 }
 
 void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* status) {
