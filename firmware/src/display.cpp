@@ -1825,10 +1825,10 @@ static void drawSleepBadge(bool breathIn) {
 }
 
 // The pal's corner of the sleep face: flush bottom-left, the bar above it.
-constexpr int SLEEP_PAL_SCALE = 6;
-constexpr int PAL_BAR_W = 60;
+constexpr int SLEEP_PAL_SCALE = 4;
+constexpr int PAL_BAR_W = 44;
 constexpr int PAL_BAR_H = 8;
-constexpr int PAL_BAR_GAP = 8;  // Clear of the one-pixel bob the pal makes while eating
+constexpr int PAL_BAR_GAP = 6;  // Clear of the one-pixel (4 px) bob the pal makes while eating or idling
 // The food in hand, bottom-right: the item, then the count.
 constexpr int SLEEP_FOOD_SCALE = 3;
 constexpr int SLEEP_FOOD_GAP = 6;
@@ -2113,7 +2113,7 @@ void drawAwake(uint8_t happiness) {
 
 // Same size and corner as the pal on the sleep face, so the welcome reads as
 // the pal taking the spot it will keep.
-constexpr int PAL_WELCOME_SCALE = 6;
+constexpr int PAL_WELCOME_SCALE = SLEEP_PAL_SCALE;
 
 // The awake face, full screen, as the wake handoff shows it, with the new pal
 // sliding in from the left to the bottom-left corner. Drawn in sleep-face
