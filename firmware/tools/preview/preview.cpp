@@ -173,6 +173,7 @@ static void usage(const char* argv0) {
         "  gallery-slide  one frame of the viewfinder -> gallery slide (see --t)\n"
         "  gallery-empty  the gallery with nothing on the flash\n"
         "  pal-dialog   'you got a little pal' (see --pal/--at/--hold-ms)\n"
+        "  pal-frame    pal-dialog drawn at 0 then animated to --at (should match pal-dialog)\n"
         "  sleep-pal, viewfinder-pal  the equipped pal on the sleep face and in the sidebar\n"
         "\n"
         "options:\n"
@@ -377,6 +378,10 @@ int main(int argc, char** argv) {
             Display::drawHoldProgress(holdMs, holdThreshold);
             Display::drawPalDialog((uint8_t)pal, at + 100);
         }
+    } else if (!strcmp(scene, "pal-frame")) {
+        // Drawn at 0, then animated to --at: must match pal-dialog --at exactly.
+        Display::drawPalDialog((uint8_t)pal, 0);
+        Display::drawPalDialogFrame((uint8_t)pal, at);
     } else if (!strcmp(scene, "sleep-pal")) {
         Display::setPal((uint8_t)pal);
         Display::drawSleep((uint8_t)happiness, breath);

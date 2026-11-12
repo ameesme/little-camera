@@ -683,21 +683,68 @@ constexpr int PAL_BADGE_R = 78;
 constexpr int PAL_BADGE_POINTS = 12;
 constexpr uint32_t PAL_BADGE_TURN_MS = 30000;  // One revolution: a slow turn, not a spin
 
-// atan2f per pixel is ~12k calls a frame at 10 fps; the S3 has an FPU and the
-// dialog has nothing else to do.
+// Pixels [x0, x1) of row y, a byte at a time where it can.
+static void fillSpan(int y, int x0, int x1, bool white) {
+    if (y < 0 || y >= HEIGHT) return;
+    if (x0 < 0) x0 = 0;
+    if (x1 > WIDTH) x1 = WIDTH;
+    if (x0 >= x1) return;
+    uint8_t* row = _framebuffer + y * BYTES_PER_LINE;
+    const int b0 = x0 >> 3, b1 = (x1 - 1) >> 3;
+    uint8_t m0 = 0xFF >> (x0 & 7);
+    const uint8_t m1 = 0xFF << (7 - ((x1 - 1) & 7));
+    if (b0 == b1) m0 &= m1;
+    if (white) row[b0] |= m0; else row[b0] &= ~m0;
+    if (b0 == b1) return;
+    if (b1 - b0 > 1) memset(row + b0 + 1, white ? 0xFF : 0x00, b1 - b0 - 1);
+    if (white) row[b1] |= m1; else row[b1] &= ~m1;
+}
+
+// atan2 to ~0.005 rad (under half a pixel at the badge's tips) for a fraction
+// of atan2f's cost: one divide and a short polynomial.
+static float fastAtan2(float y, float x) {
+    const float ax = fabsf(x), ay = fabsf(y);
+    const float mx = ax > ay ? ax : ay;
+    if (mx == 0.0f) return 0.0f;
+    const float t = (ax < ay ? ax : ay) / mx;
+    const float t2 = t * t;
+    float r = ((-0.0464964749f * t2 + 0.15931422f) * t2 - 0.327622764f) * t2 * t + t;
+    if (ay > ax) r = 1.57079637f - r;
+    if (x < 0) r = 3.14159274f - r;
+    return y < 0 ? -r : r;
+}
+
+// Only the ring the lobes live in needs an angle: everything inside the deepest
+// dip is a solid span. That is ~5k angles a frame instead of ~25k.
 static void drawPalBadge(int cx, int cy, float turn) {
-    const float lobe = 6.2831853f / PAL_BADGE_POINTS;
+    const float lobesPerRad = PAL_BADGE_POINTS / 6.2831853f;
+    const float rOut = PAL_BADGE_R;
+    const float rIn = PAL_BADGE_PROFILE[PAL_BADGE_STEPS] * (PAL_BADGE_R / 255.0f) - 1.0f;
     for (int py = cy - PAL_BADGE_R; py <= cy + PAL_BADGE_R; py++) {
-        for (int px = cx - PAL_BADGE_R; px <= cx + PAL_BADGE_R; px++) {
-            const float dx = px - cx + 0.5f, dy = py - cy + 0.5f;
-            const float d2 = dx * dx + dy * dy;
-            if (d2 > PAL_BADGE_R * PAL_BADGE_R) continue;
-            float a = fmodf(atan2f(dy, dx) + turn, lobe);
-            if (a < 0) a += lobe;
-            float f = 2.0f * a / lobe;  // 0 at a tip, 1 at a dip, back to 0 at the next tip
-            if (f > 1.0f) f = 2.0f - f;
-            const float r = PAL_BADGE_PROFILE[(int)(f * PAL_BADGE_STEPS + 0.5f)] * (PAL_BADGE_R / 255.0f);
-            if (d2 <= r * r) setPixel(px, py, false);
+        const float fy = py - cy + 0.5f;
+        if (fabsf(fy) > rOut) continue;
+        const int wo = (int)sqrtf(rOut * rOut - fy * fy) + 1;
+        int wi = -1;
+        if (fabsf(fy) < rIn) {
+            wi = (int)sqrtf(rIn * rIn - fy * fy);
+            fillSpan(py, cx - wi, cx + wi, false);
+        }
+        uint8_t* row = _framebuffer + py * BYTES_PER_LINE;
+        for (int side = 0; side < 2; side++) {
+            const int from = side ? (wi >= 0 ? cx + wi : cx - wo) : cx - wo;
+            const int to = side ? cx + wo : (wi >= 0 ? cx - wi : cx - wo);
+            for (int px = from; px < to; px++) {
+                if (px < 0 || px >= WIDTH) continue;
+                const float fx = px - cx + 0.5f;
+                const float d2 = fx * fx + fy * fy;
+                if (d2 > rOut * rOut) continue;
+                float t = (fastAtan2(fy, fx) + turn) * lobesPerRad;
+                t -= floorf(t);
+                float f = 2.0f * t;  // 0 at a tip, 1 at a dip, back to 0 at the next tip
+                if (f > 1.0f) f = 2.0f - f;
+                const float r = PAL_BADGE_PROFILE[(int)(f * PAL_BADGE_STEPS + 0.5f)] * (PAL_BADGE_R / 255.0f);
+                if (d2 <= r * r) row[px >> 3] &= ~(0x80 >> (px & 7));
+            }
         }
     }
 }
@@ -705,6 +752,45 @@ static void drawPalBadge(int cx, int cy, float turn) {
 static void flushLines(int fromY, int toY);
 static void flushFramebuffer();
 static void renderToast();
+
+constexpr int PAL_DIALOG_SCALE = 7;
+
+struct PalDialogLayout {
+    int cardX, cardY, cardW, cardH, cx, cy;
+};
+
+static PalDialogLayout palDialogLayout() {
+    PalDialogLayout l;
+    l.cardX = VF_PADDING_LEFT;
+    l.cardY = VF_PADDING_TOP;
+    l.cardW = CARD_WIDTH;
+    l.cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
+    // Badge + pal, centred between the title and the name
+    const int contentTop = l.cardY + 34;
+    const int contentBot = l.cardY + l.cardH - 30;
+    l.cx = l.cardX + l.cardW / 2;
+    l.cy = (contentTop + contentBot) / 2;
+    return l;
+}
+
+// The only part of the screen that moves: the badge's square and what is in it.
+static void drawPalDialogArt(const PalInfo& info, const PalDialogLayout& l, uint32_t ms) {
+    for (int y = l.cy - PAL_BADGE_R; y <= l.cy + PAL_BADGE_R; y++)
+        fillSpan(y, l.cx - PAL_BADGE_R, l.cx + PAL_BADGE_R + 1, true);
+    drawPalBadge(l.cx, l.cy, (ms % PAL_BADGE_TURN_MS) * (6.2831853f / PAL_BADGE_TURN_MS));
+
+    int8_t dx = 0, dy = 0;
+    const uint8_t* bmp = palIdleFrame(info.idle, ms, &dx, &dy);
+    const int s = PAL_DIALOG_SCALE;
+    const int x0 = l.cx - info.dim->w * s / 2 + dx * s;
+    const int y0 = l.cy - info.dim->h * s / 2 + dy * s;
+    for (int row = 0; row < info.dim->h; row++) {
+        for (int col = 0; col < info.dim->w; col++) {
+            if (!(bmp[row * info.dim->bpr + col / 8] & (0x80 >> (col & 7)))) continue;
+            for (int sy = 0; sy < s; sy++) fillSpan(y0 + row * s + sy, x0 + col * s, x0 + (col + 1) * s, true);
+        }
+    }
+}
 
 void drawPalDialog(uint8_t palId, uint32_t ms) {
     _holdButton = {};
@@ -714,32 +800,13 @@ void drawPalDialog(uint8_t palId, uint32_t ms) {
 
     PalInfo info = palLookup(palId);
     if (!info.dim) { flushFramebuffer(); return; }
+    const PalDialogLayout l = palDialogLayout();
 
-    // Card: rounded border in the left column, same geometry as the save card.
-    const int cardX = VF_PADDING_LEFT;
-    const int cardY = VF_PADDING_TOP;
-    const int cardW = CARD_WIDTH;
-    const int cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
-    drawRoundedRectBorder(cardX, cardY, cardW, cardH, VF_CORNER_RADIUS, false);
-
+    drawRoundedRectBorder(l.cardX, l.cardY, l.cardW, l.cardH, VF_CORNER_RADIUS, false);
     // One line, so the badge gets the height a second line would take.
-    drawTextCenteredAt("you got a little pal!", cardX, cardW, cardY + 14, SIDEBAR_FONT, false);
-
-    // Badge + pal, centred between title and name
-    const int contentTop = cardY + 34;
-    const int contentBot = cardY + cardH - 30;
-    const int cx = cardX + cardW / 2;
-    const int cy = (contentTop + contentBot) / 2;
-    drawPalBadge(cx, cy, (ms % PAL_BADGE_TURN_MS) * (6.2831853f / PAL_BADGE_TURN_MS));
-
-    int8_t dx = 0, dy = 0;
-    const uint8_t* bmp = palIdleFrame(info.idle, ms, &dx, &dy);
-    const int palScale = 7;
-    const int pw = info.dim->w * palScale, ph = info.dim->h * palScale;
-    drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr,
-               cx - pw / 2 + dx * palScale, cy - ph / 2 + dy * palScale, palScale, true);
-
-    drawTextCenteredAt(info.name, cardX, cardW, cardY + cardH - 24, SIDEBAR_FONT, false);
+    drawTextCenteredAt("you got a little pal!", l.cardX, l.cardW, l.cardY + 14, SIDEBAR_FONT, false);
+    drawPalDialogArt(info, l, ms);
+    drawTextCenteredAt(info.name, l.cardX, l.cardW, l.cardY + l.cardH - 24, SIDEBAR_FONT, false);
 
     // Right-side buttons (same column as save screen's action bar)
     const int barX = WIDTH - SIDEBAR_PADDING - BOX_WIDTH;
@@ -750,13 +817,20 @@ void drawPalDialog(uint8_t palId, uint32_t ms) {
     if (!_completedHoldVisible) _completedHoldIcon = nullptr;
 
     renderToast();
-    // The badge turns under a running hold: keep its fill, as renderSaveLayout() does.
     if (_pendingHoldPixels > 0 && _holdButton.w > 0) {
         int px = _pendingHoldPixels < _holdButton.w ? _pendingHoldPixels : _holdButton.w;
         invertButtonColumns(_holdButton.x, _holdButton.y, _holdButton.w, _holdButton.h, 0, px);
         _holdButton.filledPixels = px;
     }
     flushFramebuffer();
+}
+
+void drawPalDialogFrame(uint8_t palId, uint32_t ms) {
+    PalInfo info = palLookup(palId);
+    if (!info.dim) return;
+    const PalDialogLayout l = palDialogLayout();
+    drawPalDialogArt(info, l, ms);
+    flushLines(l.cy - PAL_BADGE_R, l.cy + PAL_BADGE_R + 1);
 }
 
 static void drawFaceBlock(int x, int faceDy = 0) {

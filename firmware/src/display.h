@@ -142,8 +142,11 @@ void setSignalLevel(UI::SignalLevel level);
 void setPal(uint8_t palId);
 // The "you got a little pal" screen at animation time `ms`: the pal on a
 // turning scalloped badge, equip (press) and skip (hold). Mode::PalFound in
-// main.cpp redraws it on a timer; a running hold fill survives the redraw.
+// main.cpp draws it once, then animates it with drawPalDialogFrame().
 void drawPalDialog(uint8_t palId, uint32_t ms);
+// The next animation frame of that screen: redraws and sends only the badge's
+// rows, leaving the title, name, buttons and any hold fill as they are.
+void drawPalDialogFrame(uint8_t palId, uint32_t ms);
 
 // What the phone asked this camera to photograph (docs/protocol.md §3.3
 // PROMPT). The viewfinder says so rather than leaving the holder to guess why

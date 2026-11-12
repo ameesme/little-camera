@@ -177,12 +177,17 @@ static int menuSelected = 0;
 
 // Companion pal — persisted in NVS("pal")
 constexpr uint8_t PAL_COUNT = 4;
-// The badge turns and the pal idles at 10 fps: a full frame is ~17 ms of SPI.
-constexpr uint32_t PAL_FRAME_MS = 100;
+// 30 fps. A frame redraws and sends only the badge's rows (~2/3 of the panel),
+// so the loop keeps time for the melody and the hold fill between frames.
+constexpr uint32_t PAL_FRAME_MS = 33;
 static uint8_t equippedPal = 0;
 static uint8_t offeredPal = 0;
 static uint32_t palShownAt = 0;
 static uint32_t palDrawnAt = 0;
+static bool palToastWasVisible = false;
+// Frames drawn since palFpsSince, logged so the rate can be checked on a board.
+static uint32_t palFrames = 0;
+static uint32_t palFpsSince = 0;
 // Opened from the menu to test the screen: it goes back to the menu afterwards
 // instead of sliding out a save layout that has no photo behind it.
 static bool palFromMenu = false;
@@ -1328,8 +1333,10 @@ static void enterPalFound() {
     gestureActive = false;
     holdFired = false;
     lastActivityTime = millis();
-    palShownAt = palDrawnAt = millis();
+    palShownAt = palDrawnAt = palFpsSince = millis();
+    palFrames = 0;
     Display::drawPalDialog(offeredPal, 0);
+    palToastWasVisible = Display::toastVisible();
     mode = Mode::PalFound;
 }
 
@@ -1841,9 +1848,23 @@ void loop() {
             if (mode == Mode::PalFound) {
                 Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
                                           GALLERY_HOLD_MS);
-                if (millis() - palDrawnAt >= PAL_FRAME_MS) {
+                const bool toastNow = Display::toastVisible();
+                if (toastNow != palToastWasVisible) {
+                    // A toast lives outside the badge's rows: only a full frame adds or removes it.
+                    palToastWasVisible = toastNow;
                     palDrawnAt = millis();
                     Display::drawPalDialog(offeredPal, palDrawnAt - palShownAt);
+                } else if (millis() - palDrawnAt >= PAL_FRAME_MS) {
+                    // Stepped from the last due time rather than now, so a slow frame doesn't drift the rate.
+                    palDrawnAt += PAL_FRAME_MS;
+                    if (millis() - palDrawnAt >= PAL_FRAME_MS) palDrawnAt = millis();
+                    Display::drawPalDialogFrame(offeredPal, millis() - palShownAt);
+                    palFrames++;
+                }
+                if (millis() - palFpsSince >= 5000) {
+                    Serial.printf("Pal: %lu fps\n", (unsigned long)(palFrames * 1000 / (millis() - palFpsSince)));
+                    palFrames = 0;
+                    palFpsSince = millis();
                 }
             }
             break;

@@ -15,7 +15,7 @@
 
 #define LC_VERSION_MAJOR 0
 #define LC_VERSION_MINOR 9
-#define LC_VERSION_PATCH 4
+#define LC_VERSION_PATCH 5
 
 // Built from the numbers rather than typed out again, so the two can't drift.
 #define LC_STRINGIFY_(x) #x
