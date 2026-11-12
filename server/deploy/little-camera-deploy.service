@@ -1,0 +1,16 @@
+[Unit]
+Description=Little Camera pull-based deploy
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+# Oneshot, so a tick that lands mid-build is a no-op rather than a second deploy.
+Type=oneshot
+# The account that already runs `git pull` in the checkout: its credentials fetch, and it needs the docker group.
+User=root
+Environment=REPO=/opt/little-camera
+Environment=DEPLOY_BRANCH=main
+StateDirectory=little-camera-deploy
+StateDirectoryMode=0755
+ExecStart=/opt/little-camera/server/deploy/autodeploy.sh
+TimeoutStartSec=15min

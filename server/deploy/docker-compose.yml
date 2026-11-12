@@ -45,6 +45,8 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ${LANDING_DIR:-../../site}:/srv/landing:ro
+      # A directory, not the file: autodeploy.sh swaps status.txt by rename, which a single-file mount would not see.
+      - ${DEPLOY_STATUS_DIR:-/var/lib/little-camera-deploy/public}:/srv/deploy:ro
       - caddy_data:/data
       - caddy_config:/config
 

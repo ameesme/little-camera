@@ -9,6 +9,14 @@
 {$DOMAIN} {
 	encode gzip
 
+	# Written by autodeploy.sh outside the checkout; `handle` runs before reverse_proxy, so it never reaches the server.
+	handle /api/deploy-status {
+		header Cache-Control no-store
+		root * /srv/deploy
+		rewrite * /status.txt
+		file_server
+	}
+
 	@app path /api/* /app/*
 	reverse_proxy @app server:3000
 

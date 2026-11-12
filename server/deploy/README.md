@@ -15,16 +15,34 @@ https://mees.lttl.cam/       a blog
 
 ## Updating production
 
-Commit and push locally, then pull on the VPS. Do not copy edited files directly into the production checkout.
+**Pushing to `main` deploys.** A systemd timer on the VPS runs `autodeploy.sh` every minute: it fetches `main`, fast-forwards the checkout and rebuilds only what the new commits touch — the server for `server/`, `packages/` or the lockfiles, Caddy for its Caddyfile, both for `docker-compose.yml`, nothing for `site/` (a live mount). It pulls rather than being pushed to, so the box needs no inbound SSH and GitHub holds no key to it. The cost is up to a minute of lag and no build log on GitHub; the log is here instead:
 
 ```bash
-git add <changed-files>
-git commit -m 'fix: describing the change'
-git push origin main
+curl -fsS https://lttl.cam/api/deploy-status      # result, commit, time, last 40 lines of output
+ssh lttl-cam 'journalctl -u little-camera-deploy -n 50'
+```
+
+The status is public, so the script puts only its own and the build's output in it. A commit that fails is tried once, not every minute; push a fix, or rerun by hand with `ssh lttl-cam 'sudo FORCE=1 /opt/little-camera/server/deploy/autodeploy.sh'`. The next good deploy rebuilds from the last *good* one, so a site-only fix after a broken server commit still rebuilds the server. It refuses a checkout with local edits and a `main` that is not a fast-forward of it, rather than resolving either.
+
+Installing it, once, after pulling a `main` that contains it:
+
+```bash
+ssh lttl-cam
+sudo cp /opt/little-camera/server/deploy/little-camera-deploy.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo FORCE=1 /opt/little-camera/server/deploy/autodeploy.sh
+sudo systemctl enable --now little-camera-deploy.timer
+```
+
+`FORCE=1` the first time because that pull already brought in the Caddy route and mount for the status page, so the script would otherwise see nothing new. The unit runs as root; if the checkout belongs to another account (git refuses a repository owned by someone else) or fetches with that account's key, `sudo systemctl edit little-camera-deploy` and set `User=` to it, in the `docker` group. `DEPLOY_BRANCH` in the unit picks a branch other than `main`.
+
+By hand, as before, if the timer is off:
+
+```bash
 ssh lttl-cam 'cd /opt/little-camera && git pull --ff-only origin main && cd server/deploy && docker compose up -d --build server'
 ```
 
-The server runs from its Docker image, so pulling alone does not update it. Rebuilding recreates the server container and briefly interrupts requests; Caddy stays running and the data volume is retained. A pull also brings in any other commits on `main`, so check the production revision and working tree before deploying.
+Do not copy edited files directly into the production checkout. The server runs from its Docker image, so pulling alone does not update it. Rebuilding recreates the server container and briefly interrupts requests; Caddy stays running and the data volume is retained. A pull also brings in any other commits on `main`, so check the production revision and working tree before deploying.
 
 ```bash
 ssh lttl-cam 'cd /opt/little-camera && git status --short && git rev-parse --short HEAD && cd server/deploy && docker compose ps && docker compose logs --tail=30 server'
@@ -32,7 +50,7 @@ curl -fsS https://mees.lttl.cam/
 curl -I https://lttl.cam/
 ```
 
-Check the public response for the changed markup or CSS as well as a successful status. For landing-page-only updates, pulling updates the mounted files immediately without a server rebuild. For Caddy or Compose changes, apply the affected service configuration separately.
+Check the public response for the changed markup or CSS as well as a successful status. For landing-page-only updates, pulling updates the mounted files immediately without a server rebuild. When deploying by hand, a Caddyfile change needs `docker compose up -d --no-deps --force-recreate caddy`, not a reload: git replaces the file, and Caddy's single-file mount keeps seeing the old one.
 
 ## Setting up a new host
 
