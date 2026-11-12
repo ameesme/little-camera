@@ -8,7 +8,7 @@ static uint8_t _buzzerPin = 0;
 static int64_t _mutedUntilUs = 0;
 
 void muteUntil(int64_t uptimeUs) { _mutedUntilUs = uptimeUs; }
-static bool muted() { return esp_timer_get_time() < _mutedUntilUs; }
+bool muted() { return esp_timer_get_time() < _mutedUntilUs; }
 
 struct MelodyData {
     const uint16_t* freqs;

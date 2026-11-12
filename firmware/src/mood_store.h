@@ -16,5 +16,6 @@ bool loadTz(int16_t* tzMin);                // false if the phone never sent one
 void saveTz(int16_t tzMin);
 bool loadMuteDay(uint32_t* day);           // false if never muted
 void saveMuteDay(uint32_t day);
+void clearMuteDay();
 
 }

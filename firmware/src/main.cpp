@@ -170,6 +170,8 @@ static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
 // System menu
 static const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "exit"};
 constexpr int MENU_COUNT = 8;
+// One slot that reads "unmute" while muted, so the list and its indices never shift.
+constexpr int MENU_MUTE = 6;
 static int menuSelected = 0;
 
 // When the sleep face went up (the radio window counts from here).
@@ -663,6 +665,7 @@ static uint32_t heldToWake() {
 // ---- System menu -----------------------------------------------------------
 
 static void showMenu() {
+    MENU_ITEMS[MENU_MUTE] = Audio::muted() ? "unmute" : "mute";
     Display::drawMenu(MENU_ITEMS, MENU_COUNT, menuSelected);
 }
 
@@ -792,6 +795,15 @@ static void menuMute() {
     Display::showToast("muted till midnight", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
 }
 
+static void menuUnmute() {
+    MoodStore::clearMuteDay();
+    Audio::muteUntil(0);
+    Serial.println("Audio: unmuted");
+    // After the unmute, so leaving the menu clicks and confirms sound is back.
+    leaveMenu();
+    Display::showToast("sound on", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
+}
+
 static void menuSelect() {
     switch (menuSelected) {
         case 0: menuRunDiagnostics(); break;
@@ -800,7 +812,7 @@ static void menuSelect() {
         case 3: menuContrastTest(); break;
         case 4: menuReboot(); break;
         case 5: menuFactoryReset(); break;
-        case 6: menuMute(); break;
+        case MENU_MUTE: Audio::muted() ? menuUnmute() : menuMute(); break;
         case 7: leaveMenu(); break;
     }
 }

@@ -57,6 +57,13 @@ void saveMuteDay(uint32_t day) {
     prefs.end();
 }
 
+void clearMuteDay() {
+    Preferences prefs;
+    if (!prefs.begin(NS, false)) return;
+    prefs.remove("mute");
+    prefs.end();
+}
+
 void saveTz(int16_t tzMin) {
     Preferences prefs;
     if (!prefs.begin(NS, false)) return;
