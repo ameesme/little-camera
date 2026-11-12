@@ -174,6 +174,8 @@ static void usage(const char* argv0) {
         "  gallery-empty  the gallery with nothing on the flash\n"
         "  pal-dialog   'you got a little pal' (see --pal/--at/--hold-ms)\n"
         "  pal-frame    pal-dialog drawn at 0 then animated to --at (should match pal-dialog)\n"
+        "  pal-welcome  the equip confirmation, pal sliding in (see --t/--at/--happiness)\n"
+        "  viewfinder-swap  the face block mid face->pal slide (see --at, 0-450)\n"
         "  sleep-pal, viewfinder-pal  the equipped pal on the sleep face and in the sidebar\n"
         "\n"
         "options:\n"
@@ -382,6 +384,14 @@ int main(int argc, char** argv) {
         // Drawn at 0, then animated to --at: must match pal-dialog --at exactly.
         Display::drawPalDialog((uint8_t)pal, 0);
         Display::drawPalDialogFrame((uint8_t)pal, at);
+    } else if (!strcmp(scene, "pal-welcome")) {
+        // --t is the slide position (0-1), --at the pal's animation clock.
+        Display::drawPalWelcome((uint8_t)happiness, (uint8_t)pal, slideT, at, true);
+    } else if (!strcmp(scene, "viewfinder-swap")) {
+        // --at: ms into the face/pal swap slide, which starts at 5000.
+        Display::setPal((uint8_t)pal);
+        Sim::setMillis(5000 + at);
+        Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "sleep-pal")) {
         Display::setPal((uint8_t)pal);
         Display::drawSleep((uint8_t)happiness, breath);

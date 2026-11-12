@@ -130,6 +130,7 @@ enum class Mode {
     Pairing,     // The phone is asking for the passkey; the code owns the screen
     Updating,    // New firmware coming in over BLE; progress owns the screen
     PalFound,    // "you got a little pal" after a save; press equips, hold skips
+    PalWelcome,  // The awake face and the new pal sliding in; press or wait to go on
 };
 
 // State variables
@@ -191,6 +192,12 @@ static uint32_t palFpsSince = 0;
 // Opened from the menu to test the screen: it goes back to the menu afterwards
 // instead of sliding out a save layout that has no photo behind it.
 static bool palFromMenu = false;
+// The welcome after equipping: the pal slides in, then it waits a beat.
+constexpr uint32_t PAL_WELCOME_SLIDE_MS = 500;
+constexpr uint32_t PAL_WELCOME_MS = 2200;
+static uint32_t palWelcomeAt = 0;
+// Read once on entry: the face should not change expression mid-welcome.
+static uint8_t palWelcomeHappiness = 255;
 
 static uint8_t palLoad() {
     Preferences prefs;
@@ -1353,6 +1360,33 @@ static void leavePalFound(const char* toast) {
     showMenu();
 }
 
+static void returnToViewfinder();
+
+static void enterPalWelcome() {
+    Audio::playMelody(Audio::Melody::Saved);
+    Display::clearToast();
+    gestureActive = false;
+    holdFired = false;
+    lastActivityTime = millis();
+    palWelcomeAt = palDrawnAt = millis();
+    palWelcomeHappiness = moodHappiness();
+    Display::drawPalWelcome(palWelcomeHappiness, equippedPal, 0.0f, 0, true);
+    mode = Mode::PalWelcome;
+}
+
+// From a save, the welcome face is the awake face, so it hands over to the
+// viewfinder exactly as a wake does: the face slides up and its miniature
+// settles into the sidebar. From the menu test it just goes back to the menu.
+static void leavePalWelcome() {
+    if (palFromMenu) {
+        leavePalFound(nullptr);
+        return;
+    }
+    cameraOn();
+    enterWakeViewfinder();
+    returnToViewfinder();
+}
+
 // Draw the current gallery photo. Files that fail to decode are skipped — a
 // partial write can't leave one behind (savePhoto removes them), but a file
 // copied onto the flash by some future tool might be the wrong size.
@@ -1841,7 +1875,7 @@ void loop() {
                 palSave(equippedPal);
                 Display::setPal(equippedPal);
                 Serial.printf("Pal: equipped %u\n", equippedPal);
-                leavePalFound("new pal!");
+                enterPalWelcome();
             }
             if (!pressed) gestureActive = false;
 
@@ -1866,6 +1900,21 @@ void loop() {
                     palFrames = 0;
                     palFpsSince = millis();
                 }
+            }
+            break;
+        }
+
+        case Mode::PalWelcome: {
+            const uint32_t shown = millis() - palWelcomeAt;
+            if ((pressed && !lastPressed && confirmPressed()) || shown >= PAL_WELCOME_MS) {
+                if (shown < PAL_WELCOME_MS) Audio::playClick();
+                leavePalWelcome();
+                break;
+            }
+            if (millis() - palDrawnAt >= PAL_FRAME_MS) {
+                palDrawnAt = millis();
+                const float p = shown >= PAL_WELCOME_SLIDE_MS ? 1.0f : (float)shown / PAL_WELCOME_SLIDE_MS;
+                Display::drawPalWelcome(palWelcomeHappiness, equippedPal, easeOutCubic(p), shown, false);
             }
             break;
         }

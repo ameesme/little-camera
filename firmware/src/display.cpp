@@ -256,8 +256,12 @@ constexpr int TOAST_MIN_X = 80;       // Don't overlap sidebar
 constexpr UI::Font TOAST_FONT = UI::Font::Large;
 
 // Set pixel in framebuffer (0=black, 1=white)
+// Columns setPixel may touch. The panel by default; the face block narrows it
+// so a character sliding out of the box cannot paint over the photo.
+static int _clipX0 = 0, _clipX1 = WIDTH;
+
 static void setPixel(int x, int y, bool white) {
-    if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return;
+    if (x < _clipX0 || x >= _clipX1 || y < 0 || y >= HEIGHT) return;
     int byteIdx = y * BYTES_PER_LINE + x / 8;
     int bitIdx = 7 - (x % 8);
     if (white) {
@@ -617,10 +621,23 @@ struct PalInfo {
     const char* name;
 };
 
+// Sir Croaks' generated idle is one still frame, so it looked switched off next
+// to the others. This one sits, blinks, sits, and hops, from his own frames.
+static const pal_step_t PAL_CROAKS_LIVELY_STEPS[] = {
+    {PAL_CROAKS_BMP_IDLE_A, 0, 0, 1600},
+    {PAL_CROAKS_BMP_BLINK, 0, 0, 150},
+    {PAL_CROAKS_BMP_IDLE_A, 0, 0, 1300},
+    {PAL_CROAKS_BMP_CROUCH, 0, 0, 150},
+    {PAL_CROAKS_BMP_JUMP, 0, -3, 200},
+    {PAL_CROAKS_BMP_JUMP, 0, -1, 100},
+    {PAL_CROAKS_BMP_CROUCH, 0, 0, 120},
+};
+static const pal_anim_t PAL_CROAKS_ANIM_LIVELY = {PAL_CROAKS_LIVELY_STEPS, 7, 1};
+
 static PalInfo palLookup(uint8_t id) {
     switch (id) {
         case 1: return {&PAL_MOCHI_DIM, &PAL_MOCHI_ANIM_IDLE, "mochi"};
-        case 2: return {&PAL_CROAKS_DIM, &PAL_CROAKS_ANIM_IDLE, "sir croaks"};
+        case 2: return {&PAL_CROAKS_DIM, &PAL_CROAKS_ANIM_LIVELY, "sir croaks"};
         case 3: return {&PAL_TWEET_DIM, &PAL_TWEET_ANIM_IDLE, "tweet seat"};
         case 4: return {&PAL_PILLOWCASE_DIM, &PAL_PILLOWCASE_ANIM_IDLE, "pillowcase"};
         default: return {nullptr, nullptr, ""};
@@ -833,15 +850,40 @@ void drawPalDialogFrame(uint8_t palId, uint32_t ms) {
     flushLines(l.cy - PAL_BADGE_R, l.cy + PAL_BADGE_R + 1);
 }
 
+// How long the face and the pal take to trade places in the face block.
+constexpr uint32_t FACE_SWAP_SLIDE_MS = 450;
+
+static void drawFaceOrPal(int x, int y, bool pal) {
+    if (pal) drawPalInBox(x, y, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 2, true);
+    else Face::mini(x, y, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
+                    (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
+}
+
+// The face and the pal take turns every PAL_SWAP_MS. At the turn the one
+// leaving slides out to the left as the other slides in from the right,
+// clipped to the box.
+static void drawFaceBlockContent(int x, int y) {
+    const uint32_t ms = millis();
+    const bool palNow = _palId > 0 && ((ms / PAL_SWAP_MS) & 1);
+    const uint32_t into = ms % PAL_SWAP_MS;
+    if (_palId == 0 || ms < PAL_SWAP_MS || into >= FACE_SWAP_SLIDE_MS) {
+        drawFaceOrPal(x, y, palNow);
+        return;
+    }
+    const float p = 1.0f - (float)into / FACE_SWAP_SLIDE_MS;
+    const int shift = (int)(BOX_WIDTH * (1.0f - p * p * p) + 0.5f);  // Ease-out cubic
+    _clipX0 = x < 0 ? 0 : x;
+    _clipX1 = x + BOX_WIDTH > WIDTH ? WIDTH : x + BOX_WIDTH;
+    drawFaceOrPal(x - shift, y, !palNow);
+    drawFaceOrPal(x + BOX_WIDTH - shift, y, palNow);
+    _clipX0 = 0;
+    _clipX1 = WIDTH;
+}
+
 static void drawFaceBlock(int x, int faceDy = 0) {
     if (x + BOX_WIDTH <= 0 || x >= WIDTH) return;
     fillRoundedRect(x, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, BOX_RADIUS, false);
-    if (_palId > 0 && (millis() / PAL_SWAP_MS) & 1) {
-        drawPalInBox(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 2, true);
-    } else {
-        Face::mini(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
-                   (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
-    }
+    drawFaceBlockContent(x, SIDEBAR_PADDING + faceDy);
 }
 
 // Viewfinder sidebar: the face block, then a box that names the one gesture the
@@ -891,12 +933,7 @@ static void drawCachedSidebar() {
     for (int y = 0; y < HEIGHT; y++) memcpy(_framebuffer + y * BYTES_PER_LINE, cache + y * bytes, bytes);
     _holdButton = hold;
     _pressButton = press;
-    if (_palId > 0 && (millis() / PAL_SWAP_MS) & 1) {
-        drawPalInBox(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 2, true);
-    } else {
-        Face::mini(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
-                   (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
-    }
+    drawFaceBlockContent(SIDEBAR_PADDING, SIDEBAR_PADDING);
     if (_holdButton.icon && _holdButton.icon == _completedHoldIcon) {
         invertButtonColumns(hold.x, hold.y, hold.w, hold.h, 0, hold.w);
         _holdButton.filledPixels = hold.w;
@@ -1814,6 +1851,52 @@ void drawSleep(uint8_t happiness, bool breathIn, bool faceOnly, const char* stat
 
 void drawAwake(uint8_t happiness) {
     drawSleepFrame(happiness, false, false, nullptr, true);
+}
+
+// Same size and corner as the pal on the sleep face, so the welcome reads as
+// the pal taking the spot it will keep.
+constexpr int PAL_WELCOME_SCALE = 6;
+
+// The awake face, full screen, as the wake handoff shows it, with the new pal
+// sliding in from the left to the bottom-left corner. Drawn in sleep-face
+// colours and inverted at the end, like drawSleepFrame()'s awake branch.
+void drawPalWelcome(uint8_t happiness, uint8_t palId, float slideT, uint32_t ms, bool full) {
+    clearButtonFeedback();
+    memset(_framebuffer, 0, sizeof(_framebuffer));
+    const uint8_t band = Chirp::band(happiness);
+    const int centers[] = {Face::EYE_L_X + 2 * Face::B, Face::EYE_R_X + 2 * Face::B};
+    for (int center : centers) Face::awakeEye(center, Face::EYE_Y, band, center < WIDTH / 2);
+    Face::mouth(Face::MOUTH_X, Face::MOUTH_Y, band);
+
+    PalInfo info = palLookup(palId);
+    int palTop = HEIGHT;
+    if (info.dim) {
+        char text[32];
+        snprintf(text, sizeof(text), "say hi to %s", info.name);
+        const int boxW = UI::textWidth(text, TOAST_FONT) + TOAST_PADDING_H * 2;
+        const int boxH = UI::fontHeight(TOAST_FONT) + TOAST_PADDING_V * 2;
+        const int boxX = WIDTH - boxW - TOAST_MARGIN;
+        fillRoundedRect(boxX, TOAST_MARGIN, boxW, boxH, TOAST_RADIUS, false);
+        drawRoundedRectBorder(boxX, TOAST_MARGIN, boxW, boxH, TOAST_RADIUS, true);
+        drawText(text, boxX + TOAST_PADDING_H, TOAST_MARGIN + TOAST_PADDING_V, TOAST_FONT, true);
+
+        const int ps = PAL_WELCOME_SCALE;
+        const int pw = info.dim->w * ps, ph = info.dim->h * ps;
+        if (slideT < 0.0f) slideT = 0.0f;
+        if (slideT > 1.0f) slideT = 1.0f;
+        int8_t dx = 0, dy = 0;
+        const uint8_t* bmp = palIdleFrame(info.idle, ms, &dx, &dy);
+        const int restX = TOAST_MARGIN;
+        const int x = -pw + (int)((restX + pw) * slideT + 0.5f) + dx * ps;
+        drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr, x, HEIGHT - ph + dy * ps, ps, true);
+        // Room for the highest hop any pal makes (three of its own pixels).
+        palTop = HEIGHT - ph - 3 * ps;
+    }
+
+    for (uint8_t& byte : _framebuffer) byte = ~byte;
+    // Only the pal moves once the screen is up: send its rows and nothing else.
+    if (full) flushFramebuffer();
+    else flushLines(palTop < 0 ? 0 : palTop, HEIGHT);
 }
 
 void drawWakeExit(uint8_t happiness, float t) {

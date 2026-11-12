@@ -147,6 +147,11 @@ void drawPalDialog(uint8_t palId, uint32_t ms);
 // The next animation frame of that screen: redraws and sends only the badge's
 // rows, leaving the title, name, buttons and any hold fill as they are.
 void drawPalDialogFrame(uint8_t palId, uint32_t ms);
+// After equipping: the awake face full screen, the pal sliding in from the left
+// (slideT 0-1, already eased) to the bottom-left corner it keeps on the sleep
+// face, and "say hi to <name>". `full` sends the whole panel; otherwise only
+// the pal's rows, which is all that moves.
+void drawPalWelcome(uint8_t happiness, uint8_t palId, float slideT, uint32_t ms, bool full);
 
 // What the phone asked this camera to photograph (docs/protocol.md §3.3
 // PROMPT). The viewfinder says so rather than leaving the holder to guess why
