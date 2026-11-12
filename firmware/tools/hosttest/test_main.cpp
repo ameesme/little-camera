@@ -731,6 +731,38 @@ static void testPal() {
     CHECK(Pal::feed(s, cs));
     CHECK(s.dueEpoch == 1700000000 + Pal::LIFE_S);
     CHECK(Pal::left(s, cs) == Pal::LIFE_S);
+
+    // Deep sleep at a flat battery hands its time back to both clocks.
+    {
+        Mood::Clock a = {100, 1700000000, 0, true};
+        Pal::State ps;
+        Pal::equip(ps, a, 2);
+        Mood::State ms = Mood::State();
+        Chirp::Rng mr(3);
+        Mood::boot(ms, a, nullptr, 0, mr);
+        Mood::onPhoto(ms, a, mr);
+        a.uptimeS += DAY;
+        a.epoch += DAY;
+        const Pal::Persisted pp = Pal::snapshot(ps, a);
+        Mood::Persisted mp = Mood::snapshot(ms, a);
+        // Four days asleep: a reset, uptime from zero, the wall clock four days on.
+        Mood::Clock b = {5, a.epoch + 4 * DAY, 0, true};
+        Pal::State pr;
+        Pal::boot(pr, b, &pp, 0);
+        Mood::State mr2 = Mood::State();
+        Mood::boot(mr2, b, &mp, 0, mr);
+        CHECK(Pal::left(pr, b) == Pal::LIFE_S - 5 * DAY);
+        CHECK(Mood::elapsed(mr2, b) == 5 * DAY);
+        Pal::pause(pr, 4 * DAY);
+        Mood::pause(mr2, 4 * DAY);
+        CHECK(Pal::left(pr, b) == Pal::LIFE_S - DAY);
+        CHECK(Mood::elapsed(mr2, b) == DAY);
+        // Nothing to give back to a pal with no wall-clock end, or a dead one.
+        Pal::State none;
+        Pal::boot(none, b, nullptr, 0);
+        Pal::pause(none, DAY);
+        CHECK(none.dueEpoch == 0);
+    }
 }
 
 int main() {

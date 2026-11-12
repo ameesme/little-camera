@@ -190,6 +190,13 @@ inline void onClockSet(State& s, const Clock& c) {
     s.lastPhotoEpoch = c.epoch > e ? c.epoch - e : EPOCH_VALID_FROM;
 }
 
+// The camera spent `seconds` in deep sleep waiting for a charger, with the
+// wall clock running. A flat battery is not the owner ignoring it, so that
+// time is handed back. Uptime already skipped it: a deep-sleep wake is a reset.
+inline void pause(State& s, uint32_t seconds) {
+    if (s.lastPhotoEpoch) s.lastPhotoEpoch += seconds;
+}
+
 // The caller plays a due chirp on a quiet screen, then acknowledges it below.
 inline Due poll(State& s, const Clock& c, Chirp::Rng& rng) {
     detail::scheduleDay(s, c, rng);

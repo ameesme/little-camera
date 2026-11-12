@@ -114,6 +114,12 @@ inline void onClockSet(State& s, const Mood::Clock& c) {
     detail::setLeft(s, c, left(s, c));
 }
 
+// Deep sleep at a flat battery, as Mood::pause(): the wall-clock end moves
+// out by the time slept, so the pal does not starve waiting for a charger.
+inline void pause(State& s, uint32_t seconds) {
+    if (alive(s) && s.dueEpoch) s.dueEpoch += seconds;
+}
+
 inline Persisted snapshot(const State& s, const Mood::Clock& c) {
     Persisted p = {};
     p.version = PERSISTED_VERSION;

@@ -233,9 +233,9 @@ static void palPersist(const char* why) {
                   p.dead ? " dead" : "");
 }
 
-// Hand the sleep face the pal's bar, food and fate. True while the panel shows them out of date.
+// Hand the sleep face the pal's food and fate. True while the panel shows them out of date.
 static bool palShowCare() {
-    return Display::setPalCare(Pal::life(palState, moodClock()), palState.food, palState.dead);
+    return Display::setPalCare(palState.food, palState.dead);
 }
 
 // When the sleep face went up (the radio window counts from here).
@@ -532,7 +532,7 @@ static void showSleepFace(bool full) {
 }
 
 // A tap on the sleep face with food in hand feeds the pal: the item hops over,
-// the pal eats with a sound, a heart rises and the bar fills. Blocking for
+// the pal eats with a sound and a heart rises. Blocking for
 // ~1.5 s, like the chirp it replaces, because it also runs straight out of
 // light sleep where there is no loop to animate from.
 static void feedPal(const char* why) {
@@ -545,7 +545,7 @@ static void feedPal(const char* why) {
     palShowCare();
     Audio::init(PIN_BUZZ);
     const uint8_t h = moodHappiness();
-    Display::drawPalFeed(h, sleepBreathIn, 0, from, true);
+    Display::drawPalFeed(h, sleepBreathIn, 0, true);
     uint32_t start = millis();
     bool chomped = false;
     for (;;) {
@@ -553,14 +553,14 @@ static void feedPal(const char* why) {
         if (t >= Display::PAL_FEED_MS) break;
         if (!chomped && t >= Display::PAL_FEED_TOSS_MS) {
             chomped = true;
-            Display::drawPalFeed(h, sleepBreathIn, Display::PAL_FEED_TOSS_MS, from, false);
+            Display::drawPalFeed(h, sleepBreathIn, Display::PAL_FEED_TOSS_MS, false);
             const uint32_t before = millis();
             Audio::playFeed();
             // The animation waits out the blocking sound instead of skipping ahead.
             start += millis() - before;
             continue;
         }
-        Display::drawPalFeed(h, sleepBreathIn, t, from, false);
+        Display::drawPalFeed(h, sleepBreathIn, t, false);
         delay(PAL_FRAME_MS);
     }
     showSleepFace(true);
@@ -648,6 +648,74 @@ static void cameraOff() {
 static void completeWakeFace(bool fromHold = true);
 static void enterWakeViewfinder();
 
+// Deep sleep at a flat battery, woken only by USB. VBUS sense is on GPIO16, an
+// RTC pad that can wake deep sleep; the shutter on GPIO44 is not one, so the
+// button cannot (hardware/README.md, next revision). It only halves the drain,
+// because U8 keeps its ~2 mA through it, but it stops the camera waking itself
+// every tick until the cell is gone.
+constexpr uint32_t DEEP_SLEEP_MV = 3200;
+// In a row, so one noisy reading cannot do it. Sampled on light-sleep ticks
+// only, where the draw is ~4 mA and the reading is close to the resting voltage.
+constexpr uint8_t DEEP_SLEEP_SAMPLES = 3;
+static uint8_t lowBatterySamples = 0;
+// The wall clock when deep sleep began, in RTC memory, which survives it. Time
+// spent waiting for a charger is not time the owner ignored the camera, so the
+// mood and the pal get it back on the way up. 0 = no clock, or not ours.
+RTC_DATA_ATTR static uint32_t deepSleptAtEpoch = 0;
+
+// After a battery sample: true once it has read flat DEEP_SLEEP_SAMPLES times in a row off USB.
+static bool batteryFlat() {
+    if (onUsb() || batterySampleMv >= DEEP_SLEEP_MV) {
+        lowBatterySamples = 0;
+        return false;
+    }
+    if (lowBatterySamples < DEEP_SLEEP_SAMPLES) lowBatterySamples++;
+    Serial.printf("Battery: %umV, flat %u/%u\n", batterySampleMv, lowBatterySamples, DEEP_SLEEP_SAMPLES);
+    return lowBatterySamples >= DEEP_SLEEP_SAMPLES;
+}
+
+// Called from the light-sleep loop, so the radio and the camera are already down.
+static void enterDeepSleep() {
+    Serial.printf("Battery: %umV, deep sleep until USB\n", batterySampleMv);
+    // In the log's own uptime_s,mv,chg shape, `deep` where the charge flag goes.
+    char line[32];
+    snprintf(line, sizeof line, "%lu,%u,deep", (unsigned long)(millis() / 1000), batterySampleMv);
+    Storage::appendLog(line);
+    // Persists the pal too, while it lives.
+    moodPersist("deep sleep");
+    deepSleptAtEpoch = moodClock().epoch;
+    Display::animateSleepPal(0);
+    Display::drawChargeMe(moodHappiness());
+    // The panel keeps its image with no SPI at all. Held DISP high it stays
+    // visible, held SCS low it ignores whatever the floating bus does. The
+    // buzzer gate needs nothing: R28 pulls it low once the pin lets go.
+    digitalWrite(PIN_LCD_CS, LOW);
+    gpio_hold_en((gpio_num_t)PIN_LCD_DISP);
+    gpio_hold_en((gpio_num_t)PIN_LCD_CS);
+    gpio_deep_sleep_hold_en();
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_enable_ext1_wakeup(1ULL << PIN_VBUS, ESP_EXT1_WAKEUP_ANY_HIGH);
+    Serial.flush();
+    esp_deep_sleep_start();
+}
+
+// After moodBoot() and palBoot(): give back the time spent waiting for a charger.
+static void resumeFromDeepSleep() {
+    const uint32_t at = deepSleptAtEpoch;
+    deepSleptAtEpoch = 0;
+    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_EXT1) return;
+    const Mood::Clock c = moodClock();
+    if (!at || !Mood::clockValid(c) || c.epoch <= at) {
+        Serial.println("Woke from deep sleep: charging");
+        return;
+    }
+    const uint32_t slept = c.epoch - at;
+    Serial.printf("Woke from deep sleep after %lus: charging\n", (unsigned long)slept);
+    Mood::pause(moodState, slept);
+    Pal::pause(palState, slept);
+    moodPersist("deep sleep over");
+}
+
 void setup() {
     // Plain INPUT: R26 is the pull-up, so the internal one would only fight
     // the RC. Buzzer gate low before anything else can float it.
@@ -685,6 +753,9 @@ void setup() {
     Audio::init(PIN_BUZZ);
 
     // Initialize Sharp Memory LCD
+    // Deep sleep latched DISP high and SCS low to keep the charge-me screen up; let go first.
+    gpio_hold_dis((gpio_num_t)PIN_LCD_DISP);
+    gpio_hold_dis((gpio_num_t)PIN_LCD_CS);
     Display::init(PIN_LCD_SCLK, PIN_LCD_MOSI, PIN_LCD_CS, PIN_LCD_DISP);
     Serial.println("Display initialized");
 
@@ -702,6 +773,7 @@ void setup() {
     moodBoot();
     applyMute();
     palBoot();
+    resumeFromDeepSleep();
     Display::setPal(palState.id);
     palShowCare();
     Audio::playMelody(Audio::Melody::TaDaDa);
@@ -1355,6 +1427,8 @@ void enterSleepMode() {
                 const bool battery = sampleBattery();
                 if (palShowCare() || battery) showSleepFace(true);
             }
+            // Both branches just sampled the battery. Does not return when flat.
+            if (batteryFlat()) enterDeepSleep();
             continue;
         }
         Serial.printf("Sleep: ignoring wake cause %d\n", (int)cause);

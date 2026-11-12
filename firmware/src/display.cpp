@@ -677,7 +677,6 @@ static void drawPalBmp(const uint8_t* bmp, uint8_t bmpW, uint8_t bmpH, uint8_t b
 }
 
 // Pal care, as main.cpp last reported it: the bar, the food in hand, the tombstone.
-static uint8_t _palLife = 255;
 static uint8_t _palFood = 0;
 static bool _palDead = false;
 
@@ -1824,47 +1823,29 @@ static void drawSleepBadge(bool breathIn) {
                    TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
 }
 
-// The pal's corner of the sleep face: flush bottom-left, the bar above it.
+// The pal's corner of the sleep face: flush bottom-left.
 constexpr int SLEEP_PAL_SCALE = 4;
-constexpr int PAL_BAR_W = 44;
-constexpr int PAL_BAR_H = 8;
-constexpr int PAL_BAR_GAP = 6;  // Clear of the one-pixel (4 px) bob the pal makes while eating or idling
+constexpr int PAL_MAX_HOP = 3;  // The highest any idle loop lifts a pal, in its own pixels
 // The food in hand, bottom-right: the item, then the count.
 constexpr int SLEEP_FOOD_SCALE = 3;
 constexpr int SLEEP_FOOD_GAP = 6;
 
-// Pixels of fill inside the bar's outline, rounded up so a pal with any life left shows some.
-static int palBarFill(uint8_t life) {
-    const int inner = PAL_BAR_W - 4;
-    return (life * inner + 254) / 255;
-}
-
 // What the last full sleep frame sent, so a change stays owed until one goes
 // out: a breath sends only the face rows, which miss the corners.
-static int _sentBarFill = -1;
-static uint8_t _sentFood = 0;
+static int _sentFood = -1;
 static bool _sentDead = false;
 static uint8_t _sentPalId = 0;
 
-bool setPalCare(uint8_t life, uint8_t food, bool dead) {
-    _palLife = life;
+bool setPalCare(uint8_t food, bool dead) {
     _palFood = food;
     _palDead = dead;
-    return palBarFill(life) != _sentBarFill || food != _sentFood || dead != _sentDead || _palId != _sentPalId;
+    return food != _sentFood || dead != _sentDead || _palId != _sentPalId;
 }
 
 static int sleepPalHeight() {
     if (_palDead) return PAL_TOMB_H * SLEEP_PAL_SCALE;
     PalInfo pi = palLookup(_palId);
     return pi.dim ? pi.dim->h * SLEEP_PAL_SCALE : 0;
-}
-
-static int palBarY() { return HEIGHT - sleepPalHeight() - PAL_BAR_GAP - PAL_BAR_H; }
-
-static void drawPalBar(int fill) {
-    const int y = palBarY();
-    drawRoundedRectBorder(TOAST_MARGIN, y, PAL_BAR_W, PAL_BAR_H, 2, true);
-    if (fill > 0) fillRoundedRect(TOAST_MARGIN + 2, y + 2, fill, PAL_BAR_H - 4, 0, true);
 }
 
 // The food badge's item: where it sits, so the feed toss can start from it.
@@ -1893,17 +1874,16 @@ static void drawFoodBadge() {
 // top) sends the same pixels the panel already shows instead of tearing it.
 static uint32_t _sleepPalMs = 0;
 
-// The idle frame at `ms`, its hop held to one pixel so it never reaches the bar.
 static const uint8_t* sleepPalFrame(const PalInfo& pi, uint32_t ms, int* dy) {
     int8_t dx8 = 0, dy8 = 0;
     const uint8_t* bmp = palIdleFrame(pi.idle, ms, &dx8, &dy8);
-    *dy = dy8 < -1 ? -1 : dy8;
+    *dy = dy8;
     return bmp;
 }
 
-// The pal (or what is left of it) in its corner, with its bar. `bmp` overrides
-// the idle frame at _sleepPalMs, `dy` lifts it, `fill` is the bar's.
-static void drawSleepPalCorner(const uint8_t* bmp, int dy, int fill) {
+// The pal (or what is left of it) in its corner. `bmp` overrides the idle
+// frame at _sleepPalMs, `dy` lifts it.
+static void drawSleepPalCorner(const uint8_t* bmp, int dy) {
     if (_palDead) {
         drawPalBmp(PAL_TOMB_BMP, PAL_TOMB_W, PAL_TOMB_H, PAL_TOMB_BPR, TOAST_MARGIN,
                    HEIGHT - PAL_TOMB_H * SLEEP_PAL_SCALE, SLEEP_PAL_SCALE, true);
@@ -1914,9 +1894,9 @@ static void drawSleepPalCorner(const uint8_t* bmp, int dy, int fill) {
     if (!bmp) bmp = sleepPalFrame(pi, _sleepPalMs, &dy);
     drawPalBmp(bmp, pi.dim->w, pi.dim->h, pi.dim->bpr, TOAST_MARGIN,
                HEIGHT - pi.dim->h * SLEEP_PAL_SCALE + dy * SLEEP_PAL_SCALE, SLEEP_PAL_SCALE, true);
-    drawPalBar(fill);
 }
 
+static bool _chargeMe = false;
 static int _wakeFilledRows = 0;
 static bool _wakeExitActive = false;
 static int _wakeExitDy = 0;
@@ -1943,7 +1923,15 @@ static void renderSleepFrame(uint8_t happiness, bool breathIn, const char* statu
     }
     Face::mouth(Face::MOUTH_X, mouthY, band);
 
-    if (_showHints && !awake) {
+    if (_chargeMe && !awake) {
+        // Inverted for emphasis, and up whatever the hint setting: the button cannot wake it now.
+        const char* text = "charge me";
+        const int boxW = UI::textWidth(text, TOAST_FONT) + TOAST_PADDING_H * 2;
+        const int boxH = UI::fontHeight(TOAST_FONT) + TOAST_PADDING_V * 2;
+        const int boxX = WIDTH - boxW - TOAST_MARGIN;
+        fillRoundedRect(boxX, TOAST_MARGIN, boxW, boxH, TOAST_RADIUS, true);
+        drawText(text, boxX + TOAST_PADDING_H, TOAST_MARGIN + TOAST_PADDING_V, TOAST_FONT, false);
+    } else if (_showHints && !awake) {
         const char* text = "hold to wake";
         int textW = UI::textWidth(text, TOAST_FONT);
         int textH = UI::fontHeight(TOAST_FONT);
@@ -1958,7 +1946,7 @@ static void renderSleepFrame(uint8_t happiness, bool breathIn, const char* statu
 
     // On the awake face too: the pal stays put while the face wakes and leaves.
     if (_palId > 0 && palCorner) {
-        drawSleepPalCorner(nullptr, 0, palBarFill(_palLife));
+        drawSleepPalCorner(nullptr, 0);
         if (!_palDead) drawFoodBadge();
     }
 
@@ -1978,7 +1966,6 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
                            bool awake) {
     renderSleepFrame(happiness, breathIn, status, awake, true);
     if (!faceOnly && !awake) {
-        _sentBarFill = palBarFill(_palLife);
         _sentFood = _palFood;
         _sentDead = _palDead;
         _sentPalId = _palId;
@@ -2031,7 +2018,10 @@ constexpr int PAL_FEED_ARC_PX = 16;  // Low enough to pass under the widest mout
 constexpr int PAL_HEART_SCALE = 3;
 constexpr int PAL_HEART_RISE_PX = 28;
 
-void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, uint8_t fromLife, bool full) {
+// The heart's lowest point: just over the pal, clear of its one-pixel chomp.
+static int palHeartBottom() { return HEIGHT - sleepPalHeight() - 2 * SLEEP_PAL_SCALE; }
+
+void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, bool full) {
     renderSleepFrame(happiness, breathIn, nullptr, false, false);
     drawFoodBadge();
     PalInfo pi = palLookup(_palId);
@@ -2041,9 +2031,8 @@ void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, uint8_t fromLife
         return;
     }
     const int pw = pi.dim->w * SLEEP_PAL_SCALE, ph = pi.dim->h * SLEEP_PAL_SCALE;
-    const int fromFill = palBarFill(fromLife), toFill = palBarFill(_palLife);
     if (ms < PAL_FEED_TOSS_MS) {
-        drawSleepPalCorner(nullptr, 0, fromFill);
+        drawSleepPalCorner(nullptr, 0);
         // From the badge to just in front of the pal's face, eased out, in a low hop.
         // The badge already shows one fewer, so the item reads as taken from it.
         int x0, y0;
@@ -2065,11 +2054,10 @@ void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, uint8_t fromLife
         const pal_step_t* step = palEatStep(_palId, eat);
         float p = (float)eat / eatMs;
         if (p > 1.0f) p = 1.0f;
-        drawSleepPalCorner(step ? step->bmp : nullptr, step ? step->dy : 0,
-                           fromFill + (int)((toFill - fromFill) * p + 0.5f));
+        drawSleepPalCorner(step ? step->bmp : nullptr, step ? step->dy : 0);
         const int hw = PAL_HEART_W * PAL_HEART_SCALE, hh = PAL_HEART_H * PAL_HEART_SCALE;
-        const int hy = palBarY() - 4 - hh - (int)(PAL_HEART_RISE_PX * p);
-        drawPalBmp(PAL_HEART_BMP, PAL_HEART_W, PAL_HEART_H, 1, TOAST_MARGIN + (PAL_BAR_W - hw) / 2, hy,
+        const int hy = palHeartBottom() - hh - (int)(PAL_HEART_RISE_PX * p);
+        drawPalBmp(PAL_HEART_BMP, PAL_HEART_W, PAL_HEART_H, 1, TOAST_MARGIN + (pw - hw) / 2, hy,
                    PAL_HEART_SCALE, true);
     }
     if (full) {
@@ -2077,7 +2065,7 @@ void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, uint8_t fromLife
         return;
     }
     // Everything that moves is below the heart's highest point: send from there down.
-    const int top = palBarY() - 4 - PAL_HEART_H * PAL_HEART_SCALE - PAL_HEART_RISE_PX;
+    const int top = palHeartBottom() - PAL_HEART_H * PAL_HEART_SCALE - PAL_HEART_RISE_PX;
     flushLines(top < 0 ? 0 : top, HEIGHT);
 }
 
@@ -2097,14 +2085,20 @@ void animateSleepPal(uint32_t ms) {
     const uint8_t* now = sleepPalFrame(pi, ms, &dyNow);
     _sleepPalMs = ms;
     if (was == now && dyWas == dyNow) return;
-    // The pal's box, one hop of headroom included; nothing else lives in it.
+    // The pal's box, its highest hop included; nothing else lives in it.
     const int pw = pi.dim->w * SLEEP_PAL_SCALE, ph = pi.dim->h * SLEEP_PAL_SCALE;
-    const int top = HEIGHT - ph - SLEEP_PAL_SCALE;
+    const int top = HEIGHT - ph - PAL_MAX_HOP * SLEEP_PAL_SCALE;
     for (int y = top; y < HEIGHT; y++)
         for (int x = TOAST_MARGIN; x < TOAST_MARGIN + pw; x++) setPixel(x, y, false);
     drawPalBmp(now, pi.dim->w, pi.dim->h, pi.dim->bpr, TOAST_MARGIN,
                HEIGHT - ph + dyNow * SLEEP_PAL_SCALE, SLEEP_PAL_SCALE, true);
     flushLines(top, HEIGHT);
+}
+
+void drawChargeMe(uint8_t happiness) {
+    _chargeMe = true;
+    drawSleepFrame(happiness, false, false, nullptr, false);
+    _chargeMe = false;
 }
 
 void drawAwake(uint8_t happiness) {
@@ -2170,7 +2164,7 @@ void drawWakeExit(uint8_t happiness, float t) {
     drawSleepBadge(false);
     // Stays where the awake face had it, so only the face rows below need sending.
     if (_palId > 0) {
-        drawSleepPalCorner(nullptr, 0, palBarFill(_palLife));
+        drawSleepPalCorner(nullptr, 0);
         if (!_palDead) drawFoodBadge();
     }
     for (uint8_t& byte : _framebuffer) byte = ~byte;

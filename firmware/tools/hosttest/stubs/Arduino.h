@@ -25,3 +25,6 @@ struct SimEsp {
     uint32_t getPsramSize() { return 0; }
 };
 static SimEsp ESP;
+
+// esp_attr.h: RTC slow memory, which survives deep sleep. Plain storage on the host.
+#define RTC_DATA_ATTR

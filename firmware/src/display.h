@@ -49,6 +49,9 @@ void drawSleep(uint8_t happiness = 255, bool breathIn = false, bool faceOnly = f
 // every loop. Later sleep faces keep that frame; animateSleepPal(0) is the rest
 // pose, for a face that will sit unanimated through light sleep.
 void animateSleepPal(uint32_t ms);
+// The last screen before deep sleep at a flat battery: the sleep face with a
+// standing "charge me" pill where "hold to wake" goes, since only USB wakes it.
+void drawChargeMe(uint8_t happiness);
 // The completed wake hold: mood-specific awake eyes on the inverted sleep screen.
 void drawAwake(uint8_t happiness = 255);
 // Wake handoff: the full face exits upward, then its miniature enters the sidebar downward.
@@ -145,20 +148,19 @@ void setSignalLevel(UI::SignalLevel level);
 // Companion pal (little_camera_pals.h). 0 = none, 1-4 = equipped.
 // The sleep face and the viewfinder sidebar draw the equipped pal.
 void setPal(uint8_t palId);
-// Pal care on the sleep face: life 0-255 for the bar above the pal, the food
-// in hand bottom-right, and a tombstone in the pal's place once it has died.
-// True while the sleep face on the panel is out of date, i.e. it owes a full frame.
-bool setPalCare(uint8_t life, uint8_t food, bool dead);
+// Pal care on the sleep face: the food in hand bottom-right, and a tombstone
+// in the pal's place once it has died. True while the sleep face on the panel
+// is out of date, i.e. it owes a full frame.
+bool setPalCare(uint8_t food, bool dead);
 // What a pal eats, for the toast that says one turned up: "fish", "fly", ...
 const char* palFoodName(uint8_t palId);
 // Feeding on the sleep face: until PAL_FEED_TOSS_MS one item hops from the
-// food badge to the pal, then until PAL_FEED_MS the pal eats, a heart rises and
-// the bar grows from `fromLife` to the life last given to setPalCare(). Call
-// setPalCare() with the fed state first. `full` sends the whole panel,
+// food badge to the pal, then until PAL_FEED_MS the pal eats and a heart rises.
+// Call setPalCare() with the fed state first. `full` sends the whole panel,
 // otherwise only the rows from the heart down.
 constexpr uint32_t PAL_FEED_TOSS_MS = 420;
 constexpr uint32_t PAL_FEED_MS = 1220;
-void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, uint8_t fromLife, bool full);
+void drawPalFeed(uint8_t happiness, bool breathIn, uint32_t ms, bool full);
 // The "you got a little pal" screen at animation time `ms`: the pal on a
 // turning scalloped badge, equip (press) and skip (hold). Mode::PalFound in
 // main.cpp draws it once, then animates it with drawPalDialogFrame().
