@@ -44,6 +44,11 @@ void drawUpdateProgress(int percent);
 // formats it, so this stays free of anything it would need hardware to read.
 void drawSleep(uint8_t happiness = 255, bool breathIn = false, bool faceOnly = false,
                const char* status = nullptr);
+// Move the pal on the sleep face already up to its idle animation at `ms`,
+// sending only its rows, and only when the frame changed: cheap enough to call
+// every loop. Later sleep faces keep that frame; animateSleepPal(0) is the rest
+// pose, for a face that will sit unanimated through light sleep.
+void animateSleepPal(uint32_t ms);
 // The completed wake hold: mood-specific awake eyes on the inverted sleep screen.
 void drawAwake(uint8_t happiness = 255);
 // Wake handoff: the full face exits upward, then its miniature enters the sidebar downward.

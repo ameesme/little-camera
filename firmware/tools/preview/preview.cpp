@@ -177,7 +177,7 @@ static void usage(const char* argv0) {
         "  pal-welcome  the equip confirmation, pal sliding in (see --t/--at/--happiness)\n"
         "  viewfinder-swap  the face block mid face->pal slide (see --at, 0-450)\n"
         "  sleep-pal, viewfinder-pal  the equipped pal on the sleep face and in the sidebar\n"
-        "               (see --life/--food/--dead)\n"
+        "               (see --life/--food/--dead; --at idles the pal, --breath adds a breath)\n"
         "  sleep-tomb, viewfinder-tomb  the same after the pal died\n"
         "  sleep-feed   feeding on the sleep face at --at MS (0-1220), bar from --life to full\n"
         "\n"
@@ -191,7 +191,7 @@ static void usage(const char* argv0) {
         "               (default: the test image, Floyd-Steinberg dithered)\n"
         "  --index N    0-based position shown in the gallery counter, default 2\n"
         "  --total N    total shown in the gallery counter, default 12\n"
-        "  --pal N      pal 1-4 for the pal scenes, default 1\n"
+        "  --pal N      pal 1-4 for the pal scenes, default 1; given, any scene shows the pal\n"
         "  --life N     pal life 0-255 for its bar, default 200\n"
         "  --food N     food in hand, default 3\n"
         "  --dead       the pal has died: a tombstone\n"
@@ -228,6 +228,7 @@ int main(int argc, char** argv) {
     bool holdReset = false;
     bool pressFlash = false;
     int pal = 1;
+    bool palGiven = false;
     int life = 200;
     int food = 3;
     bool dead = false;
@@ -264,6 +265,7 @@ int main(int argc, char** argv) {
             breath = true;
         } else if (!strcmp(argv[i], "--pal") && hasValue) {
             pal = atoi(argv[++i]);
+            palGiven = true;
         } else if (!strcmp(argv[i], "--life") && hasValue) {
             life = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--food") && hasValue) {
@@ -296,6 +298,11 @@ int main(int argc, char** argv) {
 
     Sim::setMillis(at);
     Display::setFaceBand((uint8_t)happiness >> 6);
+    // Any scene can carry the pal: the wake ones show it in its corner.
+    if (palGiven) {
+        Display::setPal((uint8_t)pal);
+        Display::setPalCare((uint8_t)life, (uint8_t)food, dead);
+    }
 
     if (!strcmp(scene, "viewfinder")) {
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
@@ -414,7 +421,11 @@ int main(int argc, char** argv) {
     } else if (!strcmp(scene, "sleep-pal")) {
         Display::setPal((uint8_t)pal);
         Display::setPalCare((uint8_t)life, (uint8_t)food, dead);
-        Display::drawSleep((uint8_t)happiness, breath);
+        // As the Asleep loop does: the face goes up, then the pal idles to --at.
+        // With --breath, a face-only breath follows, which must not tear the pal.
+        Display::drawSleep((uint8_t)happiness, false);
+        Display::animateSleepPal(at);
+        if (breath) Display::drawSleep((uint8_t)happiness, true, true);
     } else if (!strcmp(scene, "sleep-feed")) {
         // Drawn at 0 in full, then only the moving rows at --at, as main.cpp does.
         Display::setPal((uint8_t)pal);

@@ -1252,6 +1252,8 @@ void enterSleepMode() {
         delay(10);
     }
     showSleepFace(true);
+    // Light sleep stops the loop that animates the pal: leave it at rest, not mid-blink.
+    Display::animateSleepPal(0);
 
     // Radio off before the camera: light sleep and a live BLE controller is
     // undefined territory in this Arduino core, and the phone is told nothing
@@ -1906,6 +1908,8 @@ void loop() {
 
             // The face breathes: the other frame every BREATH_MS.
             if (!gestureActive && millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
+            // The pal idles while the chip is up; the wake fill owns the panel during a hold.
+            if (!gestureActive) Display::animateSleepPal(millis());
 
             // On USB power: stay awake indefinitely, keep the radio on.
             if (onUsb()) {
