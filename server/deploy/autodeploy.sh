@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pull-based deploy, run every minute on the VPS by little-camera-deploy.timer.
 # Pull rather than push: the box needs no inbound SSH and GitHub holds no key to it.
-# Fetches DEPLOY_BRANCH, fast-forwards the checkout and rebuilds only what the new commits touch.
+# Fetches DEPLOY_BRANCH, fast-forwards the checkout, rebuilds only what the new commits touch and publishes a bumped firmware.
 # FORCE=1 rebuilds the server and recreates Caddy even when nothing moved.
 set -uo pipefail
 
@@ -52,8 +52,13 @@ deploy() {
         echo "recreating caddy"
         docker compose up -d --no-deps --force-recreate caddy || return 1
     fi
-    [ "$server" = 1 ] || { echo "nothing to rebuild"; return 0; }
+    if [ "$server" = 1 ]; then
+        wait_for_server || return 1
+    fi
+    release_firmware
+}
 
+wait_for_server() {
     for _ in $(seq 30); do
         if docker compose exec -T server node -e \
             'fetch(`http://localhost:3000/caddy/ask?domain=${process.env.BASE_DOMAIN}`).then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))' \
@@ -66,6 +71,37 @@ deploy() {
     echo "server not answering after 60s"
     docker compose logs --tail=30 server
     return 1
+}
+
+# Bumping version.h on the branch is the release: a version the manifest lacks is built here and published.
+release_firmware() {
+    local version file notes known
+    version=$(sed -nE 's/^#define LC_VERSION_(MAJOR|MINOR|PATCH) ([0-9]+)$/\2/p' "$REPO/firmware/src/version.h" | paste -sd. -)
+    docker compose exec -T server node -e '
+        const fs = require("fs"), p = "/data/firmware/manifest.json";
+        const m = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : { releases: [] };
+        process.exit(m.releases.some(r => r.version === process.argv[1]) ? 0 : 2);' "$version"
+    known=$?
+    [ "$known" = 0 ] && { echo "firmware $version already published"; return 0; }
+    [ "$known" = 2 ] || { echo "cannot read the firmware manifest"; return 1; }
+
+    echo "building firmware $version"
+    # The toolchain lives in a named volume: the first build downloads it, every later one reuses it.
+    docker run --rm -v "$REPO/firmware:/fw" -v little-camera-pio:/cache -e PLATFORMIO_CORE_DIR=/cache/core -w /fw python:3.12-slim \
+        sh -c '[ -x /cache/venv/bin/pio ] || { python -m venv /cache/venv && /cache/venv/bin/pip install -q platformio; } && /cache/venv/bin/pio run -e v3q' \
+        || return 1
+
+    file="little-camera-$version.bin"
+    notes=$(git -C "$REPO" log -1 --format=%s -- firmware/src/version.h | sed -E 's/^[a-z]+(\([^)]*\))?: //')
+    # The image goes in before the manifest names it, so a camera is never offered a file that is not there.
+    docker compose cp "$REPO/firmware/.pio/build/v3q/firmware.bin" "server:/data/firmware/$file" || return 1
+    docker compose exec -T server node -e '
+        const fs = require("fs"), p = "/data/firmware/manifest.json", [, version, file, notes] = process.argv;
+        const m = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : { releases: [] };
+        m.releases.unshift({ version, channel: "stable", hardware: "v3q", file, notes, released_at: Math.floor(Date.now() / 1000) });
+        fs.writeFileSync(p + ".tmp", JSON.stringify(m, null, 2) + "\n");
+        fs.renameSync(p + ".tmp", p);' "$version" "$file" "$notes" || return 1
+    echo "published firmware $version: $notes"
 }
 
 deploy > "$STATE/last.log" 2>&1

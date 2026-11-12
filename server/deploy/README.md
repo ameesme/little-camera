@@ -65,6 +65,10 @@ Backups: the `data` volume holds `little-camera.sqlite` (SQLite, WAL mode), `pho
 
 A release is files on the data volume with a manifest beside them (`docs/protocol.md` §4.7). Nothing about it is in the database, so publishing is a copy and an edit, and unpublishing is deleting a line.
 
+**Bumping `firmware/src/version.h` on `main` publishes it.** Every deploy compares that version with the manifest; one it lacks is built on the VPS (`pio run -e v3q` in a throwaway `python:3.12-slim` container, toolchain cached in the `little-camera-pio` volume, so the first build takes a few minutes) and added to the top of the manifest on the `stable` channel, with the bump commit's subject as its notes. A failed build shows in `/api/deploy-status` and is retried with the next commit. Unpublishing stays manual.
+
+By hand, for a release that should not wait for a push:
+
 ```
 pio run -e v3q                              # in firmware/, on your machine
 docker compose cp ../../firmware/.pio/build/v3q/firmware.bin \

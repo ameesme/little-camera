@@ -212,7 +212,7 @@ cd selftest && pio run -t upload -t monitor  # the board self-test
 - Both projects pin `espressif32 @ 8.0.0` (Arduino core 3.3.12). Core 3.x renamed `ledcDetachPin` to `ledcDetach`, and the app had been sitting on 2.0.17 — a core bump is not a free upgrade here.
 - The env sets `board = esp32-s3-devkitc-1`, **not** `seeed_xiao_esp32s3`: that definition declares 8 MB flash and ships a `pins_arduino.h` putting `LED_BUILTIN` on GPIO21, which is `CAM_D6` on v3q.
 - `-DLC_NO_BLE` builds without the radio, for bisecting.
-- **Version:** `version.h` holds `LC_VERSION_*` and builds `LC_VERSION_STRING` from the numbers so the two cannot drift. It goes out in Info (`docs/protocol.md` §3.1) and in `stat`, and the server compares a release against it, so bump it in the same commit as the change it names.
+- **Version:** `version.h` holds `LC_VERSION_*` and builds `LC_VERSION_STRING` from the numbers so the two cannot drift. It goes out in Info (`docs/protocol.md` §3.1) and in `stat`, and the server compares a release against it, so bump it in the same commit as the change it names. **A bump that reaches `main` is published** to every camera on the next deploy (`server/deploy/README.md`).
 
 ## Host checks — no hardware needed
 
