@@ -26,7 +26,6 @@
 #include "sync.h"
 #include "sync_protocol.h"
 #include "version.h"
-#include "little_camera_pals.h"
 #include <Preferences.h>
 #include <LittleFS.h>
 
@@ -130,6 +129,7 @@ enum class Mode {
     Asleep,      // Sleep face up, radio still advertising; hold wakes
     Pairing,     // The phone is asking for the passkey; the code owns the screen
     Updating,    // New firmware coming in over BLE; progress owns the screen
+    PalFound,    // "you got a little pal" after a save; press equips, hold skips
 };
 
 // State variables
@@ -177,7 +177,12 @@ static int menuSelected = 0;
 
 // Companion pal — persisted in NVS("pal")
 constexpr uint8_t PAL_COUNT = 4;
+// The badge turns and the pal idles at 10 fps: a full frame is ~17 ms of SPI.
+constexpr uint32_t PAL_FRAME_MS = 100;
 static uint8_t equippedPal = 0;
+static uint8_t offeredPal = 0;
+static uint32_t palShownAt = 0;
+static uint32_t palDrawnAt = 0;
 
 static uint8_t palLoad() {
     Preferences prefs;
@@ -715,49 +720,6 @@ static void leaveMenu() {
     holdFired = false;
     lastActivityTime = millis();
     hintToastShowing = false;
-}
-
-// Blocking pal-found dialog. Returns true = equip, false = skip.
-static bool runPalDialog(uint8_t palId) {
-    while (shutterPressed()) { Audio::update(); delay(5); }
-
-    uint32_t start = millis();
-    bool gesturing = false;
-    uint32_t gStart = 0;
-    bool hFired = false;
-
-    for (;;) {
-        int starStep = (int)((millis() - start) / 120);
-        Display::drawPalDialogFrame(palId, starStep);
-        Audio::update();
-
-        bool down = shutterPressed();
-        if (down && !gesturing) {
-            delay(10);
-            if (!shutterPressed()) continue;
-            gStart = millis();
-            gesturing = true;
-            hFired = false;
-        }
-        if (down && gesturing && !hFired) {
-            uint32_t held = millis() - gStart;
-            Display::drawHoldProgress(held, GALLERY_HOLD_MS);
-            if (held >= GALLERY_HOLD_MS) {
-                Display::completeHold();
-                hFired = true;
-                Audio::playClick(true);
-                delay(120);
-                return false;
-            }
-        }
-        if (!down && gesturing && !hFired) {
-            Display::flashPress();
-            Audio::playClick();
-            delay(120);
-            return true;
-        }
-        if (!down) gesturing = false;
-    }
 }
 
 static void menuRunDiagnostics() {
@@ -1340,6 +1302,22 @@ static void startDismiss(const char* toast) {
     mode = Mode::Dismissing;
 }
 
+// A save with no pal equipped offers one. A mode rather than a blocking loop so
+// the radio, toasts and the idle timeout keep running; walking away counts as
+// a skip, and the next photo offers again.
+static void enterPalFound() {
+    offeredPal = 1 + (uint8_t)(esp_random() % PAL_COUNT);
+    Serial.printf("Pal: offering %u\n", offeredPal);
+    Audio::playMelody(Audio::Melody::PalFound);
+    Display::clearToast();
+    gestureActive = false;
+    holdFired = false;
+    lastActivityTime = millis();
+    palShownAt = palDrawnAt = millis();
+    Display::drawPalDialog(offeredPal, 0);
+    mode = Mode::PalFound;
+}
+
 // Draw the current gallery photo. Files that fail to decode are skipped — a
 // partial write can't leave one behind (savePhoto removes them), but a file
 // copied onto the flash by some future tool might be the wrong size.
@@ -1457,7 +1435,8 @@ void loop() {
     // unanswered prompt is still an idle device.
     const uint32_t idleLimit =
         Display::promptPending()                      ? PROMPT_IDLE_TIMEOUT_MS
-        : (mode == Mode::Gallery || mode == Mode::Save || mode == Mode::Menu) ? REVIEW_IDLE_TIMEOUT_MS
+        : (mode == Mode::Gallery || mode == Mode::Save || mode == Mode::Menu ||
+           mode == Mode::PalFound)                    ? REVIEW_IDLE_TIMEOUT_MS
                                                         : IDLE_TIMEOUT_MS;
     // Pairing is the phone's moment, not an idle camera: it runs on its own
     // timeout in the mode switch below. An update is the same, only longer —
@@ -1648,18 +1627,10 @@ void loop() {
                     case Storage::Result::Ok:
                         Storage::bumpShotCount();
                         moodOnPhoto();
+                        // Whatever the phone was waiting for, it has it now.
                         Display::setPrompt(Display::Prompt::None);
                         if (equippedPal == 0) {
-                            uint8_t offered = 1 + (uint8_t)(esp_random() % PAL_COUNT);
-                            Audio::playMelody(Audio::Melody::PalFound);
-                            if (runPalDialog(offered)) {
-                                equippedPal = offered;
-                                palSave(equippedPal);
-                                Display::setPal(equippedPal);
-                                startDismiss("new pal!");
-                            } else {
-                                startDismiss("saved");
-                            }
+                            enterPalFound();
                         } else {
                             Audio::playMelody(Audio::Melody::Saved);
                             startDismiss("saved");
@@ -1812,6 +1783,40 @@ void loop() {
             if (updateEndedAt && millis() - updateEndedAt >= UPDATE_RESULT_MS) {
                 if (updateFailed) esp_restart();
                 leaveUpdating();
+            }
+            break;
+        }
+
+        case Mode::PalFound: {
+            if (pressed && !lastPressed && confirmPressed()) {
+                pressStartedAt = millis();
+                gestureActive = true;
+                holdFired = false;
+            } else if (pressed && gestureActive && !holdFired &&
+                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+                Serial.println("Pal: skipped");
+                Display::completeHold();
+                holdFired = true;
+                Audio::playClick(true);
+                startDismiss("saved");
+            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+                Display::flashPress();
+                Audio::playClick();
+                equippedPal = offeredPal;
+                palSave(equippedPal);
+                Display::setPal(equippedPal);
+                Serial.printf("Pal: equipped %u\n", equippedPal);
+                startDismiss("new pal!");
+            }
+            if (!pressed) gestureActive = false;
+
+            if (mode == Mode::PalFound) {
+                Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+                                          GALLERY_HOLD_MS);
+                if (millis() - palDrawnAt >= PAL_FRAME_MS) {
+                    palDrawnAt = millis();
+                    Display::drawPalDialog(offeredPal, palDrawnAt - palShownAt);
+                }
             }
             break;
         }

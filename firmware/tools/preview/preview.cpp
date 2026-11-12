@@ -172,6 +172,8 @@ static void usage(const char* argv0) {
         "  gallery      a stored photo with the browse column (see --index/--total/--pbm)\n"
         "  gallery-slide  one frame of the viewfinder -> gallery slide (see --t)\n"
         "  gallery-empty  the gallery with nothing on the flash\n"
+        "  pal-dialog   'you got a little pal' (see --pal/--at/--hold-ms)\n"
+        "  sleep-pal, viewfinder-pal  the equipped pal on the sleep face and in the sidebar\n"
         "\n"
         "options:\n"
         "  --out PATH   output BMP (default preview.bmp)\n"
@@ -183,6 +185,7 @@ static void usage(const char* argv0) {
         "               (default: the test image, Floyd-Steinberg dithered)\n"
         "  --index N    0-based position shown in the gallery counter, default 2\n"
         "  --total N    total shown in the gallery counter, default 12\n"
+        "  --pal N      pal 1-4 for the pal scenes, default 1\n"
         "  --happiness N  mood 0-255 for the sleep face, default 255\n"
         "  --percent N  progress 0-100 for the 'update' scene, default 42\n"
         "  --hold-ms N  elapsed hold time, default 0 (fill starts after 200ms)\n"
@@ -215,6 +218,7 @@ int main(int argc, char** argv) {
     uint32_t holdThreshold = 700;
     bool holdReset = false;
     bool pressFlash = false;
+    int pal = 1;
 
     for (int i = 2; i < argc; i++) {
         bool hasValue = (i + 1 < argc);
@@ -246,6 +250,8 @@ int main(int argc, char** argv) {
             pressFlash = true;
         } else if (!strcmp(argv[i], "--breath")) {
             breath = true;
+        } else if (!strcmp(argv[i], "--pal") && hasValue) {
+            pal = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--total") && hasValue) {
             galleryTotal = atoi(argv[++i]);
         } else {
@@ -365,12 +371,17 @@ int main(int argc, char** argv) {
     } else if (!strcmp(scene, "menu-share")) {
         Display::drawShareBlog("4NXMAH", "lttl.cam");
     } else if (!strcmp(scene, "pal-dialog")) {
-        Display::drawPalDialogFrame(1, 3);
+        Display::drawPalDialog((uint8_t)pal, at);
+        // Redraw on the next animation tick under a running hold: the fill must survive it.
+        if (holdMs) {
+            Display::drawHoldProgress(holdMs, holdThreshold);
+            Display::drawPalDialog((uint8_t)pal, at + 100);
+        }
     } else if (!strcmp(scene, "sleep-pal")) {
-        Display::setPal(1);
+        Display::setPal((uint8_t)pal);
         Display::drawSleep((uint8_t)happiness, breath);
     } else if (!strcmp(scene, "viewfinder-pal")) {
-        Display::setPal(1);
+        Display::setPal((uint8_t)pal);
         Sim::setMillis(5000);  // odd period: shows pal instead of face
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else {

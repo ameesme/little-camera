@@ -5,6 +5,7 @@
 #include "ui.h"
 #include "little_camera_pals.h"
 #include <SPI.h>
+#include <math.h>
 
 namespace Display {
 
@@ -669,73 +670,50 @@ static void drawPalInBox(int boxX, int boxY, int boxW, int boxH, uint8_t id, int
     drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr, x, y, scale, white);
 }
 
-// Scalloped badge: a circle whose edge wobbles in and out with `bumps`
-// lobes rotating by `step`. Integer-only: the radius at each pixel is
-// compared against a threshold that varies with the angle, approximated
-// by a piecewise-linear triangle wave over `bumps` sectors.
-static void drawRoundedStar(int cx, int cy, int outerR, int innerR, int bumps, int step) {
-    for (int py = cy - outerR; py <= cy + outerR; py++) {
-        for (int px = cx - outerR; px <= cx + outerR; px++) {
-            int dx = px - cx, dy = py - cy;
-            int d2 = dx * dx + dy * dy;
-            if (d2 > outerR * outerR) continue;
-            // Angle → sector position within one bump period, 0..999.
-            // atan2 approximated by the octant method, scaled to 0..8000
-            // (one full turn) then modded into the bump period.
-            int adx = dx < 0 ? -dx : dx;
-            int ady = dy < 0 ? -dy : dy;
-            int angle;
-            if (adx == 0 && ady == 0) { setPixel(px, py, false); continue; }
-            if (adx >= ady)
-                angle = (int)((int64_t)ady * 1000 / adx);
-            else
-                angle = 2000 - (int)((int64_t)adx * 1000 / ady);
-            if (dx < 0) angle = 4000 - angle;
-            if (dy < 0) angle = 8000 - angle;
-            angle = (angle + step * 8000 / (bumps * 2) + 80000) % 8000;
-            int period = 8000 / bumps;
-            int pos = angle % period;
-            // Triangle wave 0→500→0 over one period
-            int half = period / 2;
-            int tri = pos < half ? pos * 500 / half : (period - pos) * 500 / half;
-            int threshold = innerR + (outerR - innerR) * tri / 500;
-            int dist = 0;
-            // Integer sqrt via Newton's method
-            int s = outerR;
-            for (int i = 0; i < 6; i++) s = (s + d2 / s) / 2;
-            dist = s;
-            if (dist <= threshold) setPixel(px, py, false);
+// Badge behind the pal: a 12-point star with every corner filleted, tips and
+// dips alike. A cosine edge reads as a flower and a triangle wave as spikes at
+// this size, so the edge is the real shape's radius over half a lobe (tip to
+// dip, 0-255 of the tip radius), from tools/preview/badge_profile.py.
+static const uint8_t PAL_BADGE_PROFILE[] = {
+    255, 255, 255, 254, 254, 253, 252, 251, 250, 249, 247, 245, 243, 241, 239, 237, 235,
+    233, 232, 230, 228, 227, 225, 224, 222, 221, 220, 219, 218, 218, 218, 217, 217,
+};
+constexpr int PAL_BADGE_STEPS = sizeof(PAL_BADGE_PROFILE) - 1;
+constexpr int PAL_BADGE_R = 56;
+constexpr int PAL_BADGE_POINTS = 12;
+constexpr uint32_t PAL_BADGE_TURN_MS = 30000;  // One revolution: a slow turn, not a spin
+
+// atan2f per pixel is ~12k calls a frame at 10 fps; the S3 has an FPU and the
+// dialog has nothing else to do.
+static void drawPalBadge(int cx, int cy, float turn) {
+    const float lobe = 6.2831853f / PAL_BADGE_POINTS;
+    for (int py = cy - PAL_BADGE_R; py <= cy + PAL_BADGE_R; py++) {
+        for (int px = cx - PAL_BADGE_R; px <= cx + PAL_BADGE_R; px++) {
+            const float dx = px - cx + 0.5f, dy = py - cy + 0.5f;
+            const float d2 = dx * dx + dy * dy;
+            if (d2 > PAL_BADGE_R * PAL_BADGE_R) continue;
+            float a = fmodf(atan2f(dy, dx) + turn, lobe);
+            if (a < 0) a += lobe;
+            float f = 2.0f * a / lobe;  // 0 at a tip, 1 at a dip, back to 0 at the next tip
+            if (f > 1.0f) f = 2.0f - f;
+            const float r = PAL_BADGE_PROFILE[(int)(f * PAL_BADGE_STEPS + 0.5f)] * (PAL_BADGE_R / 255.0f);
+            if (d2 <= r * r) setPixel(px, py, false);
         }
     }
 }
 
 static void flushLines(int fromY, int toY);
 static void flushFramebuffer();
+static void renderToast();
 
-void drawPalDialogFrame(uint8_t palId, int starStep) {
+void drawPalDialog(uint8_t palId, uint32_t ms) {
     _holdButton = {};
     _pressButton = {};
     _completedHoldVisible = false;
-    _pendingHoldPixels = 0;
     memset(_framebuffer, 0xFF, sizeof(_framebuffer));
 
     PalInfo info = palLookup(palId);
     if (!info.dim) { flushFramebuffer(); return; }
-
-    // Battery icon, top-left corner
-    UI::BatteryLevel blevel;
-    switch (_batteryBars) {
-        case 1: blevel = UI::BatteryLevel::Empty; break;
-        case 2: blevel = UI::BatteryLevel::Low; break;
-        case 3: blevel = UI::BatteryLevel::Medium; break;
-        default: blevel = UI::BatteryLevel::Full; break;
-    }
-    if (_usb)
-        drawIconScaled(UI::getChargingIcon(), UI::ICON_SIZE, UI::ICON_SIZE,
-                       TOAST_MARGIN, TOAST_MARGIN, false, 1);
-    else
-        drawIconScaled(UI::getBatteryIcon(blevel), UI::ICON_SIZE, UI::ICON_SIZE,
-                       TOAST_MARGIN, TOAST_MARGIN, false, 1);
 
     // Card: rounded border in the left column, same geometry as the save card.
     const int cardX = VF_PADDING_LEFT;
@@ -744,25 +722,23 @@ void drawPalDialogFrame(uint8_t palId, int starStep) {
     const int cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
     drawRoundedRectBorder(cardX, cardY, cardW, cardH, VF_CORNER_RADIUS, false);
 
-    // Title
     drawTextCenteredAt("you got a", cardX, cardW, cardY + 18, SIDEBAR_FONT, false);
     drawTextCenteredAt("little pal!", cardX, cardW, cardY + 38, SIDEBAR_FONT, false);
 
-    // Rounded star badge + pal, centred between title and name
+    // Badge + pal, centred between title and name
     const int contentTop = cardY + 56;
     const int contentBot = cardY + cardH - 30;
-    int cx = cardX + cardW / 2;
-    int cy = (contentTop + contentBot) / 2;
-    drawRoundedStar(cx, cy, 50, 35, 14, starStep);
+    const int cx = cardX + cardW / 2;
+    const int cy = (contentTop + contentBot) / 2;
+    drawPalBadge(cx, cy, (ms % PAL_BADGE_TURN_MS) * (6.2831853f / PAL_BADGE_TURN_MS));
 
     int8_t dx = 0, dy = 0;
-    const uint8_t* bmp = palIdleFrame(info.idle, millis(), &dx, &dy);
-    int palScale = 4;
-    int pw = info.dim->w * palScale, ph = info.dim->h * palScale;
+    const uint8_t* bmp = palIdleFrame(info.idle, ms, &dx, &dy);
+    const int palScale = 5;
+    const int pw = info.dim->w * palScale, ph = info.dim->h * palScale;
     drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr,
                cx - pw / 2 + dx * palScale, cy - ph / 2 + dy * palScale, palScale, true);
 
-    // Pal name
     drawTextCenteredAt(info.name, cardX, cardW, cardY + cardH - 24, SIDEBAR_FONT, false);
 
     // Right-side buttons (same column as save screen's action bar)
@@ -773,6 +749,13 @@ void drawPalDialogFrame(uint8_t palId, int starStep) {
                   BOX_WIDTH, ACTION_BUTTON_HEIGHT, UI::getCameraIcon(), "skip", "hold");
     if (!_completedHoldVisible) _completedHoldIcon = nullptr;
 
+    renderToast();
+    // The badge turns under a running hold: keep its fill, as renderSaveLayout() does.
+    if (_pendingHoldPixels > 0 && _holdButton.w > 0) {
+        int px = _pendingHoldPixels < _holdButton.w ? _pendingHoldPixels : _holdButton.w;
+        invertButtonColumns(_holdButton.x, _holdButton.y, _holdButton.w, _holdButton.h, 0, px);
+        _holdButton.filledPixels = px;
+    }
     flushFramebuffer();
 }
 
@@ -1720,13 +1703,13 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
     if (_palId > 0 && !awake) {
         PalInfo pi = palLookup(_palId);
         if (pi.dim && pi.idle) {
-            int8_t pdx = 0, pdy = 0;
-            const uint8_t* pbmp = palIdleFrame(pi.idle, millis(), &pdx, &pdy);
+            // Always the first idle frame: a breath re-sends only the face rows,
+            // which overlap the pal, so an animated pal would tear across them.
             const int ps = 8;
             int ph = pi.dim->h * ps;
             int px = TOAST_MARGIN;
-            int py = HEIGHT - SLEEP_BADGE_SIZE - ph - 4 + pdy * ps;
-            drawPalBmp(pbmp, pi.dim->w, pi.dim->h, pi.dim->bpr, px, py, ps, true);
+            int py = HEIGHT - SLEEP_BADGE_SIZE - ph - 4;
+            drawPalBmp(pi.idle->steps[0].bmp, pi.dim->w, pi.dim->h, pi.dim->bpr, px, py, ps, true);
         }
     }
 

@@ -140,9 +140,10 @@ void setSignalLevel(UI::SignalLevel level);
 // Companion pal (little_camera_pals.h). 0 = none, 1-4 = equipped.
 // The sleep face and the viewfinder sidebar draw the equipped pal.
 void setPal(uint8_t palId);
-// Full-screen pal-found dialog. Blocking: runs its own animation loop and
-// returns true (equip) or false (skip).
-void drawPalDialogFrame(uint8_t palId, int starStep);
+// The "you got a little pal" screen at animation time `ms`: the pal on a
+// turning scalloped badge, equip (press) and skip (hold). Mode::PalFound in
+// main.cpp redraws it on a timer; a running hold fill survives the redraw.
+void drawPalDialog(uint8_t palId, uint32_t ms);
 
 // What the phone asked this camera to photograph (docs/protocol.md §3.3
 // PROMPT). The viewfinder says so rather than leaving the holder to guess why
