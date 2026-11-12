@@ -566,6 +566,20 @@ static void feedPal(const char* why) {
     showSleepFace(true);
 }
 
+// After a tap in light sleep the chip is up for the sound anyway, so the pal
+// idles a few seconds before going back to rest: ~60 mA for 4 s per tap,
+// against a pal that otherwise never moves on battery. A press ends it early;
+// the level-triggered GPIO wake then picks that press up as usual.
+constexpr uint32_t TAP_IDLE_MS = 4000;
+static void idlePalAfterTap() {
+    const uint32_t start = millis();
+    while (millis() - start < TAP_IDLE_MS && !shutterPressed()) {
+        Display::animateSleepPal(millis());
+        delay(20);
+    }
+    Display::animateSleepPal(0);
+}
+
 // What a tap on the sleep face does: feed the pal if there is food for it, chirp otherwise.
 static void sleepTap(const char* why) {
     if (Pal::alive(palState) && palState.food) feedPal(why);
@@ -1319,7 +1333,10 @@ void enterSleepMode() {
             // before WAKE_HOLD_MS goes straight back to sleep.
             const uint32_t held = heldToWake();
             if (held >= WAKE_HOLD_MS) break;
-            if (held <= SLEEP_TAP_MAX_MS) sleepTap("Sleep tap");
+            if (held <= SLEEP_TAP_MAX_MS) {
+                sleepTap("Sleep tap");
+                idlePalAfterTap();
+            }
             breathUntil = millis() + BREATH_WINDOW_MS;
             continue;
         }
