@@ -38,11 +38,17 @@ static constexpr uint16_t MELODY3_FREQS[] = {880, 1760, 1319};
 static constexpr uint16_t MELODY3_DURS[] = {30, 30, 30};
 static constexpr uint16_t MELODY3_GAPS[] = {150, 30, 30};
 
+// Pal found (ascending C major arpeggio — a cheerful discovery)
+static constexpr uint16_t MELODY4_FREQS[] = {523, 659, 784, 1047};
+static constexpr uint16_t MELODY4_DURS[] = {25, 25, 25, 40};
+static constexpr uint16_t MELODY4_GAPS[] = {80, 25, 25, 25};
+
 static const MelodyData MELODIES[] = {
     {MELODY0_FREQS, MELODY0_DURS, MELODY0_GAPS, 3, false},  // TaDaDa
     {MELODY1_FREQS, MELODY1_DURS, MELODY1_GAPS, 3, false},  // DaDaTa
     {MELODY2_FREQS, MELODY2_DURS, MELODY2_GAPS, 2, true},   // ChirpChirp
     {MELODY3_FREQS, MELODY3_DURS, MELODY3_GAPS, 3, false},  // Saved
+    {MELODY4_FREQS, MELODY4_DURS, MELODY4_GAPS, 4, false},  // PalFound
 };
 
 // Async melody state

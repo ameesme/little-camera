@@ -3,6 +3,7 @@
 #include "splash_data.h"
 #include "chirp.h"  // Chirp::band: the face follows the mood in the same four steps as the sounds
 #include "ui.h"
+#include "little_camera_pals.h"
 #include <SPI.h>
 
 namespace Display {
@@ -603,11 +604,161 @@ void setFaceBand(uint8_t band) {
     _faceBand = band > 3 ? 3 : band;
 }
 
+// Companion pal — which one lives in the viewfinder and on the sleep screen.
+static uint8_t _palId = 0;
+constexpr uint32_t PAL_SWAP_MS = 5000;
+
+void setPal(uint8_t palId) { _palId = palId; }
+
+struct PalInfo {
+    const pal_dim_t* dim;
+    const pal_anim_t* idle;
+    const char* name;
+};
+
+static PalInfo palLookup(uint8_t id) {
+    switch (id) {
+        case 1: return {&PAL_MOCHI_DIM, &PAL_MOCHI_ANIM_IDLE, "mochi"};
+        case 2: return {&PAL_CROAKS_DIM, &PAL_CROAKS_ANIM_IDLE, "sir croaks"};
+        case 3: return {&PAL_TWEET_DIM, &PAL_TWEET_ANIM_IDLE, "tweet seat"};
+        case 4: return {&PAL_PILLOWCASE_DIM, &PAL_PILLOWCASE_ANIM_IDLE, "pillowcase"};
+        default: return {nullptr, nullptr, ""};
+    }
+}
+
+static const uint8_t* palIdleFrame(const pal_anim_t* anim, uint32_t ms,
+                                    int8_t* outDx = nullptr, int8_t* outDy = nullptr) {
+    uint32_t total = 0;
+    for (int i = 0; i < anim->n; i++) total += anim->steps[i].ms;
+    if (total == 0) { if (outDx) *outDx = 0; if (outDy) *outDy = 0; return anim->steps[0].bmp; }
+    uint32_t t = ms % total;
+    uint32_t acc = 0;
+    for (int i = 0; i < anim->n; i++) {
+        acc += anim->steps[i].ms;
+        if (t < acc) {
+            if (outDx) *outDx = anim->steps[i].dx;
+            if (outDy) *outDy = anim->steps[i].dy;
+            return anim->steps[i].bmp;
+        }
+    }
+    if (outDx) *outDx = 0;
+    if (outDy) *outDy = 0;
+    return anim->steps[0].bmp;
+}
+
+static void drawPalBmp(const uint8_t* bmp, uint8_t bmpW, uint8_t bmpH, uint8_t bpr,
+                       int x, int y, int scale, bool white) {
+    for (int row = 0; row < bmpH; row++) {
+        for (int col = 0; col < bmpW; col++) {
+            if (!(bmp[row * bpr + col / 8] & (0x80 >> (col & 7)))) continue;
+            for (int sy = 0; sy < scale; sy++)
+                for (int sx = 0; sx < scale; sx++)
+                    setPixel(x + col * scale + sx, y + row * scale + sy, white);
+        }
+    }
+}
+
+static void drawPalInBox(int boxX, int boxY, int boxW, int boxH, uint8_t id, int scale, bool white) {
+    PalInfo info = palLookup(id);
+    if (!info.dim || !info.idle) return;
+    int8_t dx = 0, dy = 0;
+    const uint8_t* bmp = palIdleFrame(info.idle, millis(), &dx, &dy);
+    int pw = info.dim->w * scale, ph = info.dim->h * scale;
+    int x = boxX + (boxW - pw) / 2 + dx * scale;
+    int y = boxY + (boxH - ph) / 2 + dy * scale;
+    drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr, x, y, scale, white);
+}
+
+// Integer 16-sector angle classification for the starburst pattern.
+static int angleSector16(int dx, int dy) {
+    int adx = dx < 0 ? -dx : dx;
+    int ady = dy < 0 ? -dy : dy;
+    int sub;
+    if (ady * 1000 < adx * 414)      sub = 0;
+    else if (ady * 1000 < adx * 1000) sub = 1;
+    else if (ady * 414 < adx * 1000)  sub = 2;
+    else                               sub = 3;
+    if (dx >= 0 && dy >= 0) return sub;
+    if (dx <  0 && dy >= 0) return 7 - sub;
+    if (dx <  0 && dy <  0) return 8 + sub;
+    return 15 - sub;
+}
+
+static void drawStarBurst(int cx, int cy, int radius, int step) {
+    const int r2 = radius * radius;
+    for (int py = cy - radius; py <= cy + radius; py++) {
+        for (int px = cx - radius; px <= cx + radius; px++) {
+            int dx = px - cx, dy = py - cy;
+            int d2 = dx * dx + dy * dy;
+            if (d2 > r2 || d2 < 4) continue;
+            int sector = angleSector16(dx, dy);
+            int shifted = (sector + 16 - (step & 15)) & 15;
+            setPixel(px, py, (shifted & 3) < 2);
+        }
+    }
+}
+
+static void flushLines(int fromY, int toY);
+static void flushFramebuffer();
+
+void drawPalDialogFrame(uint8_t palId, int starStep) {
+    _holdButton = {};
+    _pressButton = {};
+    _completedHoldVisible = false;
+    _pendingHoldPixels = 0;
+    memset(_framebuffer, 0xFF, sizeof(_framebuffer));
+
+    PalInfo info = palLookup(palId);
+    if (!info.dim) { flushFramebuffer(); return; }
+
+    // Card: rounded border in the left column, same geometry as the save card.
+    const int cardX = VF_PADDING_LEFT;
+    const int cardY = VF_PADDING_TOP;
+    const int cardW = CARD_WIDTH;
+    const int cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
+    drawRoundedRectBorder(cardX, cardY, cardW, cardH, VF_CORNER_RADIUS, false);
+
+    // Title
+    drawTextCenteredAt("you got a", cardX, cardW, cardY + 18, SIDEBAR_FONT, false);
+    drawTextCenteredAt("little pal!", cardX, cardW, cardY + 38, SIDEBAR_FONT, false);
+
+    // Starburst + pal, centred between title and name
+    const int contentTop = cardY + 56;
+    const int contentBot = cardY + cardH - 30;
+    int cx = cardX + cardW / 2;
+    int cy = (contentTop + contentBot) / 2;
+    drawStarBurst(cx, cy, 50, starStep);
+
+    int8_t dx = 0, dy = 0;
+    const uint8_t* bmp = palIdleFrame(info.idle, millis(), &dx, &dy);
+    int palScale = 6;
+    int pw = info.dim->w * palScale, ph = info.dim->h * palScale;
+    drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr,
+               cx - pw / 2 + dx * palScale, cy - ph / 2 + dy * palScale, palScale, true);
+
+    // Pal name
+    drawTextCenteredAt(info.name, cardX, cardW, cardY + cardH - 24, SIDEBAR_FONT, false);
+
+    // Right-side buttons (same column as save screen's action bar)
+    const int barX = WIDTH - SIDEBAR_PADDING - BOX_WIDTH;
+    drawBoxButton(barX, SIDEBAR_PADDING, BOX_WIDTH, ACTION_BUTTON_HEIGHT,
+                  UI::getSparklesIcon(), "equip", "press");
+    drawBoxButton(barX, SIDEBAR_PADDING + ACTION_BUTTON_HEIGHT + ACTION_GAP,
+                  BOX_WIDTH, ACTION_BUTTON_HEIGHT, UI::getCameraIcon(), "skip", "hold");
+    if (!_completedHoldVisible) _completedHoldIcon = nullptr;
+
+    flushFramebuffer();
+}
+
 static void drawFaceBlock(int x, int faceDy = 0) {
     if (x + BOX_WIDTH <= 0 || x >= WIDTH) return;
     fillRoundedRect(x, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, BOX_RADIUS, false);
-    Face::mini(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
-               (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
+    if (_palId > 0 && (millis() / PAL_SWAP_MS) & 1) {
+        drawPalInBox(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 3, true);
+    } else {
+        Face::mini(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
+                   (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
+    }
 }
 
 // Viewfinder sidebar: the face block, then a box that names the one gesture the
@@ -657,8 +808,12 @@ static void drawCachedSidebar() {
     for (int y = 0; y < HEIGHT; y++) memcpy(_framebuffer + y * BYTES_PER_LINE, cache + y * bytes, bytes);
     _holdButton = hold;
     _pressButton = press;
-    Face::mini(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
-               (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
+    if (_palId > 0 && (millis() / PAL_SWAP_MS) & 1) {
+        drawPalInBox(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 3, true);
+    } else {
+        Face::mini(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
+                   (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
+    }
     if (_holdButton.icon && _holdButton.icon == _completedHoldIcon) {
         invertButtonColumns(hold.x, hold.y, hold.w, hold.h, 0, hold.w);
         _holdButton.filledPixels = hold.w;
@@ -1534,6 +1689,19 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
         fillRoundedRect(boxX, boxY, boxW, boxH, TOAST_RADIUS, false);
         drawRoundedRectBorder(boxX, boxY, boxW, boxH, TOAST_RADIUS, true);
         drawText(text, boxX + TOAST_PADDING_H, boxY + TOAST_PADDING_V, TOAST_FONT, true);
+    }
+
+    if (_palId > 0 && !awake) {
+        PalInfo pi = palLookup(_palId);
+        if (pi.dim && pi.idle) {
+            int8_t pdx = 0, pdy = 0;
+            const uint8_t* pbmp = palIdleFrame(pi.idle, millis(), &pdx, &pdy);
+            const int ps = 8;
+            int ph = pi.dim->h * ps;
+            int px = TOAST_MARGIN;
+            int py = HEIGHT - SLEEP_BADGE_SIZE - ph - 4 + pdy * ps;
+            drawPalBmp(pbmp, pi.dim->w, pi.dim->h, pi.dim->bpr, px, py, ps, true);
+        }
     }
 
     drawSleepBadge(breathIn);

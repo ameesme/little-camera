@@ -26,6 +26,7 @@
 #include "sync.h"
 #include "sync_protocol.h"
 #include "version.h"
+#include "little_camera_pals.h"
 #include <Preferences.h>
 #include <LittleFS.h>
 
@@ -173,6 +174,25 @@ constexpr int MENU_COUNT = 8;
 // One slot that reads "unmute" while muted, so the list and its indices never shift.
 constexpr int MENU_MUTE = 6;
 static int menuSelected = 0;
+
+// Companion pal — persisted in NVS("pal")
+constexpr uint8_t PAL_COUNT = 4;
+static uint8_t equippedPal = 0;
+
+static uint8_t palLoad() {
+    Preferences prefs;
+    if (!prefs.begin("pal", true)) return 0;
+    uint8_t id = prefs.getUChar("id", 0);
+    prefs.end();
+    return id;
+}
+
+static void palSave(uint8_t id) {
+    Preferences prefs;
+    if (!prefs.begin("pal", false)) return;
+    prefs.putUChar("id", id);
+    prefs.end();
+}
 
 // When the sleep face went up (the radio window counts from here).
 // Camera::deinit() is not idempotent, so the driver's state is tracked too.
@@ -572,6 +592,8 @@ void setup() {
     // Before the melody: a muted camera keeps its mute through a reboot, chime included.
     moodBoot();
     applyMute();
+    equippedPal = palLoad();
+    Display::setPal(equippedPal);
     Audio::playMelody(Audio::Melody::TaDaDa);
 
     // Play melody during splash (non-blocking update loop)
@@ -695,6 +717,49 @@ static void leaveMenu() {
     hintToastShowing = false;
 }
 
+// Blocking pal-found dialog. Returns true = equip, false = skip.
+static bool runPalDialog(uint8_t palId) {
+    while (shutterPressed()) { Audio::update(); delay(5); }
+
+    uint32_t start = millis();
+    bool gesturing = false;
+    uint32_t gStart = 0;
+    bool hFired = false;
+
+    for (;;) {
+        int starStep = (int)((millis() - start) / 120);
+        Display::drawPalDialogFrame(palId, starStep);
+        Audio::update();
+
+        bool down = shutterPressed();
+        if (down && !gesturing) {
+            delay(10);
+            if (!shutterPressed()) continue;
+            gStart = millis();
+            gesturing = true;
+            hFired = false;
+        }
+        if (down && gesturing && !hFired) {
+            uint32_t held = millis() - gStart;
+            Display::drawHoldProgress(held, GALLERY_HOLD_MS);
+            if (held >= GALLERY_HOLD_MS) {
+                Display::completeHold();
+                hFired = true;
+                Audio::playClick(true);
+                delay(120);
+                return false;
+            }
+        }
+        if (!down && gesturing && !hFired) {
+            Display::flashPress();
+            Audio::playClick();
+            delay(120);
+            return true;
+        }
+        if (!down) gesturing = false;
+    }
+}
+
 static void menuRunDiagnostics() {
     char versionBuf[16], bootBuf[16], shotsBuf[16], photosBuf[16], storageBuf[32], battBuf[16], uptimeBuf[16];
     snprintf(versionBuf, sizeof(versionBuf), "%s", LC_VERSION_STRING);
@@ -770,6 +835,7 @@ static void menuFactoryReset() {
                 prefs.begin("storage", false); prefs.clear(); prefs.end();
                 prefs.begin("sync", false);    prefs.clear(); prefs.end();
                 prefs.begin("mood", false);    prefs.clear(); prefs.end();
+                prefs.begin("pal", false);     prefs.clear(); prefs.end();
             }
             LittleFS.format();
             delay(200);
@@ -1582,10 +1648,22 @@ void loop() {
                     case Storage::Result::Ok:
                         Storage::bumpShotCount();
                         moodOnPhoto();
-                        // Whatever the phone was waiting for, it has it now.
                         Display::setPrompt(Display::Prompt::None);
-                        Audio::playMelody(Audio::Melody::Saved);
-                        startDismiss("saved");
+                        if (equippedPal == 0) {
+                            uint8_t offered = 1 + (uint8_t)(esp_random() % PAL_COUNT);
+                            Audio::playMelody(Audio::Melody::PalFound);
+                            if (runPalDialog(offered)) {
+                                equippedPal = offered;
+                                palSave(equippedPal);
+                                Display::setPal(equippedPal);
+                                startDismiss("new pal!");
+                            } else {
+                                startDismiss("saved");
+                            }
+                        } else {
+                            Audio::playMelody(Audio::Melody::Saved);
+                            startDismiss("saved");
+                        }
                         break;
                     // Full means every photo on the flash is one the phone
                     // hasn't pulled yet; syncing frees the room.

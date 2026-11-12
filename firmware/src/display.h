@@ -137,6 +137,13 @@ void setFaceBand(uint8_t band);       // 0-3 as Chirp::band: the face the viewfi
 void setPhotoCount(int count);        // Photos on flash (not rendered yet)
 void setSignalLevel(UI::SignalLevel level);
 
+// Companion pal (little_camera_pals.h). 0 = none, 1-4 = equipped.
+// The sleep face and the viewfinder sidebar draw the equipped pal.
+void setPal(uint8_t palId);
+// Full-screen pal-found dialog. Blocking: runs its own animation loop and
+// returns true (equip) or false (skip).
+void drawPalDialogFrame(uint8_t palId, int starStep);
+
 // What the phone asked this camera to photograph (docs/protocol.md §3.3
 // PROMPT). The viewfinder says so rather than leaving the holder to guess why
 // their phone is showing them a card: the sidebar's face block becomes the

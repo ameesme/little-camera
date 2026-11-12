@@ -11,6 +11,7 @@ enum class Melody {
     DaDaTa,  // Reverse ta-da-da (descending) for sleep
     ChirpChirp,
     Saved,   // A, A an octave up, E: the photo is on the flash
+    PalFound, // Ascending C major arpeggio: you got a little pal
     Random
 };
 

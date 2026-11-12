@@ -364,6 +364,15 @@ int main(int argc, char** argv) {
         Display::drawDiagnostics(lines, 8);
     } else if (!strcmp(scene, "menu-share")) {
         Display::drawShareBlog("4NXMAH", "lttl.cam");
+    } else if (!strcmp(scene, "pal-dialog")) {
+        Display::drawPalDialogFrame(1, 3);
+    } else if (!strcmp(scene, "sleep-pal")) {
+        Display::setPal(1);
+        Display::drawSleep((uint8_t)happiness, breath);
+    } else if (!strcmp(scene, "viewfinder-pal")) {
+        Display::setPal(1);
+        Sim::setMillis(5000);  // odd period: shows pal instead of face
+        Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else {
         fprintf(stderr, "error: unknown scene '%s'\n\n", scene);
         usage(argv[0]);
