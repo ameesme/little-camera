@@ -679,7 +679,7 @@ static const uint8_t PAL_BADGE_PROFILE[] = {
     233, 232, 230, 228, 227, 225, 224, 222, 221, 220, 219, 218, 218, 218, 217, 217,
 };
 constexpr int PAL_BADGE_STEPS = sizeof(PAL_BADGE_PROFILE) - 1;
-constexpr int PAL_BADGE_R = 56;
+constexpr int PAL_BADGE_R = 78;
 constexpr int PAL_BADGE_POINTS = 12;
 constexpr uint32_t PAL_BADGE_TURN_MS = 30000;  // One revolution: a slow turn, not a spin
 
@@ -722,11 +722,11 @@ void drawPalDialog(uint8_t palId, uint32_t ms) {
     const int cardH = HEIGHT - VF_PADDING_TOP - VF_PADDING_BOTTOM;
     drawRoundedRectBorder(cardX, cardY, cardW, cardH, VF_CORNER_RADIUS, false);
 
-    drawTextCenteredAt("you got a", cardX, cardW, cardY + 18, SIDEBAR_FONT, false);
-    drawTextCenteredAt("little pal!", cardX, cardW, cardY + 38, SIDEBAR_FONT, false);
+    // One line, so the badge gets the height a second line would take.
+    drawTextCenteredAt("you got a little pal!", cardX, cardW, cardY + 14, SIDEBAR_FONT, false);
 
     // Badge + pal, centred between title and name
-    const int contentTop = cardY + 56;
+    const int contentTop = cardY + 34;
     const int contentBot = cardY + cardH - 30;
     const int cx = cardX + cardW / 2;
     const int cy = (contentTop + contentBot) / 2;
@@ -734,7 +734,7 @@ void drawPalDialog(uint8_t palId, uint32_t ms) {
 
     int8_t dx = 0, dy = 0;
     const uint8_t* bmp = palIdleFrame(info.idle, ms, &dx, &dy);
-    const int palScale = 5;
+    const int palScale = 7;
     const int pw = info.dim->w * palScale, ph = info.dim->h * palScale;
     drawPalBmp(bmp, info.dim->w, info.dim->h, info.dim->bpr,
                cx - pw / 2 + dx * palScale, cy - ph / 2 + dy * palScale, palScale, true);
@@ -763,7 +763,7 @@ static void drawFaceBlock(int x, int faceDy = 0) {
     if (x + BOX_WIDTH <= 0 || x >= WIDTH) return;
     fillRoundedRect(x, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, BOX_RADIUS, false);
     if (_palId > 0 && (millis() / PAL_SWAP_MS) & 1) {
-        drawPalInBox(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 3, true);
+        drawPalInBox(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 2, true);
     } else {
         Face::mini(x, SIDEBAR_PADDING + faceDy, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
                    (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
@@ -818,7 +818,7 @@ static void drawCachedSidebar() {
     _holdButton = hold;
     _pressButton = press;
     if (_palId > 0 && (millis() / PAL_SWAP_MS) & 1) {
-        drawPalInBox(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 3, true);
+        drawPalInBox(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _palId, 2, true);
     } else {
         Face::mini(SIDEBAR_PADDING, SIDEBAR_PADDING, BOX_WIDTH, FACE_BLOCK_HEIGHT, _faceBand,
                    (millis() / FACE_BLOCK_BREATH_MS) & 1, FACE_BLOCK_B);
@@ -1645,8 +1645,11 @@ void drawSplash() {
 constexpr int SLEEP_BADGE_SCALE = 1;
 constexpr int SLEEP_BADGE_SIZE = UI::ICON_SIZE * SLEEP_BADGE_SCALE;
 
+// Top-left, level with the "hold to wake" pill; the pal owns the bottom-left.
+constexpr int SLEEP_BADGE_Y = TOAST_MARGIN;
+
 static void drawSleepBadge(bool breathIn) {
-    const int iconY = HEIGHT - SLEEP_BADGE_SIZE;
+    const int iconY = SLEEP_BADGE_Y;
     if (_usb) {
         drawIconScaled(UI::getChargingIcon(), UI::ICON_SIZE, UI::ICON_SIZE,
                        TOAST_MARGIN, iconY, true, SLEEP_BADGE_SCALE);
@@ -1708,7 +1711,7 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
             const int ps = 8;
             int ph = pi.dim->h * ps;
             int px = TOAST_MARGIN;
-            int py = HEIGHT - SLEEP_BADGE_SIZE - ph - 4;
+            int py = HEIGHT - ph;
             drawPalBmp(pi.idle->steps[0].bmp, pi.dim->w, pi.dim->h, pi.dim->bpr, px, py, ps, true);
         }
     }
@@ -1716,7 +1719,7 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
     drawSleepBadge(breathIn);
     if (status) {
         drawText(status, TOAST_MARGIN + SLEEP_BADGE_SIZE + TOAST_MARGIN,
-                 HEIGHT - UI::fontHeight(TOAST_FONT) - TOAST_MARGIN, TOAST_FONT, true);
+                 SLEEP_BADGE_Y, TOAST_FONT, true);
     }
 
     if (awake) {
@@ -1725,7 +1728,7 @@ static void drawSleepFrame(uint8_t happiness, bool breathIn, bool faceOnly, cons
     }
     if (faceOnly) {
         flushLines(Face::EYE_Y + Face::BREATH_EYES_DY, Face::MOUTH_Y + 2 * Face::B + Face::BREATH_MOUTH_DY);
-        flushLines(HEIGHT - SLEEP_BADGE_SIZE, HEIGHT);
+        flushLines(SLEEP_BADGE_Y, SLEEP_BADGE_Y + SLEEP_BADGE_SIZE);
     } else {
         flushFramebuffer();
     }
