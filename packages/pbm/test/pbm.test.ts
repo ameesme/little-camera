@@ -9,16 +9,13 @@ import {
   cropSquare,
   encodePbm,
   getPixel,
-  majority3x3,
   parsePbm,
   pbmToPng,
   pbmToPngScaled,
-  randomCode,
   scaleNearest,
   setPixel,
   shortCode,
   toGray,
-  toRgba,
 } from '../src/index.js';
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
@@ -172,24 +169,10 @@ describe('pixel operations', () => {
     expect(getPixel(big, 5, 1)).toBe(true);
   });
 
-  it('majority3x3 removes a lone speckle and fills a lone hole', () => {
-    const pbm = blankPbm(9, 9);
-    setPixel(pbm, 4, 4, true); // lone black dot on white
-    for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) setPixel(pbm, x, y, true);
-    setPixel(pbm, 1, 1, false); // lone white hole in a black block
-    const f = majority3x3(pbm);
-    expect(getPixel(f, 4, 4)).toBe(false);
-    expect(getPixel(f, 1, 1)).toBe(true);
-  });
-
-  it('toGray and toRgba agree', () => {
+  it('toGray is one byte a pixel, black as 0', () => {
     const pbm = blankPbm(2, 1);
     setPixel(pbm, 0, 0, true);
     expect(Array.from(toGray(pbm))).toEqual([0, 255]);
-    const rgba = toRgba(pbm, 2);
-    expect([rgba.width, rgba.height]).toEqual([4, 2]);
-    expect(Array.from(rgba.data.subarray(0, 8))).toEqual([0, 0, 0, 255, 0, 0, 0, 255]);
-    expect(Array.from(rgba.data.subarray(8, 12))).toEqual([255, 255, 255, 255]);
   });
 });
 
@@ -208,11 +191,4 @@ describe('codes', () => {
     expect(shortCode(id)).toBe(code);
   });
 
-  it('randomCode draws from the alphabet', () => {
-    const c = randomCode(6);
-    expect(c).toHaveLength(6);
-    expect(c).toMatch(/^[A-Z2-9]{6}$/);
-    for (const ch of c) expect(ALPHABET).toContain(ch);
-    expect(randomCode(6)).not.toBe(randomCode(6));
-  });
 });

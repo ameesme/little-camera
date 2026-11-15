@@ -1,10 +1,11 @@
-// `pnpm fake-camera --code XXXXXX` — pretend to be the bridge app.
+// `pnpm fake-camera --fixture moon` — pretend to be the bridge app.
 //
-// Says hello as a camera, then uploads either a simulated photo of the
-// verification QR (--code) or one of the fixture photos (--fixture cat).
-// Enough to walk the whole registration flow on a laptop without hardware.
+// Says hello as a camera, then asks for an address, names a blog or uploads
+// one of the fixture photos. Enough to walk the whole registration flow on a
+// laptop without hardware.
 //
-//   pnpm fake-camera --code KQ7M2X               # bind the camera to the blog that code belongs to
+//   pnpm fake-camera --email mees@example.com    # POST /claim, then open the link in /app/dev/mailbox
+//   pnpm fake-camera --blog mees --name Mees     # POST /blog for the confirmed address
 //   pnpm fake-camera --fixture moon              # post a picture
 //   pnpm fake-camera --fixture moon --index 12   # with a specific camera index
 //   pnpm fake-camera --status                    # GET /status
@@ -16,8 +17,6 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { encodePbm } from '@little-camera/pbm';
-import { fakeCameraShot } from '../src/lib/simulate.js';
 
 const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i++) {
@@ -52,17 +51,29 @@ async function main() {
     return;
   }
 
-  let bytes: Uint8Array<ArrayBuffer>;
-  if (args.has('code')) {
-    let code = args.get('code')!.toUpperCase();
-    const shot = fakeCameraShot(code, { modulePx: 8, blur: 1, offsetX: 9, offsetY: -5 });
-    bytes = encodePbm(shot.width, shot.height, shot.rows, { boot: 1, up: 12345, t: 0 });
-  } else if (args.has('fixture')) {
-    bytes = new Uint8Array(readFileSync(join(FIXTURES, `${args.get('fixture')}.pbm`)));
-  } else {
-    console.error('need --code XXXXXX, --fixture <name> or --status');
+  const post = (path: string, body: unknown) =>
+    fetch(`${server}/api/camera/${path}`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  if (args.has('email')) {
+    const r = await post('claim', { email: args.get('email') });
+    console.log('claim', r.status, await r.text());
+    return;
+  }
+  if (args.has('blog')) {
+    const handle = args.get('blog')!;
+    const r = await post('blog', { handle, name: args.get('name') ?? handle });
+    console.log('blog', r.status, await r.text());
+    return;
+  }
+
+  if (!args.has('fixture')) {
+    console.error('need --email <address>, --blog <handle>, --fixture <name> or --status');
     process.exit(2);
   }
+  const bytes = new Uint8Array(readFileSync(join(FIXTURES, `${args.get('fixture')}.pbm`)));
 
   const index = args.get('index') ?? String(Math.floor(Date.now() / 1000) % 60000);
   const r = await fetch(`${server}/api/camera/photos`, {

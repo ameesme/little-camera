@@ -11,7 +11,6 @@ enum Demo {
         case "permission": return .permission
         case "setup", "found", "pairing", "bluetooth", "connected": return .setup
         case "firmware", "firmware-flat", "firmware-sending", "firmware-failed": return .firmware
-        case "claim", "asked", "claim-error": return .claim
         case "onboarding", "name", "name-typed", "email", "email-typed", "handle", "handle-checking",
              "handle-taken", "email-taken", "sent", "avatar", "onboard-error":
             return .onboarding
@@ -45,11 +44,7 @@ enum Demo {
     static var syncing: Bool { name == "camera-syncing" }
     static var cameraError: String? { name == "camera-error" ? "Little camera stopped answering halfway." : nil }
     static var blogError: String? {
-        switch name {
-        case "claim-error": return "That link has already been used."
-        case "onboard-error": return "The server did not answer. Try again in a moment."
-        default: return nil
-        }
+        name == "onboard-error" ? "The server did not answer. Try again in a moment." : nil
     }
 
     static var takenEmail: Bool { name == "email-taken" }
@@ -80,8 +75,6 @@ enum Demo {
 
     static var lastSyncAt: Date? { stage == nil ? nil : Date(timeIntervalSinceNow: -5400) }
 
-    static var asked: Bool { name == "asked" || name == "sent" }
-
     /// What the owner would have typed by the time each screen shows up.
     static var typedName: String {
         if name == "name" || name == "onboard-error" { return "" }
@@ -94,8 +87,6 @@ enum Demo {
     static var made: ServerClient.MadeBlog? {
         step == .avatar ? ServerClient.MadeBlog(handle: "mees", url: "https://mees.lttl.cam") : nil
     }
-
-    static let code = "4821-9903-7715"
 
     private static func value(for flag: String) -> String? {
         let args = ProcessInfo.processInfo.arguments
@@ -145,14 +136,12 @@ enum Demo {
 
     static var hasAvatar: Bool { name != "avatar" }
 
-    static func status(claim: ClaimState, bound: Bool) -> StatusResponse {
+    static func status(bound: Bool) -> StatusResponse {
         StatusResponse(
             cameraId: "7cdfa1e2b3c4",
             bound: bound ? BoundBlog(handle: "mees", name: "Mees", url: "https://mees.lttl.cam", photoCount: 12) : nil,
             avatar: AvatarState(requestedAt: nil, hasAvatar: hasAvatar),
             firmware: FirmwareState(installed: "0.2.0", latest: release, updateAvailable: true),
-            claim: claim,
-            pending: nil,
             confirmedEmail: nil,
             subscribers: name == "nobody" || name == "add-person" ? [] : [
                 Subscriber(id: 1, email: "sanne@example.com", name: "Sanne", status: "approved", addedBy: "owner"),

@@ -6,7 +6,6 @@ import { runPurge } from '../src/jobs/purge.js';
 import { drainOutbox } from '../src/lib/email.js';
 import { createToken } from '../src/lib/tokens.js';
 import { bindCamera } from '../src/repo/cameras.js';
-import { insertCode } from '../src/repo/codes.js';
 import { listOutbox } from '../src/repo/outbox.js';
 import { findBlogById, findBlogByHandle } from '../src/repo/blogs.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
@@ -60,7 +59,7 @@ describe('newsletter', () => {
     expect(runNewsletter(w.env)).toBe(1);
     expect(listOutbox(w.env.db)[0].subject).toBe('Mees took a picture');
 
-    // A verification shot is not a post and does not trigger mail.
+    // A verification shot from before binding moved to email is not a post and does not trigger mail.
     w.clock.t += 600;
     w.env.db.prepare(`UPDATE photos SET kind = 'verification' WHERE public_id = ?`).run(a.body.id);
     expect(runNewsletter(w.env)).toBe(0);
@@ -72,17 +71,16 @@ describe('newsletter', () => {
 });
 
 describe('purge', () => {
-  it('removes expired tokens and codes and week-old orphan photos with their files', async () => {
+  it('removes expired tokens and week-old orphan photos with their files', async () => {
     const mees = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
     await hello(w);
     createToken(w.env, { kind: 'device_claim', blogId: mees.id, cameraId: CAM.id });
-    insertCode(w.env.db, 'ABCDEF', mees.id, w.clock.t);
     const orphan = await upload(w, fixture('cat'), 1);
     const path = join(w.env.config.dataDir, findPhotoByPublicId(w.env.db, orphan.body.id)!.path);
 
-    expect(runPurge(w.env)).toEqual({ tokens: 0, codes: 0, blogs: 0, photos: 0 });
+    expect(runPurge(w.env)).toEqual({ tokens: 0, blogs: 0, photos: 0 });
     w.clock.t += 8 * 86400;
-    expect(runPurge(w.env)).toEqual({ tokens: 1, codes: 1, blogs: 0, photos: 1 });
+    expect(runPurge(w.env)).toEqual({ tokens: 1, blogs: 0, photos: 1 });
     expect(existsSync(path)).toBe(false);
     expect(findPhotoByPublicId(w.env.db, orphan.body.id)).toBeNull();
   });

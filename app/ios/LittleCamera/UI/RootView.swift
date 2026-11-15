@@ -14,7 +14,6 @@ struct RootView: View {
                 case .permission: PermissionStage(model: model)
                 case .setup: SetupStage(model: model)
                 case .firmware: FirmwareStage(model: model)
-                case .claim: ClaimStage(model: model)
                 case .onboarding: OnboardStage(model: model)
                 case .ready: MainTabs(model: model)
                 }

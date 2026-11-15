@@ -7,7 +7,6 @@ import { appUrl, blogUrl } from '../config.js';
 import { confirmAddressMail, deviceClaimMail } from '../emails/index.js';
 import { createToken, verifyToken } from '../lib/tokens.js';
 import {
-  approveCameraClaim,
   bindCamera,
   createCamera,
   findCamera,
@@ -19,7 +18,6 @@ import {
   type Telemetry,
 } from '../repo/cameras.js';
 import { findBlogById, type BlogRow } from '../repo/blogs.js';
-import { deleteCodesForBlog, findLiveCode } from '../repo/codes.js';
 
 export interface BoundInfo {
   handle: string;
@@ -62,6 +60,7 @@ export function sayHello(env: Env, input: HelloInput): CameraRow | null {
   return camera;
 }
 
+/** The one way a camera comes to post to a blog; its earlier photos follow it there. */
 export function bind(env: Env, camera: CameraRow, blogId: number): CameraRow {
   bindCamera(env.db, camera.id, blogId, env.now());
   const blog = findBlogById(env.db, blogId);
@@ -71,34 +70,12 @@ export function bind(env: Env, camera: CameraRow, blogId: number): CameraRow {
   return findCamera(env.db, camera.id)!;
 }
 
-/** A verification code read out of an uploaded photo. Null when no live code matches, or when it is the blog the camera already posts to. */
-export function bindByCode(env: Env, camera: CameraRow, code: string): CameraRow | null {
-  const live = findLiveCode(env.db, code, env.now());
-  if (!live || live.blog_id === camera.blog_id) return null;
-  const bound = bind(env, camera, live.blog_id);
-  deleteCodesForBlog(env.db, live.blog_id);
-  return bound;
-}
-
 export function relayTelemetry(env: Env, camera: CameraRow, t: Telemetry): CameraRow {
   setCameraTelemetry(env.db, camera.id, t, env.now());
   return findCamera(env.db, camera.id)!;
 }
 
-export type ClaimState = 'unbound' | 'pending' | 'approved';
-
-/** Approved only for the blog the owner actually allowed, so a pre-approval cannot follow the camera elsewhere. */
-export function claimState(camera: CameraRow): ClaimState {
-  if (camera.blog_id === null) return 'unbound';
-  return camera.claim_blog_id === camera.blog_id ? 'approved' : 'pending';
-}
-
-export function letPhoneIn(env: Env, camera: CameraRow, blogId: number): CameraRow {
-  approveCameraClaim(env.db, camera.id, blogId, env.now());
-  return findCamera(env.db, camera.id)!;
-}
-
-/** Mails the blog's owner, asking whether this phone may manage it. */
+/** Mails the blog's owner, asking whether this camera may post to it and the phone holding it manage it. */
 export function requestClaim(env: Env, camera: CameraRow, blog: BlogRow): void {
   const { token } = createToken(env, { kind: 'device_claim', blogId: blog.id, cameraId: camera.id });
   queueEmail(
@@ -133,12 +110,13 @@ export interface Claim {
   blog: BlogRow;
 }
 
-/** Redeem the emailed link. It names the camera, so it cannot be replayed onto another phone. */
+/** Redeem the emailed link, which binds: it names the camera, so it cannot be replayed onto another one. */
 export function approveClaim(env: Env, token: string | undefined): Claim | null {
   const verified = verifyToken(env, token, 'device_claim');
   if (!verified.ok || !verified.row.camera_id || verified.row.blog_id === null) return null;
   const camera = findCamera(env.db, verified.row.camera_id);
   const blog = findBlogById(env.db, verified.row.blog_id);
-  if (!camera || !blog) return null;
-  return { camera: letPhoneIn(env, camera, blog.id), blog };
+  // Asked for while unbound; a camera that found a blog since then is not moved by an old link.
+  if (!camera || !blog || camera.blog_id !== null) return null;
+  return { camera: bind(env, camera, blog.id), blog };
 }

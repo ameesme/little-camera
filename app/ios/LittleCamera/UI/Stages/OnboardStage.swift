@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// No blog on this camera yet. Make one or sign in to one, let little camera photograph
-/// the code on this screen, then let it take the picture that heads the blog.
+/// No blog on this camera yet. Make one or sign in to one by email, then let little camera
+/// take the picture that heads the blog.
 struct OnboardStage: View {
     let model: AppModel
 
@@ -68,7 +68,8 @@ struct OnboardStage: View {
         }
         .task { model.camera.prompt(for: step) }
         // Which link the owner was sent is the server's business, so the phone waits for either to
-        // land: a confirmed address to name a blog for, or a claim on a blog that already exists.
+        // land: a confirmed address to name a blog for, or the camera bound to a blog that already
+        // exists, which `isLinked` above picks up.
         .task(id: step) {
             while step == .sent, !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
@@ -203,6 +204,13 @@ struct OnboardStage: View {
             .disabled(!enabled)
     }
 
+}
+
+extension String {
+    /// `https://mees.lttl.cam` reads better as `mees.lttl.cam` on a screen this size.
+    var withoutScheme: String {
+        replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")
+    }
 }
 
 /// What is typed and what is fixed, on one line, set at the size of the answer. The fixed

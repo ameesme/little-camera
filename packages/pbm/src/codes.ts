@@ -1,5 +1,4 @@
-// Human-readable codes: the camera's short code and the verification code
-// on the QR page. See docs/protocol.md §1.
+// Human-readable codes: the camera's short code. See docs/protocol.md §1.
 
 import { createHash } from 'node:crypto';
 
@@ -22,17 +21,5 @@ export function shortCode(cameraId: string): string {
     const shift = BigInt(35 - 5 * i);
     code += ALPHABET[Number((v >> shift) & 31n)];
   }
-  return code;
-}
-
-/**
- * Random code from ALPHABET. 256 is a multiple of 32 so masking a random
- * byte is uniform; no rejection sampling needed.
- */
-export function randomCode(len: number): string {
-  const bytes = new Uint8Array(len);
-  crypto.getRandomValues(bytes);
-  let code = '';
-  for (let i = 0; i < len; i++) code += ALPHABET[bytes[i] & 31];
   return code;
 }

@@ -45,7 +45,7 @@ struct CameraTab: View {
             .confirmationDialog("Disconnect little camera?", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
                 Button("Disconnect and log out", role: .destructive) { model.disconnect() }
             } message: {
-                Text("You will have to photograph the code again to come back.")
+                Text("Pair again and this camera still posts to the same blog.")
             }
             .confirmationDialog("Send every picture again?", isPresented: $confirmingResync, titleVisibility: .visible) {
                 Button("Send everything") { camera.resyncEverything() }

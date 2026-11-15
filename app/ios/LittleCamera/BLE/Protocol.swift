@@ -157,7 +157,6 @@ enum UpdateState: UInt8, Equatable {
 /// The shot the phone is standing by for. The camera draws the instruction; this only names it.
 enum CameraPrompt: UInt8 {
     case none = 0
-    case verification = 1
     case selfie = 2
     /// Not a thing to photograph: the panel says hello back (§3.3).
     case hello = 3

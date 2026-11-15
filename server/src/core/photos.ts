@@ -4,11 +4,9 @@ import { dirname, join } from 'node:path';
 import { parsePbm, type Pbm } from '@little-camera/pbm';
 import type { Env } from '../env.js';
 import { publicId } from '../lib/ids.js';
-import { decodeVerificationCode } from '../lib/qr.js';
 import { findCamera, type CameraRow } from '../repo/cameras.js';
 import { blogUrl } from '../config.js';
 import { commentsForPhotos, insertComment } from '../repo/comments.js';
-import { anyLiveCode } from '../repo/codes.js';
 import { findBlogById, setAvatarPhoto, type BlogRow } from '../repo/blogs.js';
 import { setSubscriberName } from '../repo/subscribers.js';
 import type { Viewer } from './blogs.js';
@@ -22,7 +20,6 @@ import {
   type CapturedAtSource,
   type PhotoRow,
 } from '../repo/photos.js';
-import { bindByCode } from './cameras.js';
 
 export const MAX_PHOTO_BYTES = 16 * 1024;
 export const MAX_COMMENT = 1000;
@@ -85,16 +82,6 @@ function storeFile(env: Env, cameraId: string, sha256: string, body: Uint8Array)
   return relPath;
 }
 
-// ponytail: every upload pays a QR decode while any blog has a live code, and a bound camera rebinds to whatever it photographs.
-function tryVerification(env: Env, camera: CameraRow, pbm: Pbm, photo: PhotoRow): { camera: CameraRow; photo: PhotoRow } {
-  if (!anyLiveCode(env.db, env.now())) return { camera, photo };
-  const code = decodeVerificationCode(pbm);
-  const bound = code ? bindByCode(env, camera, code) : null;
-  if (!bound) return { camera, photo };
-  setPhotoKind(env.db, photo.id, 'verification');
-  return { camera: bound, photo: { ...photo, kind: 'verification', blog_id: bound.blog_id } };
-}
-
 /** The first picture taken after the owner asked for a profile picture becomes one. */
 function tryAvatar(env: Env, camera: CameraRow, photo: PhotoRow, capturedAt: number): PhotoRow {
   if (camera.blog_id === null || photo.kind !== 'photo') return photo;
@@ -129,8 +116,7 @@ export function uploadPhoto(env: Env, camera: CameraRow, body: Uint8Array, input
     uploaded_at: uploadedAt,
   });
 
-  const verified = tryVerification(env, camera, pbm, stored);
-  return { status: 'stored', photo: tryAvatar(env, verified.camera, verified.photo, capturedAt), camera: verified.camera };
+  return { status: 'stored', photo: tryAvatar(env, camera, stored, capturedAt), camera };
 }
 
 export interface FeedComment {
@@ -148,13 +134,13 @@ export interface FeedPhoto {
   comments: FeedComment[];
 }
 
-/** The owner's own feed: what the blog shows, as data, newest first. */
-/// The file and the row go together, so nothing is left behind that the feed can no longer name.
+/** The file and the row go together, so nothing is left behind that the feed can no longer name. */
 export function removePhoto(env: Env, photo: PhotoRow): void {
   rmSync(join(env.config.dataDir, photo.path), { force: true });
   deletePhoto(env.db, photo.id);
 }
 
+/** The owner's own feed: what the blog shows, as data, newest first. */
 export function feed(env: Env, blog: BlogRow, limit: number, before?: { capturedAt: number; id: number }): FeedPhoto[] {
   const photos = feedPage(env.db, blog.id, limit, before);
   const comments = commentsForPhotos(env.db, photos.map((p) => p.id), blog.name);

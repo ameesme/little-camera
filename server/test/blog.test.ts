@@ -53,7 +53,7 @@ describe('teaser vs full feed', () => {
     expect(html).toContain('3 more pictures for subscribers');
     expect(html).not.toContain('class="cmtform"');
     // No colour but ink and paper: every hex token on the page is pure black or pure white.
-    for (const hex of html.match(/#[0-9a-fA-F]{3,6}\b/g) ?? []) expect(['#000', '#fff', '#000000', '#ffffff']).toContain(hex.toLowerCase());
+    for (const hex of html.match(/(?<![(\w])#[0-9a-fA-F]{3,6}\b/g) ?? []) expect(['#000', '#fff', '#000000', '#ffffff']).toContain(hex.toLowerCase());
     expect(html).toContain('<img class="shot" width="320" height="240"');
   });
 

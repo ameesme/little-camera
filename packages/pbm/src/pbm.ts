@@ -174,30 +174,6 @@ export function scaleNearest(pbm: Pbm, factor: number): Pbm {
   return out;
 }
 
-/**
- * 3×3 majority filter: a pixel becomes black when at least 5 of the 9 pixels
- * around it (itself included, edges clamped) are black. Removes the isolated
- * dither speckles that confuse a QR decoder without moving edges much.
- */
-export function majority3x3(pbm: Pbm): Pbm {
-  const { width, height } = pbm;
-  const out = blankPbm(width, height, { ...pbm.meta });
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let black = 0;
-      for (let dy = -1; dy <= 1; dy++) {
-        const yy = Math.min(height - 1, Math.max(0, y + dy));
-        for (let dx = -1; dx <= 1; dx++) {
-          const xx = Math.min(width - 1, Math.max(0, x + dx));
-          if (getPixel(pbm, xx, yy)) black++;
-        }
-      }
-      if (black >= 5) setPixel(out, x, y, true);
-    }
-  }
-  return out;
-}
-
 /** One byte per pixel, 0 = black, 255 = white. */
 export function toGray(pbm: Pbm): Uint8ClampedArray {
   const out = new Uint8ClampedArray(pbm.width * pbm.height);
@@ -205,26 +181,4 @@ export function toGray(pbm: Pbm): Uint8ClampedArray {
     for (let x = 0; x < pbm.width; x++) out[y * pbm.width + x] = getPixel(pbm, x, y) ? 0 : 255;
   }
   return out;
-}
-
-/**
- * RGBA buffer (what jsQR and canvases want), optionally upscaled by an
- * integer factor. Returns the buffer and its dimensions.
- */
-export function toRgba(pbm: Pbm, scale = 1): { data: Uint8ClampedArray; width: number; height: number } {
-  const width = pbm.width * scale;
-  const height = pbm.height * scale;
-  const data = new Uint8ClampedArray(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    const sy = (y / scale) | 0;
-    for (let x = 0; x < width; x++) {
-      const v = getPixel(pbm, (x / scale) | 0, sy) ? 0 : 255;
-      const i = (y * width + x) * 4;
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-      data[i + 3] = 255;
-    }
-  }
-  return { data, width, height };
 }

@@ -30,13 +30,13 @@ export function ownerRoutes(env: Env): Hono {
     return camera ? c.html(<AddressConfirmed />) : c.html(<ExpiredLink />, 410);
   });
 
-  // Shown before anything is granted, because the link lands in a mail client that may have prefetched it.
+  // Shown before anything is bound, because the link lands in a mail client that may have prefetched it.
   app.get('/claim', (c) => {
     const token = c.req.query('t') ?? '';
     const row = findTokenByHash(env.db, hashToken(token));
     const camera = row?.camera_id ? findCamera(env.db, row.camera_id) : null;
     const blog = row?.blog_id != null ? findBlogById(env.db, row.blog_id) : null;
-    if (!row || row.kind !== 'device_claim' || row.expires_at <= env.now() || !camera || !blog) {
+    if (!row || row.kind !== 'device_claim' || row.expires_at <= env.now() || !camera || !blog || camera.blog_id !== null) {
       return c.html(<ExpiredLink />, 410);
     }
     return c.html(<ClaimPrompt blogName={hostOf(blog.handle)} shortCode={camera.short_code} token={token} />);

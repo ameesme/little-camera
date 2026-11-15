@@ -19,8 +19,6 @@ export interface CameraRow {
   happiness: number | null;
   mood_elapsed_s: number | null;
   telemetry_at: number | null;
-  claim_approved_at: number | null;
-  claim_blog_id: number | null;
   verified_email: string | null;
 }
 
@@ -40,10 +38,6 @@ export function setCameraTelemetry(db: Db, id: string, t: Telemetry, now: number
     `UPDATE cameras SET battery_percent = ?, battery_mv = ?, charging = ?, used_bytes = ?,
      total_bytes = ?, happiness = ?, mood_elapsed_s = ?, telemetry_at = ? WHERE id = ?`,
   ).run(t.batteryPercent, t.batteryMv, t.charging ? 1 : 0, t.usedBytes, t.totalBytes, t.happiness, t.moodElapsedS, now, id);
-}
-
-export function approveCameraClaim(db: Db, id: string, blogId: number, now: number): void {
-  db.prepare('UPDATE cameras SET claim_approved_at = ?, claim_blog_id = ? WHERE id = ?').run(now, blogId, id);
 }
 
 export function setCameraVerifiedEmail(db: Db, id: string, email: string | null): void {

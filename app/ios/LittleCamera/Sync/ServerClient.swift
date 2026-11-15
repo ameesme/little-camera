@@ -10,13 +10,6 @@ struct BoundBlog: Codable, Equatable {
     let photoCount: Int?
 }
 
-/// How far the phone has got with being let in (§4.9).
-enum ClaimState: String, Codable, Equatable {
-    case unbound
-    case pending
-    case approved
-}
-
 struct FeedComment: Codable, Equatable, Identifiable {
     let id: Int
     let name: String
@@ -83,20 +76,11 @@ struct FirmwareState: Codable, Equatable {
     let updateAvailable: Bool
 }
 
-/// The blog this camera is being set up for, before the code photo binds it (§4.4).
-struct PendingBlog: Codable, Equatable {
-    let handle: String
-    let name: String
-    let verified: Bool
-}
-
 struct StatusResponse: Codable, Equatable {
     let cameraId: String
     let bound: BoundBlog?
     let avatar: AvatarState
     let firmware: FirmwareState?
-    let claim: ClaimState
-    let pending: PendingBlog?
     let confirmedEmail: String?
     let subscribers: [Subscriber]
     let serverTime: Int
@@ -264,7 +248,7 @@ final class ServerClient {
     }
 
 
-    // MARK: Telemetry and being let in (§4.8, §4.9)
+    // MARK: Telemetry and getting a blog (§4.8, §4.9)
 
     /// Relays what Info said, so the blog and the app show the camera's own numbers.
     func sendTelemetry(_ info: CameraInfo) async throws {
@@ -298,7 +282,7 @@ final class ServerClient {
     }
 
     /// Names the blog for the address its owner already confirmed (§4.9) — the phone does not send
-    /// the address here. It still has to photograph the QR code to be bound to it (§5).
+    /// the address here. Naming it binds the camera to it.
     func createBlog(name: String, handle: String) async throws -> MadeBlog {
         struct Body: Encodable {
             let name: String
@@ -311,25 +295,17 @@ final class ServerClient {
         return try decode(MadeBlog.self, code: code, data: data)
     }
 
-    /// Asks the owner, by email, to let this phone in — or, for an address that owns nothing yet, to
-    /// confirm it so a blog can be named for it. The answer is the same either way (§4.9), so the
-    /// phone cannot tell which was sent and neither can anyone holding a camera that is not theirs.
-    func requestClaim(email: String?) async throws {
+    /// Asks the owner of that address, by email, to bind this camera to the blog it owns — or, for an
+    /// address that owns nothing yet, to confirm it so a blog can be named for it. The answer is the
+    /// same either way (§4.9), so the phone cannot tell which was sent and neither can anyone holding
+    /// a camera that is not theirs.
+    func requestClaim(email: String) async throws {
+        struct Body: Encodable { let email: String }
         var req = try request("POST", "claim")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let email {
-            struct Body: Encodable { let email: String }
-            req.httpBody = try encoder.encode(Body(email: email))
-        } else {
-            req.httpBody = Data("{}".utf8)
-        }
+        req.httpBody = try encoder.encode(Body(email: email))
         let (code, data) = try await send(req)
         guard (200..<300).contains(code) else { throw failure(code: code, data: data) }
-    }
-
-    struct Verification: Codable {
-        let code: String
-        let expiresAt: Int
     }
 
     struct HandleCheck: Codable {
@@ -342,15 +318,6 @@ final class ServerClient {
         let req = try request("GET", "handle", query: ["handle": handle])
         let (code, data) = try await send(req)
         return try decode(HandleCheck.self, code: code, data: data).available
-    }
-
-    /// The code the phone puts on its own screen for the camera to photograph (§5).
-    func verificationCode() async throws -> Verification {
-        var req = try request("POST", "verification-code")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = Data("{}".utf8)
-        let (code, data) = try await send(req)
-        return try decode(Verification.self, code: code, data: data)
     }
 
     func feed(before: String?) async throws -> FeedPage {
