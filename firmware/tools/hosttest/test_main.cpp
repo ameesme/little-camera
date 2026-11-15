@@ -96,6 +96,18 @@ static void testPbmHeader() {
     n = Pbm::writeHeader(buf, sizeof(buf), 65535, 65535, 65535, 4294967295u, 4294967295u);
     CHECK(n > 0 && (size_t)n < Pbm::MAX_HEADER);
 
+    // Motion photo (protocol §2.1): ms on the first frame, worst case still fits the 64 bytes old firmware reads
+    n = Pbm::writeHeader(buf, sizeof(buf), 320, 240, 17, 48213, 1757789000u, 412);
+    CHECK(!strcmp(buf, "P4\n# boot=17 up=48213 t=1757789000 ms=412\n320 240\n"));
+    Pbm::Header hm;
+    CHECK(Pbm::parseHeader((const uint8_t*)buf, (size_t)n + 1, &hm));
+    CHECK(hm.ms == 412 && hm.t == 1757789000u && hm.rasterOffset == (size_t)n);
+    CHECK(h2.ms == 0);
+    n = Pbm::writeHeader(buf, sizeof(buf), 65535, 65535, 65535, 4294967295u, 4294967295u, 60000);
+    CHECK(n > 0 && (size_t)n < 64);
+    n = Pbm::writeFrameHeader(buf, sizeof(buf), 320, 240);
+    CHECK(n == 11 && !strcmp(buf, "P4\n320 240\n"));
+
     // Unknown keys are ignored, comments anywhere between tokens are fine
     const char* odd = "P4\n#hello\n# foo=1 t=99\n320\n# x\n240\n";
     Pbm::Header h3;

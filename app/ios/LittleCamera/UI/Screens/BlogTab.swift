@@ -153,14 +153,7 @@ private struct PhotoPost: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncImage(url: URL(string: photo.url)) { image in
-                image
-                    .resizable()
-                    .interpolation(.none)
-                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
-            } placeholder: {
-                Dither().aspectRatio(4.0 / 3.0, contentMode: .fit)
-            }
+            MotionImage(url: URL(string: photo.url), frameMs: photo.frameMs ?? 400)
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
             Caption(Date(timeIntervalSince1970: TimeInterval(photo.capturedAt)).formatted(date: .abbreviated, time: .shortened))
             ForEach(photo.comments) { comment in

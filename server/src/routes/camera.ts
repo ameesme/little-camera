@@ -95,7 +95,7 @@ export function cameraRoutes(env: Env): Hono<CameraVars> {
       return c.json(error('unsupported_media_type', 'Content-Type must be image/x-portable-bitmap'), 415);
     }
     if (Number(c.req.header('content-length') ?? 0) > MAX_PHOTO_BYTES) {
-      return c.json(error('too_large', 'Photo larger than 16 KB'), 413);
+      return c.json(error('too_large', 'Photo larger than 64 KB'), 413);
     }
     const index = c.req.header('x-photo-index');
     if (!index || !/^\d{1,5}$/.test(index)) return c.json(error('bad_request', 'X-Photo-Index header required'), 400);

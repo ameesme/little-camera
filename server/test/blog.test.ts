@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { encodePbmFrames, parsePbm } from '@little-camera/pbm';
 import { createToken } from '../src/lib/tokens.js';
 import { bindCamera } from '../src/repo/cameras.js';
 import { listOutbox } from '../src/repo/outbox.js';
@@ -92,6 +93,16 @@ describe('teaser vs full feed', () => {
     const html = await res.text();
     expect(html).not.toContain(`id="p-${ids[3]}"`);
     expect(html.indexOf(`id="p-${ids[1]}"`)).toBeLessThan(html.indexOf(`id="p-${ids[0]}"`));
+  });
+
+  it('serves a motion photo as a looping APNG at the same URL', async () => {
+    const frames = ['cat', 'cup', 'moon'].map((n) => parsePbm(fixture(n)).rows);
+    const r = await upload(w, encodePbmFrames(320, 240, frames, { t: 1_800_000_000, ms: 400 }), 40);
+    const res = await w.app.request(blog('mees', `/photos/${r.body.id}.png`));
+    expect(res.status).toBe(200);
+    const text = String.fromCharCode(...new Uint8Array(await res.arrayBuffer()));
+    expect(text).toContain('acTL');
+    expect(text.split('fdAT').length - 1).toBe(2);
   });
 
   it('serves photos as cacheable 1-bit PNGs and the avatar as a checker until set', async () => {

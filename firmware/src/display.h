@@ -126,6 +126,10 @@ bool toastVisible();
 // approved. Only valid until the next draw call re-dithers — in practice that
 // means read it while the save screen is up.
 const uint8_t* photoBits();
+// Replace the cached photo with another bitmap of the same shape, without
+// drawing. A motion photo on the save screen steps through its frames with
+// this followed by drawSaveTransition(1.0f).
+void setPhotoBits(const uint8_t* bits);
 // On v3q the panel's VCOM comes from U8's EXTCOMIN with EXTMODE tied high, so these toggles are a no-op kept for tools/preview; the interval now only paces the sleep face's breath.
 constexpr uint32_t VCOM_INTERVAL_MS = 5000;
 

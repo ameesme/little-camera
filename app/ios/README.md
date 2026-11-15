@@ -63,4 +63,5 @@ It builds and every stage has been looked at in the simulator. **Nothing below h
 - **Keychain accessibility.** The secret is `AfterFirstUnlock` so a background sync after a reboot can read it. Untested.
 - **Update throughput.** A 1.5 MB image at iOS's write-without-response rate should be a minute or two, but the camera writes flash from its main loop and the real ceiling is probably there. A log full of rewinds means the camera's window is too big for its loop, not the other way round.
 - **Whether iOS keeps a write-without-response stream alive in the background** for a whole image. The update runs inside the same ~30 s `beginBackgroundTask` window as a sync, which is enough for photos and probably not for firmware, so expect to keep the app open for this one.
+- **Motion photos** (`docs/protocol.md` §2.1) loop in the blog tab through `UI/MotionImage.swift`, which reads the APNG's frames with ImageIO because `AsyncImage` stops at the first. Not yet seen against a real motion upload. *Save to photos* still saves only the first frame.
 - The app icon is a generated black square with a white dithered dot. Replace it with a hand-made one some day.

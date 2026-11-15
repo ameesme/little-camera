@@ -1,7 +1,5 @@
 import { Hono } from 'hono';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { parsePbm, pbmToPng } from '@little-camera/pbm';
+import { photoPng } from '../lib/photo-png.js';
 import { apexUrl, blogUrl } from '../config.js';
 import { approveClaim, confirmAddress } from '../core/cameras.js';
 import { hashToken } from '../lib/tokens.js';
@@ -85,8 +83,7 @@ export function ownerRoutes(env: Env): Hono {
       const mail = findOutbox(env.db, Number(c.req.param('id')));
       const photo = mail?.photo_id ? findPhotoById(env.db, mail.photo_id) : null;
       if (!photo) return c.notFound();
-      const pbm = parsePbm(new Uint8Array(readFileSync(join(env.config.dataDir, photo.path))));
-      return c.body(pbmToPng(pbm), 200, { 'content-type': 'image/png' });
+      return c.body(photoPng(env, photo), 200, { 'content-type': 'image/png' });
     });
   }
 

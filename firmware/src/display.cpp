@@ -177,6 +177,7 @@ static int16_t _errNext[322];
 static uint8_t _photoBits[PHOTO_BYTES * PHOTO_HEIGHT];  // 9600 bytes
 
 const uint8_t* photoBits() { return _photoBits; }
+void setPhotoBits(const uint8_t* bits) { if (bits) memcpy(_photoBits, bits, sizeof(_photoBits)); }
 
 // UI state
 static int _batteryPercent = 100;

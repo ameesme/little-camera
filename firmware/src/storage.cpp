@@ -164,7 +164,12 @@ bool init() {
 }
 
 Result savePhoto(const uint8_t* bits, int width, int height) {
-    if (!_mounted || !bits) return Result::Error;
+    return savePhotoFrames(&bits, 1, 0, width, height);
+}
+
+Result savePhotoFrames(const uint8_t* const* frames, int count, uint16_t frameMs, int width, int height) {
+    if (!_mounted || !frames || count < 1) return Result::Error;
+    for (int i = 0; i < count; i++) if (!frames[i]) return Result::Error;
     if (_count >= MAX_PHOTOS) return Result::Full;
 
     const int stride = (width + 7) / 8;
@@ -177,10 +182,15 @@ Result savePhoto(const uint8_t* bits, int width, int height) {
     time_t now = time(nullptr);
     uint32_t epoch = (now > EPOCH_PLAUSIBLE) ? (uint32_t)now : 0;
     char header[Pbm::MAX_HEADER];
-    int headerLen = Pbm::writeHeader(header, sizeof(header), width, height, _boot, millis(), epoch);
+    int headerLen = Pbm::writeHeader(header, sizeof(header), width, height, _boot, millis(), epoch,
+                                     count > 1 ? frameMs : 0);
     if (headerLen < 0) return Result::Error;
+    char frameHeader[Pbm::MAX_HEADER];
+    const int frameHeaderLen = Pbm::writeFrameHeader(frameHeader, sizeof(frameHeader), width, height);
+    if (frameHeaderLen < 0) return Result::Error;
 
-    const size_t needed = (size_t)headerLen + (size_t)stride * height;
+    const size_t needed = (size_t)headerLen + (size_t)(count - 1) * frameHeaderLen +
+                          (size_t)count * stride * height;
 
     // Make room by evicting the oldest photos the phone already holds. Loops
     // because one delete may not be enough — LittleFS frees whole blocks.
@@ -208,16 +218,19 @@ Result savePhoto(const uint8_t* bits, int width, int height) {
         return Result::Error;
     }
 
-    bool ok = f.write((const uint8_t*)header, headerLen) == (size_t)headerLen;
-
-    // PBM is the other way round from the panel: a set bit is black there, white
-    // here. Invert a row at a time rather than the whole image, so this needs no
-    // second framebuffer.
+    bool ok = true;
     uint8_t row[MAX_STRIDE];
-    for (int y = 0; y < height && ok; y++) {
-        const uint8_t* src = bits + (size_t)y * stride;
-        for (int i = 0; i < stride; i++) row[i] = (uint8_t)~src[i];
-        ok = f.write(row, stride) == (size_t)stride;
+    for (int k = 0; k < count && ok; k++) {
+        if (k == 0) ok = f.write((const uint8_t*)header, headerLen) == (size_t)headerLen;
+        else ok = f.write((const uint8_t*)frameHeader, frameHeaderLen) == (size_t)frameHeaderLen;
+        // PBM is the other way round from the panel: a set bit is black there, white
+        // here. Invert a row at a time rather than the whole image, so this needs no
+        // second framebuffer.
+        for (int y = 0; y < height && ok; y++) {
+            const uint8_t* src = frames[k] + (size_t)y * stride;
+            for (int i = 0; i < stride; i++) row[i] = (uint8_t)~src[i];
+            ok = f.write(row, stride) == (size_t)stride;
+        }
     }
 
     f.close();
@@ -229,7 +242,8 @@ Result savePhoto(const uint8_t* bits, int width, int height) {
         return Result::Error;
     }
 
-    Serial.printf("Storage: wrote %s (%u bytes, t=%lu)\n", path, (unsigned)needed, (unsigned long)epoch);
+    Serial.printf("Storage: wrote %s (%u bytes, %d frame%s, t=%lu)\n", path, (unsigned)needed, count,
+                  count == 1 ? "" : "s", (unsigned long)epoch);
     insertEntry(_nextIndex, false);
     _nextIndex++;
     return Result::Ok;
@@ -305,6 +319,37 @@ bool loadPhoto(int index, uint8_t* bits, size_t len) {
     }
     f.close();
     return ok;
+}
+
+int loadFrames(int index, uint8_t* bits, size_t len, int maxFrames, uint16_t* frameMs) {
+    if (frameMs) *frameMs = 0;
+    if (!_mounted || !bits || maxFrames < 1) return 0;
+    File f = openPhoto(index);
+    if (!f) return 0;
+    const size_t size = f.size();
+    size_t offset = 0;
+    int frames = 0;
+    uint8_t row[MAX_STRIDE];
+    while (frames < maxFrames && offset < size) {
+        Pbm::Header h;
+        if (!f.seek(offset) || !readHeader(f, &h) || Pbm::rasterBytes(h) != len) break;
+        const int stride = (h.width + 7) / 8;
+        if (stride > MAX_STRIDE || offset + h.rasterOffset + len > size || !f.seek(offset + h.rasterOffset)) break;
+        if (frames == 0 && frameMs) *frameMs = h.ms;
+        uint8_t* frame = bits + (size_t)frames * len;
+        bool ok = true;
+        for (int y = 0; y < h.height && ok; y++) {
+            ok = f.read(row, stride) == (size_t)stride;
+            uint8_t* dst = frame + (size_t)y * stride;
+            for (int i = 0; i < stride; i++) dst[i] = (uint8_t)~row[i];
+        }
+        if (!ok) break;
+        frames++;
+        offset += h.rasterOffset + len;
+    }
+    f.close();
+    if (frames < 2 && frameMs) *frameMs = 0;
+    return frames;
 }
 
 int readPhotoChunk(int index, uint32_t offset, uint8_t* out, size_t len) {

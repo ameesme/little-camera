@@ -8,9 +8,12 @@ import {
   blankPbm,
   cropSquare,
   encodePbm,
+  encodePbmFrames,
   getPixel,
   majority3x3,
   parsePbm,
+  parsePbmFrames,
+  pbmFramesToApng,
   pbmToPng,
   pbmToPngScaled,
   randomCode,
@@ -214,5 +217,48 @@ describe('codes', () => {
     expect(c).toMatch(/^[A-Z2-9]{6}$/);
     for (const ch of c) expect(ALPHABET).toContain(ch);
     expect(randomCode(6)).not.toBe(randomCode(6));
+  });
+});
+
+describe('motion photos (protocol §2.1)', () => {
+  const W = 320;
+  const H = 240;
+  const frame = (fill: number) => new Uint8Array(bytesPerRowOf(W) * H).fill(fill);
+  const bytesPerRowOf = (w: number) => (w + 7) >> 3;
+
+  it('round-trips three frames and the ms key', () => {
+    const file = encodePbmFrames(W, H, [frame(0x00), frame(0xaa), frame(0xff)], { boot: 3, up: 10, t: 0, ms: 412 });
+    const frames = parsePbmFrames(file);
+    expect(frames).toHaveLength(3);
+    expect(frames[1].rows[0]).toBe(0xaa);
+    expect(frames[2].meta.ms).toBe(412);
+    // A reader that knows only the first image sees a still.
+    expect(parsePbm(file).rows[0]).toBe(0x00);
+  });
+
+  it('treats a still as one frame', () => {
+    expect(parsePbmFrames(fixture('moon.pbm'))).toHaveLength(1);
+  });
+
+  it('keeps the frames before a truncated one', () => {
+    const file = encodePbmFrames(W, H, [frame(1), frame(2), frame(3)], { ms: 400 });
+    expect(parsePbmFrames(file.subarray(0, file.length - 100))).toHaveLength(2);
+  });
+
+  it('encodes an APNG whose default image is the first frame', () => {
+    const frames = parsePbmFrames(encodePbmFrames(W, H, [frame(0x00), frame(0xff), frame(0x0f)], { ms: 400 }));
+    const apng = pbmFramesToApng(frames, 400);
+    const text = String.fromCharCode(...apng);
+    expect(text.indexOf('acTL')).toBeLessThan(text.indexOf('IDAT'));
+    expect(text.split('fcTL').length - 1).toBe(3);
+    expect(text.split('fdAT').length - 1).toBe(2);
+    // A plain PNG decoder ignores the animation chunks and sees frame one: all white.
+    const png = PNG.sync.read(Buffer.from(apng));
+    expect(png.data[0]).toBe(255);
+  });
+
+  it('falls back to a plain PNG for one frame', () => {
+    const still = parsePbm(fixture('moon.pbm'));
+    expect(pbmFramesToApng([still], 400)).toEqual(pbmToPng(still));
   });
 });

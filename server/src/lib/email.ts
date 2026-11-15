@@ -1,9 +1,7 @@
 // Mail goes through a table so sending is one transactional insert; a drainer does the SMTP talking.
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { parsePbm, pbmToPng } from '@little-camera/pbm';
+import { photoPng } from './photo-png.js';
 import type { Env } from '../env.js';
 import type { Mail } from '../emails/index.js';
 import { findPhotoById } from '../repo/photos.js';
@@ -27,8 +25,8 @@ function inlinePhoto(env: Env, photoId: number | null) {
   const photo = findPhotoById(env.db, photoId);
   if (!photo) return [];
   try {
-    const pbm = parsePbm(new Uint8Array(readFileSync(join(env.config.dataDir, photo.path))));
-    return [{ filename: `${photo.public_id}.png`, content: Buffer.from(pbmToPng(pbm)), cid: 'photo', contentType: 'image/png' }];
+    // Mail clients that know APNG animate a motion photo; the rest show its first frame.
+    return [{ filename: `${photo.public_id}.png`, content: Buffer.from(photoPng(env, photo)), cid: 'photo', contentType: 'image/png' }];
   } catch {
     return [];
   }

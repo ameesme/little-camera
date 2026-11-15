@@ -76,6 +76,31 @@ P4
 
 Files from older firmware have no comment line. Every reader must accept both. Readers must skip any `#` comment between tokens, per the PBM spec.
 
+### 2.1 Motion photos (experimental)
+
+With **motion** switched on in the camera's menu, one press takes three frames about 400 ms apart and stores them as one photo: the three P4 images back to back in the same `NNNN.pbm`, which is the multi-image form Netpbm itself allows. Only the first image carries the comment line, and it gains one key:
+
+```
+P4
+# boot=17 up=48213 t=1757789000 ms=412
+320 240
+<9600 bytes of frame 1>P4
+320 240
+<9600 bytes of frame 2>P4
+320 240
+<9600 bytes of frame 3>
+```
+
+| Field | Meaning |
+|---|---|
+| `ms` | How long each frame shows, in milliseconds: the interval the camera actually measured between frames. Present only on a motion photo |
+
+- **The frame count is what is in the file**, not a header field: a reader keeps parsing images until the bytes run out. Every frame must be 320×240; a reader stops at the first one that is not, or that is cut short, and keeps the frames before it.
+- **A reader that only knows the first image sees a still**, the first frame, so every older reader (old phone, old server, any PBM viewer) degrades to a photo rather than an error. That is the reason for this shape over a new format.
+- Playback loops forever, every frame for `ms` (400 if absent).
+- A motion photo is ~29 KB, three times a still: the camera holds about a third as many, and the upload limit in §4.3 is sized for it.
+- Header, dating rule, sync and `ACK` are unchanged: a motion photo is one file, one index, one photo.
+
 Dating rule (applied by the phone at sync time, and by the server as a fallback):
 
 1. `t > 0` → `captured_at = t`, source `camera`.
@@ -317,7 +342,7 @@ Raw PBM body.
 | `X-Captured-At: 1757789000` | no | phone's estimate when the file has `t=0` |
 | `X-Captured-At-Source: phone` | no | `phone` or `upload` |
 
-Size limit 16 KB. Must parse as `P4 320 240`.
+Size limit 64 KB. Must parse as `P4 320 240`; a motion photo (§2.1) is one to eight such images back to back, and the server keeps the file as it came.
 
 Response `201` (new) or `200` (`"status": "duplicate"`, same `camera_id` + sha256 seen before):
 
@@ -372,12 +397,14 @@ The owner's own blog as data, newest first. `403 unclaimed` until §4.9 is throu
 
 ```json
 {
-  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png", "kind": "photo" | "avatar", "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…", "created_at": 1757789200 } ] } ],
+  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png", "kind": "photo" | "avatar", "frames": 1, "frame_ms": 400, "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…", "created_at": 1757789200 } ] } ],
   "next": "1757789100.0" | null
 }
 ```
 
 Twenty a page. Pass `next` back as `?before=` for the next one.
+
+`frames` is 1 for a still and more for a motion photo (§2.1), and `frame_ms` is how long each frame shows. The `url` is the same PNG either way: for a motion photo it is an **animated PNG** (APNG) that loops forever, whose default image is the first frame, so anything that cannot animate it shows a still. A phone that wants to draw the frames itself reads them out of the APNG.
 
 - `POST /feed/:id/comments` `{ "body": "…" }` → `201 { "name": "Mees" }`. The owner's own comment, under the blog's name: a claimed camera's blog is the owner's (§4.9), so the phone needs nothing further.
 - `DELETE /feed/:id` → `200 { "ok": true }`. Takes the `id` out of `photos[]`. Not reversible: the row, its comments and the stored PBM go. `404 not_found` if the photo is not on this camera's blog.

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { parsePbm, type Pbm } from '@little-camera/pbm';
+import { parsePbmFrames, type Pbm } from '@little-camera/pbm';
 import type { Env } from '../env.js';
 import { publicId } from '../lib/ids.js';
+import { DEFAULT_FRAME_MS, frameMsOf } from '../lib/photo-png.js';
 import { decodeVerificationCode } from '../lib/qr.js';
 import { findCamera, type CameraRow } from '../repo/cameras.js';
 import { blogUrl } from '../config.js';
@@ -24,7 +25,9 @@ import {
 } from '../repo/photos.js';
 import { bindByCode } from './cameras.js';
 
-export const MAX_PHOTO_BYTES = 16 * 1024;
+// A motion photo is three ~9.6 KB frames (protocol §2.1); 64 KB leaves room for up to six with headers.
+export const MAX_PHOTO_BYTES = 64 * 1024;
+
 export const MAX_COMMENT = 1000;
 const WIDTH = 320;
 const HEIGHT = 240;
@@ -52,18 +55,20 @@ export interface UploadResult {
   camera: CameraRow;
 }
 
-function parse(body: Uint8Array): Pbm {
-  if (body.length > MAX_PHOTO_BYTES) throw new PhotoRejected(413, 'too_large', 'Photo larger than 16 KB');
-  let pbm: Pbm;
+/** Every frame of the upload; the first is the still that dating, QR and the avatar look at. */
+function parse(body: Uint8Array): Pbm[] {
+  if (body.length > MAX_PHOTO_BYTES) throw new PhotoRejected(413, 'too_large', 'Photo larger than 64 KB');
+  let frames: Pbm[];
   try {
-    pbm = parsePbm(body);
+    frames = parsePbmFrames(body);
   } catch (err) {
     throw new PhotoRejected(400, 'bad_pbm', (err as Error).message);
   }
+  const pbm = frames[0];
   if (pbm.width !== WIDTH || pbm.height !== HEIGHT) {
     throw new PhotoRejected(400, 'bad_pbm', `Expected ${WIDTH}×${HEIGHT}, got ${pbm.width}×${pbm.height}`);
   }
-  return pbm;
+  return frames;
 }
 
 /** Protocol §2: the camera's own clock, else the phone's estimate, else upload time. */
@@ -106,7 +111,8 @@ function tryAvatar(env: Env, camera: CameraRow, photo: PhotoRow, capturedAt: num
 }
 
 export function uploadPhoto(env: Env, camera: CameraRow, body: Uint8Array, input: UploadInput): UploadResult {
-  const pbm = parse(body);
+  const frames = parse(body);
+  const pbm = frames[0];
   const sha256 = createHash('sha256').update(body).digest('hex');
 
   // The bridge re-uploads after a dropped connection, so a duplicate is the normal path rather than an error.
@@ -127,6 +133,8 @@ export function uploadPhoto(env: Env, camera: CameraRow, body: Uint8Array, input
     captured_at: capturedAt,
     captured_at_source: source,
     uploaded_at: uploadedAt,
+    frames: frames.length,
+    frame_ms: frames.length > 1 ? frameMsOf(pbm) : null,
   });
 
   const verified = tryVerification(env, camera, pbm, stored);
@@ -143,6 +151,8 @@ export interface FeedPhoto {
   id: string;
   url: string;
   kind: string;
+  frames: number;
+  frame_ms: number;
   captured_at: number;
   uploaded_at: number;
   comments: FeedComment[];
@@ -163,6 +173,8 @@ export function feed(env: Env, blog: BlogRow, limit: number, before?: { captured
     id: p.public_id,
     url: `${base}/photos/${p.public_id}.png`,
     kind: p.kind,
+    frames: p.frames,
+    frame_ms: p.frame_ms ?? DEFAULT_FRAME_MS,
     captured_at: p.captured_at,
     uploaded_at: p.uploaded_at,
     comments: (comments.get(p.id) ?? []).map((cm) => ({ id: cm.id, name: cm.name, body: cm.body, created_at: cm.created_at })),
