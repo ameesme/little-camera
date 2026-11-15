@@ -1,6 +1,6 @@
 #pragma once
 
-// The 6-character code a human can type instead of photographing the QR.
+// The 6-character code that tells one camera from another, for a human to read.
 // Derived from the camera id exactly as docs/protocol.md §1 says, so the app
 // and the server arrive at the same six letters independently. Header-only and
 // Arduino-free so the host tests can check it against the doc's vectors.

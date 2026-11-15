@@ -314,10 +314,9 @@ int main(int argc, char** argv) {
         // drawSaveTransition reuses the photo drawCapture dithered
         Display::drawCapture(g_source, Camera::WIDTH, Camera::HEIGHT);
         Display::drawSaveTransition(slideT);
-    } else if (!strcmp(scene, "prompt-card") || !strcmp(scene, "prompt-selfie")) {
-        Display::setPrompt(scene[7] == 'c' ? Display::Prompt::Verification : Display::Prompt::Selfie);
-        Display::showToast(scene[7] == 'c' ? "photograph the card" : "take one of you",
-                           Display::ToastHAlign::Center, Display::ToastVAlign::Bottom, true, 0);
+    } else if (!strcmp(scene, "prompt-selfie")) {
+        Display::setPrompt(Display::Prompt::Selfie);
+        Display::showToast("take one of you", Display::ToastHAlign::Center, Display::ToastVAlign::Bottom, true, 0);
         Display::drawViewfinder(g_source, Camera::WIDTH, Camera::HEIGHT);
     } else if (!strcmp(scene, "toast")) {
         Display::showToast("press to shoot", Display::ToastHAlign::Right,

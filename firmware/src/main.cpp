@@ -1167,9 +1167,7 @@ static void enterPrompt(uint8_t kind) {
         leavePairing();
         return;
     }
-    const Display::Prompt want = kind == SyncProto::PROMPT_VERIFICATION ? Display::Prompt::Verification
-                               : kind == SyncProto::PROMPT_SELFIE       ? Display::Prompt::Selfie
-                                                                        : Display::Prompt::None;
+    const Display::Prompt want = kind == SyncProto::PROMPT_SELFIE ? Display::Prompt::Selfie : Display::Prompt::None;
     Display::setPrompt(want);
     if (want == Display::Prompt::None) {
         Display::clearToast();
@@ -1180,8 +1178,7 @@ static void enterPrompt(uint8_t kind) {
     if (mode != Mode::Viewfinder) return;
     // Indefinite: it stands until the shot is taken or the phone takes it back,
     // unlike the "press to shoot" hint it replaces.
-    Display::showToast(want == Display::Prompt::Verification ? "photograph the card" : "take one of you",
-                       Display::ToastHAlign::Center, Display::ToastVAlign::Bottom, true, 0);
+    Display::showToast("take one of you", Display::ToastHAlign::Center, Display::ToastVAlign::Bottom, true, 0);
     hintToastShowing = true;
     lastActivityTime = millis();
 }

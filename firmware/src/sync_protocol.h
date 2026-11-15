@@ -39,10 +39,10 @@ constexpr uint8_t LIST_FLAG_UNSYNCED_ONLY = 0x01;
 
 // PROMPT kinds. The camera draws the instruction; the phone only says which
 // shot it is waiting for, and sends NONE once it has it.
-constexpr uint8_t PROMPT_NONE         = 0x00;
-constexpr uint8_t PROMPT_VERIFICATION = 0x01;
-constexpr uint8_t PROMPT_SELFIE       = 0x02;
-constexpr uint8_t PROMPT_HELLO        = 0x03;
+// 0x01 was the verification card and is not reused.
+constexpr uint8_t PROMPT_NONE   = 0x00;
+constexpr uint8_t PROMPT_SELFIE = 0x02;
+constexpr uint8_t PROMPT_HELLO  = 0x03;
 
 // Data frame kinds
 constexpr uint8_t KIND_LIST_DATA     = 0x01;

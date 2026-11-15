@@ -506,7 +506,7 @@ void handleCommand(const uint8_t* b, size_t len) {
         }
         case OP_PROMPT: {
             if (len < 2) return reply(op, STATUS_ERROR);
-            if (b[1] > PROMPT_HELLO) return reply(op, STATUS_ERROR);
+            if (b[1] != PROMPT_NONE && b[1] != PROMPT_SELFIE && b[1] != PROMPT_HELLO) return reply(op, STATUS_ERROR);
             pushEvent(Event::Prompt, b[1]);
             return reply(op, STATUS_OK);
         }

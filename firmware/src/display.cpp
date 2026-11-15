@@ -942,9 +942,6 @@ static void drawSidebarButton(int x, bool feedback = true) {
     const int buttonY = SIDEBAR_PADDING + FACE_BLOCK_HEIGHT + FACE_BLOCK_GAP;
     const int buttonH = INBOX_HEIGHT - FACE_BLOCK_HEIGHT - FACE_BLOCK_GAP;
     switch (_prompt) {
-        case Prompt::Verification:
-            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getScanIcon(), "card", "press", feedback);
-            break;
         case Prompt::Selfie:
             drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getUserIcon(), "you", "press", feedback);
             break;

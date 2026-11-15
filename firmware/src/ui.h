@@ -121,10 +121,6 @@ inline const uint8_t* getChargingIcon() {
 }
 
 // What the phone asked the camera to shoot (docs/protocol.md §3.3 PROMPT)
-inline const uint8_t* getScanIcon() {
-    return Icons::SCAN;
-}
-
 inline const uint8_t* getUserIcon() {
     return Icons::USER;
 }
