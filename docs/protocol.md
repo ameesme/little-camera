@@ -397,14 +397,14 @@ The owner's own blog as data, newest first. `403 unclaimed` until §4.9 is throu
 
 ```json
 {
-  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png", "kind": "photo" | "avatar", "frames": 1, "frame_ms": 400, "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…", "created_at": 1757789200 } ] } ],
+  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png" | "…/photos/5jk7ferd11ap.gif", "kind": "photo" | "avatar", "frames": 1, "frame_ms": 400, "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…", "created_at": 1757789200 } ] } ],
   "next": "1757789100.0" | null
 }
 ```
 
 Twenty a page. Pass `next` back as `?before=` for the next one.
 
-`frames` is 1 for a still and more for a motion photo (§2.1), and `frame_ms` is how long each frame shows. The `url` is the same PNG either way: for a motion photo it is an **animated PNG** (APNG) that loops forever, whose default image is the first frame, so anything that cannot animate it shows a still. A phone that wants to draw the frames itself reads them out of the APNG.
+`frames` is 1 for a still and more for a motion photo (§2.1), and `frame_ms` is how long each frame shows. The `url` of a still is a 1-bit PNG; that of a motion photo is a **GIF that loops forever** (`…/photos/<id>.gif`), with the PBM's pixels unchanged and each frame shown for `frame_ms` rounded to GIF's 10 ms ticks. A photo has exactly one of the two addresses, and the other is a 404. GIF rather than APNG because more places animate it: mail clients and the Photos app on iOS show an APNG's first frame only. Only the served form changes; the stored PBM is still the photo.
 
 - `POST /feed/:id/comments` `{ "body": "…" }` → `201 { "name": "Mees" }`. The owner's own comment, under the blog's name: a claimed camera's blog is the owner's (§4.9), so the phone needs nothing further.
 - `DELETE /feed/:id` → `200 { "ok": true }`. Takes the `id` out of `photos[]`. Not reversible: the row, its comments and the stored PBM go. `404 not_found` if the photo is not on this camera's blog.

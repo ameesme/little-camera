@@ -7,7 +7,7 @@ import { blogUrl } from '../config.js';
 import * as subscribers from '../core/subscribers.js';
 import { viewerOf, type Viewer } from '../core/blogs.js';
 import { comment } from '../core/photos.js';
-import { photoPng } from '../lib/photo-png.js';
+import { photoExt, photoImage } from '../lib/photo-image.js';
 import type { Env } from '../env.js';
 import { formatMeta } from '../lib/dates.js';
 import { findCameraByBlog } from '../repo/cameras.js';
@@ -176,16 +176,18 @@ export function blogRoutes(env: Env): Hono<BlogEnv> {
     return json ? c.json({ name: posted.name, body }) : c.redirect(`/p/${photo.public_id}`, 303);
   });
 
-  // The stored PBM as a 1-bit PNG, animated for a motion photo. Addressed by an unguessable id and never changed, so it can be cached forever.
+  // The stored PBM as a 1-bit PNG, or a looping GIF for a motion photo. Addressed by an unguessable id and never changed, so it can be cached forever.
   app.get('/photos/:file', (c) => {
     const blog = c.env.blog;
-    const named = c.req.param('file').match(/^([a-z0-9]{12})\.png$/);
+    const named = c.req.param('file').match(/^([a-z0-9]{12})\.(png|gif)$/);
     const photo = named ? visiblePhoto(env, blog, named[1]) : null;
-    if (!photo) return c.notFound();
+    // One address per photo: a motion photo is only its .gif, a still only its .png.
+    if (!photo || photoExt(photo) !== named![2]) return c.notFound();
     const etag = `"${photo.sha256}"`;
     if (c.req.header('if-none-match') === etag) return c.body(null, 304);
-    return c.body(photoPng(env, photo), 200, {
-      'content-type': 'image/png',
+    const image = photoImage(env, photo);
+    return c.body(image.bytes, 200, {
+      'content-type': image.type,
       'cache-control': 'public, max-age=31536000, immutable',
       etag,
     });

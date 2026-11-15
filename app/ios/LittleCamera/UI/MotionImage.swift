@@ -2,9 +2,9 @@ import SwiftUI
 import ImageIO
 
 /// A blog photo at the dither's own scale: a still, or a motion photo (protocol §2.1) that loops.
-/// The server sends a motion photo as an APNG, and `AsyncImage` only ever shows the first frame of
-/// one, so the frames are read out with ImageIO and stepped by a timeline. A still is one frame
-/// and never redraws.
+/// The server sends a motion photo as a looping GIF (§4.7), and `AsyncImage` only ever shows the
+/// first frame of one, so the frames are read out with ImageIO and stepped by a timeline at the
+/// feed's `frame_ms`. A still is one frame and never redraws.
 struct MotionImage: View {
     let url: URL?
     var frameMs: Int = 400
@@ -34,7 +34,7 @@ struct MotionImage: View {
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
     }
 
-    /// Every frame in the file: one for a PNG, all of them for an APNG. Empty when it cannot be had.
+    /// Every frame in the file: one for a PNG, all of them for a GIF. Empty when it cannot be had.
     private static func load(_ url: URL?) async -> [CGImage] {
         guard let url,
               let (data, _) = try? await URLSession.shared.data(from: url),

@@ -13,7 +13,7 @@ import {
   majority3x3,
   parsePbm,
   parsePbmFrames,
-  pbmFramesToApng,
+  pbmFramesToGif,
   pbmToPng,
   pbmToPngScaled,
   randomCode,
@@ -245,20 +245,104 @@ describe('motion photos (protocol §2.1)', () => {
     expect(parsePbmFrames(file.subarray(0, file.length - 100))).toHaveLength(2);
   });
 
-  it('encodes an APNG whose default image is the first frame', () => {
-    const frames = parsePbmFrames(encodePbmFrames(W, H, [frame(0x00), frame(0xff), frame(0x0f)], { ms: 400 }));
-    const apng = pbmFramesToApng(frames, 400);
-    const text = String.fromCharCode(...apng);
-    expect(text.indexOf('acTL')).toBeLessThan(text.indexOf('IDAT'));
-    expect(text.split('fcTL').length - 1).toBe(3);
-    expect(text.split('fdAT').length - 1).toBe(2);
-    // A plain PNG decoder ignores the animation chunks and sees frame one: all white.
-    const png = PNG.sync.read(Buffer.from(apng));
-    expect(png.data[0]).toBe(255);
+  it('encodes a looping GIF that decodes back to every frame', () => {
+    const rows = ['cat', 'cup', 'moon'].map((n) => parsePbm(fixture(`${n}.pbm`)).rows);
+    const frames = parsePbmFrames(encodePbmFrames(W, H, rows, { ms: 412 }));
+    const gif = decodeGif(pbmFramesToGif(frames, 412));
+    expect(gif).toMatchObject({ width: W, height: H, loops: true, delays: [41, 41, 41] });
+    expect(gif.frames).toHaveLength(3);
+    gif.frames.forEach((indices, f) => {
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          if (indices[y * W + x] !== (getPixel(frames[f], x, y) ? 1 : 0)) throw new Error(`frame ${f} differs at ${x},${y}`);
+        }
+      }
+    });
   });
 
-  it('falls back to a plain PNG for one frame', () => {
-    const still = parsePbm(fixture('moon.pbm'));
-    expect(pbmFramesToApng([still], 400)).toEqual(pbmToPng(still));
+  it('survives the LZW table filling up and clearing', () => {
+    // Noise defeats the dictionary, so the 4096-code table fills many times over.
+    const noise = blankPbm(W, H);
+    let seed = 1;
+    for (let i = 0; i < noise.rows.length; i++) {
+      seed = (seed * 1103515245 + 12345) >>> 0;
+      noise.rows[i] = seed >>> 24;
+    }
+    const gif = decodeGif(pbmFramesToGif([noise], 400));
+    expect(gif.loops).toBe(false);
+    expect(gif.frames[0][5]).toBe(getPixel(noise, 5, 0) ? 1 : 0);
+    expect(Array.from(gif.frames[0]).filter((v, i) => v !== (getPixel(noise, i % W, (i / W) | 0) ? 1 : 0))).toHaveLength(0);
   });
 });
+
+/** Just enough of a GIF decoder to check the encoder: one global table, full-canvas frames, no interlace. */
+function decodeGif(buf: Uint8Array) {
+  const u16 = (i: number) => buf[i] | (buf[i + 1] << 8);
+  expect(String.fromCharCode(...buf.subarray(0, 6))).toBe('GIF89a');
+  const width = u16(6);
+  const height = u16(8);
+  let pos = 13 + 3 * (2 << (buf[10] & 7));
+  const frames: Uint8Array[] = [];
+  const delays: number[] = [];
+  let loops = false;
+  while (buf[pos] !== 0x3b) {
+    if (buf[pos] === 0x21) {
+      if (buf[pos + 1] === 0xf9) delays.push(u16(pos + 4));
+      if (buf[pos + 1] === 0xff) loops = true;
+      pos += 2;
+      while (buf[pos] !== 0) pos += buf[pos] + 1;
+      pos++;
+      continue;
+    }
+    expect(buf[pos]).toBe(0x2c);
+    pos += 10;
+    const minCodeSize = buf[pos++];
+    const data: number[] = [];
+    while (buf[pos] !== 0) {
+      data.push(...buf.subarray(pos + 1, pos + 1 + buf[pos]));
+      pos += buf[pos] + 1;
+    }
+    pos++;
+    frames.push(lzwDecode(Uint8Array.from(data), minCodeSize, width * height));
+  }
+  return { width, height, frames, delays, loops };
+}
+
+function lzwDecode(data: Uint8Array, minCodeSize: number, count: number): Uint8Array {
+  const clear = 1 << minCodeSize;
+  const eoi = clear + 1;
+  const out = new Uint8Array(count);
+  let n = 0;
+  let bitPos = 0;
+  let codeSize = minCodeSize + 1;
+  let table: number[][] = [];
+  const reset = () => {
+    table = [];
+    for (let i = 0; i < clear; i++) table[i] = [i];
+    table[clear] = [];
+    table[eoi] = [];
+    codeSize = minCodeSize + 1;
+  };
+  reset();
+  let prev: number[] | null = null;
+  for (;;) {
+    let code = 0;
+    for (let i = 0; i < codeSize; i++, bitPos++) code |= ((data[bitPos >> 3] >> (bitPos & 7)) & 1) << i;
+    if (code === clear) {
+      reset();
+      prev = null;
+      continue;
+    }
+    if (code === eoi) break;
+    let entry: number[];
+    if (code < table.length) entry = table[code];
+    else if (prev) entry = [...prev, prev[0]];
+    else throw new Error('lzw: bad code');
+    for (const v of entry) out[n++] = v;
+    if (prev && table.length < 4096) table.push([...prev, entry[0]]);
+    if (table.length === 1 << codeSize && codeSize < 12) codeSize++;
+    prev = entry;
+  }
+  if (n !== count) throw new Error(`lzw: ${n} pixels, want ${count}`);
+  return out;
+}

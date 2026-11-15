@@ -5,6 +5,7 @@ import type { CommentView } from '../repo/comments.js';
 import type { PhotoRow } from '../repo/photos.js';
 import type { BlogRow } from '../repo/blogs.js';
 import { Page, Stage } from './layout.js';
+import { photoExt } from '../lib/photo-image.js';
 
 // A real apostrophe, because JSX escapes the ASCII one to &#39;. CSS does the uppercasing.
 export function blogTitle(name: string): string {
@@ -74,7 +75,7 @@ const Article: FC<{ a: ArticleData; viewer: Viewer }> = ({ a, viewer }) => {
         <span>·</span>
         <span>{a.time}</span>
       </div>
-      <img class="shot" width="320" height="240" alt="Photo" src={`/photos/${a.photo.public_id}.png`} />
+      <img class="shot" width="320" height="240" alt="Photo" src={`/photos/${a.photo.public_id}.${photoExt(a.photo)}`} />
       {viewer.kind !== 'anonymous' || a.comments.length > 0 ? (
         <div class="comments">
           <ul>

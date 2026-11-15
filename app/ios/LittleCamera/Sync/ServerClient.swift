@@ -31,7 +31,7 @@ struct FeedPhoto: Codable, Equatable, Identifiable {
     let capturedAt: Int
     let uploadedAt: Int
     let comments: [FeedComment]
-    /// 1 for a still; more for a motion photo, whose `url` is an APNG that loops (§4.7). Absent from older servers.
+    /// 1 for a still; more for a motion photo, whose `url` is a GIF that loops (§4.7). Absent from older servers.
     var frames: Int? = nil
     var frameMs: Int? = nil
 }

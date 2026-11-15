@@ -15,5 +15,6 @@ export {
   toGray,
   toRgba,
 } from './pbm.js';
-export { pbmToPng, pbmFramesToApng, pbmToPngScaled, crc32 } from './png.js';
+export { pbmToPng, pbmToPngScaled, crc32 } from './png.js';
+export { pbmFramesToGif } from './gif.js';
 export { ALPHABET, shortCode, randomCode } from './codes.js';

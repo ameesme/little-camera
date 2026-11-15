@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { parsePbmFrames, type Pbm } from '@little-camera/pbm';
 import type { Env } from '../env.js';
 import { publicId } from '../lib/ids.js';
-import { DEFAULT_FRAME_MS, frameMsOf } from '../lib/photo-png.js';
+import { DEFAULT_FRAME_MS, frameMsOf, photoExt } from '../lib/photo-image.js';
 import { decodeVerificationCode } from '../lib/qr.js';
 import { findCamera, type CameraRow } from '../repo/cameras.js';
 import { blogUrl } from '../config.js';
@@ -171,7 +171,7 @@ export function feed(env: Env, blog: BlogRow, limit: number, before?: { captured
   const base = blogUrl(env.config, blog.handle);
   return photos.map((p) => ({
     id: p.public_id,
-    url: `${base}/photos/${p.public_id}.png`,
+    url: `${base}/photos/${p.public_id}.${photoExt(p)}`,
     kind: p.kind,
     frames: p.frames,
     frame_ms: p.frame_ms ?? DEFAULT_FRAME_MS,
