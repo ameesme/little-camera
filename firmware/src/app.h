@@ -16,6 +16,7 @@
 #include "camera.h"
 #include "console.h"
 #include "display.h"
+#include "gesture.h"
 #include "identity.h"
 #include "mood.h"
 #include "mood_store.h"
@@ -62,7 +63,7 @@ constexpr uint32_t IDLE_TIMEOUT_MS = 20000;  // 20 seconds idle -> sleep
 // screen with a photo waiting on a decision, get longer before the sleep
 // face comes up.
 constexpr uint32_t REVIEW_IDLE_TIMEOUT_MS = 30000;
-// A photo the phone is standing by for: long enough to find the card and frame it, short enough
+// A photo the phone is standing by for: long enough to frame it, short enough
 // that a camera put down mid-ask still sleeps.
 constexpr uint32_t PROMPT_IDLE_TIMEOUT_MS = 120000;
 constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
@@ -147,13 +148,6 @@ constexpr uint32_t PAL_FRAME_MS = 33;
 constexpr uint32_t PAL_WELCOME_SLIDE_MS = 500;
 constexpr uint32_t PAL_WELCOME_MS = 2200;
 
-// ---- Mood (docs/mood.md) ---------------------------------------------------
-//
-// The state machine lives in mood.h and knows nothing about hardware; this is
-// its clock, its flash and its buzzer. Uptime comes from esp_timer: 64-bit,
-// runs through light sleep, never wraps. The wall clock only exists once a
-// phone has set it. -DLC_MOOD_FAST makes uptime run 600x — an hour in six
-// seconds, the whole week in about seventeen minutes — for bench testing.
 constexpr uint32_t BREATH_MS = 5000;  // Sleep face breath period, awake; asleep it is the VCOM tick
 
 // The breath is a liveness cue for whoever just put the camera down, and an
@@ -194,9 +188,7 @@ extern uint32_t lastActivityTime;
 extern bool hintToastShowing;
 extern uint32_t captureShownAt;
 extern uint8_t* savedFrame;
-extern uint32_t pressStartedAt;
-extern bool gestureActive;
-extern bool holdFired;
+extern Gesture::State gesture;
 extern uint32_t dismissStartedAt;
 extern const char* pendingToast;
 extern bool captureHeld;
@@ -281,6 +273,8 @@ void breatheSleepFace();
 extern const char* MENU_ITEMS[];
 extern int menuSelected;
 void showMenu();
+// True while a screen opened from the list is up: it has taken the press and the panel.
+bool menuServiceScreen(bool pressed, bool wasPressed);
 void enterMenu();
 void leaveMenu();
 void menuRunDiagnostics();

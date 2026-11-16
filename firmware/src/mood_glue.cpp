@@ -1,8 +1,14 @@
-// The mood and the pal on real hardware: their clock, flash, buzzer and sleep face.
-
 #include "app.h"
 
 namespace App {
+
+// ---- Mood (docs/mood.md) ---------------------------------------------------
+//
+// The state machine lives in mood.h and knows nothing about hardware; this is
+// its clock, its flash and its buzzer. Uptime comes from esp_timer: 64-bit,
+// runs through light sleep, never wraps. The wall clock only exists once a
+// phone has set it. -DLC_MOOD_FAST makes uptime run 600x — an hour in six
+// seconds, the whole week in about seventeen minutes — for bench testing.
 
 Pal::State palState;
 

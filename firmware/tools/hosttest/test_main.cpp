@@ -15,6 +15,7 @@
 #include "../../src/sync_protocol.h"
 #include "../../src/power.h"
 #include "../../src/hold_progress.h"
+#include "../../src/gesture.h"
 #include "../../src/chirp.h"
 #include "../../src/mood.h"
 #include "../../src/pal.h"
@@ -733,6 +734,53 @@ static void testPal() {
     CHECK(Pal::left(s, cs) == Pal::LIFE_S);
 }
 
+// The button on a screen with a hold action (gesture.h), stepped the way loop() does:
+// one call an iteration, the previous sample passed back in.
+static void testGesture() {
+    using Gesture::Event;
+    Gesture::State g;
+    // A tap: press, a few iterations, release before the threshold.
+    CHECK(Gesture::step(g, true, false, true, 1000, 700) == Event::Began);
+    CHECK(g.active && !g.fired && g.startedAt == 1000);
+    CHECK(Gesture::step(g, true, true, false, 1300, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 1400, 700) == Event::Tap);
+    CHECK(!g.active);
+    CHECK(Gesture::step(g, false, false, false, 1500, 700) == Event::None);
+
+    // A hold fires once, on the threshold, and its release is not a tap.
+    CHECK(Gesture::step(g, true, false, true, 2000, 700) == Event::Began);
+    CHECK(Gesture::step(g, true, true, false, 2699, 700) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 2700, 700) == Event::Hold);
+    CHECK(g.fired);
+    CHECK(Gesture::step(g, true, true, false, 5000, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 5100, 700) == Event::None);
+    CHECK(!g.active);
+
+    // A press edge the debounce rejected starts nothing, and neither does its release.
+    CHECK(Gesture::step(g, true, false, false, 6000, 700) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 9000, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 9100, 700) == Event::None);
+
+    // A button already down when the screen opened (the hold that opened it) is not this screen's press.
+    g = Gesture::State();
+    CHECK(Gesture::step(g, true, true, false, 100, 700) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 5000, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 5100, 700) == Event::None);
+
+    // The bug that shipped: a clock sampled before the press began must not read as a long hold.
+    CHECK(Gesture::step(g, true, false, true, 10010, 1500) == Event::Began);
+    CHECK(Gesture::held(g, 10000) == 0);
+    CHECK(Gesture::step(g, true, true, false, 10000, 1500) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 11510, 1500) == Event::Hold);
+
+    // millis() wrapping mid-press changes nothing.
+    g = Gesture::State();
+    CHECK(Gesture::step(g, true, false, true, 0xFFFFFF00u, 700) == Event::Began);
+    CHECK(Gesture::step(g, true, true, false, 0x00000100u, 700) == Event::None);
+    CHECK(Gesture::held(g, 0x00000100u) == 512);
+    CHECK(Gesture::step(g, true, true, false, 0x000001BCu, 700) == Event::Hold);
+}
+
 int main() {
     CHECK(HoldProgress::pixels(0, 700, 184) == 0);
     CHECK(HoldProgress::pixels(199, 700, 184) == 0);
@@ -745,6 +793,7 @@ int main() {
     CHECK(HoldProgress::pixels(1500, 1500, 112) == 112);
     CHECK(HoldProgress::pixels(500, 0, 112) == 0);
     CHECK(HoldProgress::pixels(500, 700, 0) == 0);
+    testGesture();
     testMood();
     testPal();
     testChirp();

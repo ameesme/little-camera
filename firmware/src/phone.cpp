@@ -35,8 +35,8 @@ void takeOverForPairing() {
     hintToastShowing = false;
     savedFrame = nullptr;
     captureHeld = false;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     mode = Mode::Pairing;
 }
 
@@ -68,8 +68,8 @@ void leavePairing() {
         lastActivityTime = millis();
     }
     hintToastShowing = false;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     Serial.println("Pairing: over");
 }
 
@@ -84,8 +84,8 @@ void enterUpdating(uint32_t size) {
     pendingToast = nullptr;
     savedFrame = nullptr;
     captureHeld = false;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     // Nothing is going to be photographed for the next few minutes, and the
     // sensor is milliamps and 77KB of DRAM that the flash writer would rather
     // have. Same teardown as the idle timeout does.
@@ -120,8 +120,8 @@ void leaveUpdating() {
         lastActivityTime = millis();
     }
     hintToastShowing = false;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
 }
 
 // The image is on flash, verified and armed. Everything after this line is
@@ -157,8 +157,8 @@ void failUpdating(uint32_t status) {
     updateEndedAt = millis();
 }
 
-// The phone is waiting for one particular photo: the card that binds this
-// camera to a blog, or the picture that heads it (docs/protocol.md §3.3). The
+// The phone is waiting for one particular photo: the picture that heads the
+// blog (docs/protocol.md §3.3). The
 // camera says which, because the person holding it is looking at the camera,
 // not at the phone. A sleeping camera wakes for it — being asked for a photo is
 // the one message that is useless behind a closed face.

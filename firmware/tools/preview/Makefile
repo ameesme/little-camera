@@ -23,8 +23,9 @@ scenes: $(BIN)
 	@for s in $(SCENES); do ./$(BIN) $$s --out $(OUT)/$$s.bmp --scale 2; done
 
 test_hold: test_hold.cpp sim_panel.cpp sim_arduino.cpp ../../src/display.cpp ../../src/display.h ../../src/hold_progress.h
-	$(CXX) $(CXXFLAGS) $(INCLUDES) test_hold.cpp sim_panel.cpp sim_arduino.cpp ../../src/display.cpp -o /private/tmp/lc-test-hold
-	/private/tmp/lc-test-hold
+	@mkdir -p out
+	$(CXX) $(CXXFLAGS) $(INCLUDES) test_hold.cpp sim_panel.cpp sim_arduino.cpp ../../src/display.cpp -o out/test_hold
+	out/test_hold
 
 open: scenes
 	@open $(OUT)/*.bmp

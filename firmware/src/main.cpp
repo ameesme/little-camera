@@ -19,11 +19,8 @@ uint32_t captureShownAt = 0;
 // framebuffer and only recycles it on the next call, so this stays valid as
 // long as Capture/Save never grab a new frame — which they don't.
 uint8_t* savedFrame = nullptr;
-// Save-screen gesture tracking: when the current press began, whether a press
-// is in progress, and whether it already crossed the hold threshold.
-uint32_t pressStartedAt = 0;
-bool gestureActive = false;
-bool holdFired = false;
+// The press in progress, shared by every screen (gesture.h).
+Gesture::State gesture;
 // Dismiss slide: when it started and the toast to raise once it lands.
 uint32_t dismissStartedAt = 0;
 const char* pendingToast = nullptr;
@@ -138,8 +135,8 @@ void enterPalFound() {
     Serial.printf("Pal: offering %u\n", offeredPal);
     Audio::playMelody(Audio::Melody::PalFound);
     Display::clearToast();
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     lastActivityTime = millis();
     palShownAt = palDrawnAt = palFpsSince = millis();
     palFrames = 0;
@@ -154,8 +151,8 @@ void leavePalFound(const char* toast) {
         return;
     }
     mode = Mode::Menu;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     lastActivityTime = millis();
     // No toast: the menu never repaints when one expires, so it would stick.
     showMenu();
@@ -164,8 +161,8 @@ void leavePalFound(const char* toast) {
 void enterPalWelcome() {
     Audio::playMelody(Audio::Melody::Saved);
     Display::clearToast();
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     lastActivityTime = millis();
     palWelcomeAt = palDrawnAt = millis();
     palWelcomeHappiness = moodHappiness();
@@ -216,8 +213,8 @@ void enterGallery() {
     cameraOff();
     captureHeld = false;
     galleryOrdinal = 0;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     Display::clearToast();
     hintToastShowing = false;
     galleryToastWasVisible = false;
@@ -230,7 +227,7 @@ void enterGallery() {
         uint32_t start = millis();
         uint32_t slid;
         while ((slid = millis() - start) < SAVE_SLIDE_MS) {
-            if (shutterPressed() && (millis() - pressStartedAt) >= MENU_HOLD_MS) {
+            if (shutterPressed() && (millis() - gesture.startedAt) >= MENU_HOLD_MS) {
                 enterMenu();
                 return;
             }
@@ -241,7 +238,7 @@ void enterGallery() {
     }
     // The button may still be held from the viewfinder — wait for menu or release.
     while (shutterPressed()) {
-        if ((millis() - pressStartedAt) >= MENU_HOLD_MS) {
+        if ((millis() - gesture.startedAt) >= MENU_HOLD_MS) {
             enterMenu();
             return;
         }
@@ -274,7 +271,7 @@ void leaveGallery() {
         }
     }
     mode = Mode::Viewfinder;
-    gestureActive = false;
+    gesture.active = false;
     lastActivityTime = millis();
     hintToastShowing = false;
 }
@@ -283,7 +280,7 @@ void leaveGallery() {
 void returnToViewfinder() {
     savedFrame = nullptr;
     mode = Mode::Viewfinder;
-    gestureActive = false;
+    gesture.active = false;
     lastActivityTime = millis();
     hintToastShowing = false;
     Display::clearToast();
@@ -454,7 +451,7 @@ void loop() {
                 hintToastShowing = true;
             }
 
-            if (!gestureActive) {
+            if (!gesture.active) {
 #ifdef LC_PROFILE_VIEWFINDER
                 const uint32_t captureStart = micros();
 #endif
@@ -495,22 +492,22 @@ void loop() {
             }
 
             if (pressed && !lastPressed) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-            } else if (pressed && gestureActive) {
-                const uint32_t held = millis() - pressStartedAt;
+                gesture.startedAt = millis();
+                gesture.active = true;
+                gesture.fired = false;
+            } else if (pressed && gesture.active) {
+                const uint32_t held = millis() - gesture.startedAt;
                 if (held < GALLERY_HOLD_MS) {
                     Display::drawHoldProgress(held, GALLERY_HOLD_MS);
-                } else if (!holdFired) {
+                } else if (!gesture.fired) {
                     Display::completeHold();
-                    holdFired = true;
+                    gesture.fired = true;
                     Audio::playClick(true);
                     enterGallery();
                     break;
                 }
-            } else if (!pressed && lastPressed && gestureActive) {
-                gestureActive = false;
+            } else if (!pressed && lastPressed && gesture.active) {
+                gesture.active = false;
                 Display::drawHoldProgress(0, GALLERY_HOLD_MS);
                 lastActivityTime = millis();
                 Serial.println("Shutter — capturing");
@@ -525,7 +522,7 @@ void loop() {
                     mode = Mode::Capture;
                 }
             }
-            if (!pressed) gestureActive = false;
+            if (!pressed) gesture.active = false;
             break;
         }
 
@@ -544,34 +541,28 @@ void loop() {
             Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
             mode = Mode::Save;
             cameraOff();
-            gestureActive = false;
-            holdFired = false;
+            gesture.active = false;
+            gesture.fired = false;
             break;
         }
 
         case Mode::Save: {
-            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+            Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                       TRASH_HOLD_MS);
-            if (pressed && !lastPressed && confirmPressed()) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-            }
-            // Re-read the clock instead of using `now` from the top of loop().
-            // confirmPressed() spends 10ms above, so on the iteration that
-            // starts a gesture `pressStartedAt` is *later* than `now` and the
-            // unsigned subtraction wraps to ~4.29 billion — which cleared the
-            // threshold instantly and made every press a trash.
-            else if (pressed && gestureActive && !holdFired &&
-                     (millis() - pressStartedAt) >= TRASH_HOLD_MS) {
-                // Fire on the threshold rather than on release, so the hold has
+            // The clock is read after confirmPressed(), which spends 10ms: with `now`
+            // from the top of loop() the press would start later than the time it
+            // is compared against. Gesture::step treats that as zero held, but a
+            // fresh clock is still the right one.
+            const bool confirmed = pressed && !lastPressed && confirmPressed();
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, confirmed, millis(), TRASH_HOLD_MS);
+            if (ev == Gesture::Event::Hold) {
+                // Fires on the threshold rather than on release, so the hold has
                 // a definite end the user can feel instead of a silent wait.
                 Serial.println("Save: trash");
                 Display::completeHold();
-                holdFired = true;
                 Audio::playMelody(Audio::Melody::DaDaTa);
                 startDismiss("deleted");
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 // Released before the threshold: a tap. No modem on this board,
                 // so "send" writes the photo to flash and stops there
@@ -615,8 +606,6 @@ void loop() {
                 }
             }
 
-            if (!pressed) gestureActive = false;
-
             // Static screen: repaint only when a toast comes or goes, so a
             // "phone connected" raised here also goes away again.
             if (mode == Mode::Save) {
@@ -626,7 +615,7 @@ void loop() {
                     // Not drawSave(): the camera is off and its framebuffer is
                     // gone. t=1 is the same layout off the cached dither.
                     Display::drawSaveTransition(1.0f);
-                    Display::drawHoldProgress(pressed && gestureActive ? millis() - pressStartedAt : 0,
+                    Display::drawHoldProgress(pressed && gesture.active ? millis() - gesture.startedAt : 0,
                                               TRASH_HOLD_MS);
                 }
             }
@@ -634,21 +623,18 @@ void loop() {
         }
 
         case Mode::Gallery: {
-            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+            Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                       GALLERY_HOLD_MS);
-            if (pressed && !lastPressed && confirmPressed()) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-                lastActivityTime = pressStartedAt;  // Browsing is activity
-            } else if (pressed && gestureActive && !holdFired &&
-                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+            const bool confirmed = pressed && !lastPressed && confirmPressed();
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, confirmed, millis(), GALLERY_HOLD_MS);
+            if (ev == Gesture::Event::Began) {
+                lastActivityTime = gesture.startedAt;  // Browsing is activity
+            } else if (ev == Gesture::Event::Hold) {
                 // Fires on the threshold, like trash, so the hold has an end.
                 Display::completeHold();
-                holdFired = true;
                 leaveGallery();
                 break;
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 // A tap: next photo, wrapping. With one forward gesture,
                 // stopping at the oldest would strand the user; the counter
@@ -660,7 +646,6 @@ void loop() {
                 }
                 Audio::playClick(true);
             }
-            if (!pressed) gestureActive = false;
 
             // Static screen: repaint only when the photo changed or a toast
             // came or went (the sync service raises toasts from outside).
@@ -668,68 +653,65 @@ void loop() {
             if (galleryDirty || toastNow != galleryToastWasVisible) {
                 galleryToastWasVisible = toastNow;
                 showGalleryPhoto();
-                Display::drawHoldProgress(pressed && gestureActive ? millis() - pressStartedAt : 0,
+                Display::drawHoldProgress(pressed && gesture.active ? millis() - gesture.startedAt : 0,
                                           GALLERY_HOLD_MS);
             }
             break;
         }
 
         case Mode::Menu: {
-            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+            // A screen opened from the list owns the button and the panel until it closes.
+            if (menuServiceScreen(pressed, lastPressed)) break;
+            Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                       GALLERY_HOLD_MS);
-            if (pressed && !lastPressed) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, true, millis(), GALLERY_HOLD_MS);
+            if (ev == Gesture::Event::Began) {
                 lastActivityTime = millis();
-            } else if (pressed && gestureActive && !holdFired &&
-                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+            } else if (ev == Gesture::Event::Hold) {
                 Display::completeHold();
-                holdFired = true;
                 menuSelect();
                 break;
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 int prev = menuSelected;
                 menuSelected = (menuSelected + 1) % MENU_COUNT;
                 Audio::playClick(true);
                 Display::drawMenuSelect(MENU_ITEMS, MENU_COUNT, prev, menuSelected);
             }
-            if (!pressed) gestureActive = false;
             break;
         }
 
         case Mode::Asleep: {
             if (pressed && !lastPressed && confirmPressed()) {
                 Display::clearWakeProgress();
-                pressStartedAt = millis();
-                gestureActive = true;
-            } else if (pressed && gestureActive) {
-                Display::drawWakeProgress(millis() - pressStartedAt, WAKE_HOLD_MS);
-                if ((millis() - pressStartedAt) >= WAKE_HOLD_MS) {
+                gesture.startedAt = millis();
+                gesture.active = true;
+            } else if (pressed && gesture.active) {
+                Display::drawWakeProgress(millis() - gesture.startedAt, WAKE_HOLD_MS);
+                if ((millis() - gesture.startedAt) >= WAKE_HOLD_MS) {
                     completeWakeFace();
                     wakeFromAsleep(true);
                     break;
                 }
-            } else if (!pressed && lastPressed && gestureActive) {
-                const uint32_t held = millis() - pressStartedAt;
+            } else if (!pressed && lastPressed && gesture.active) {
+                const uint32_t held = millis() - gesture.startedAt;
                 Display::clearWakeProgress();
                 showSleepFace(true);
                 if (held <= SLEEP_TAP_MAX_MS) sleepTap("Asleep tap");
             }
-            if (!pressed) gestureActive = false;
+            if (!pressed) gesture.active = false;
 
             // The face breathes: the other frame every BREATH_MS.
-            if (!gestureActive && millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
+            if (!gesture.active && millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
             // The pal idles while the chip is up; the wake fill owns the panel during a hold.
-            if (!gestureActive) Display::animateSleepPal(millis());
+            if (!gesture.active) Display::animateSleepPal(millis());
 
             // On USB power: stay awake indefinitely, keep the radio on.
             if (onUsb()) {
                 asleepSince = millis();
                 break;
             }
-            if (!gestureActive && millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
+            if (!gesture.active && millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
                 enterSleepMode();
                 return;
             }
@@ -762,18 +744,14 @@ void loop() {
         }
 
         case Mode::PalFound: {
-            if (pressed && !lastPressed && confirmPressed()) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-            } else if (pressed && gestureActive && !holdFired &&
-                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+            const bool confirmed = pressed && !lastPressed && confirmPressed();
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, confirmed, millis(), GALLERY_HOLD_MS);
+            if (ev == Gesture::Event::Hold) {
                 Serial.println("Pal: skipped");
                 Display::completeHold();
-                holdFired = true;
                 Audio::playClick(true);
                 leavePalFound(nullptr);
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 Audio::playClick();
                 Pal::equip(palState, moodClock(), offeredPal);
@@ -783,10 +761,9 @@ void loop() {
                 Serial.printf("Pal: equipped %u\n", palState.id);
                 enterPalWelcome();
             }
-            if (!pressed) gestureActive = false;
 
             if (mode == Mode::PalFound) {
-                Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+                Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                           GALLERY_HOLD_MS);
                 const bool toastNow = Display::toastVisible();
                 if (toastNow != palToastWasVisible) {

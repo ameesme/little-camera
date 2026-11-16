@@ -4,11 +4,73 @@
 
 namespace App {
 
-// System menu
 const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "pal screen", "exit"};
 int menuSelected = 0;
 
-// ---- System menu -----------------------------------------------------------
+// A screen opened from the list. These used to be blocking waits on the pin, which
+// stalled the radio and the idle timeout behind them and, because they were entered
+// with the selecting hold still down, read that same hold as their own input: an
+// info screen closed the moment the button came up, and holding on "factory reset"
+// ran straight through its confirmation. Now each waits for that hold to end first.
+enum class MenuScreen : uint8_t { List, Info, ResetConfirm };
+static MenuScreen menuScreen = MenuScreen::List;
+static bool menuScreenReleased = false;
+static bool menuResetPressing = false;
+static uint32_t menuResetPressedAt = 0;
+
+static void openMenuScreen(MenuScreen screen) {
+    menuScreen = screen;
+    menuScreenReleased = false;
+    menuResetPressing = false;
+    lastActivityTime = millis();
+}
+
+static void closeMenuScreen() {
+    menuScreen = MenuScreen::List;
+    gesture.active = false;
+    gesture.fired = false;
+    lastActivityTime = millis();
+    showMenu();
+}
+
+static void factoryReset() {
+    Serial.println("Menu: FACTORY RESET");
+    Display::drawPairing("resetting", "goodbye");
+    delay(500);
+    // Erase NVS and LittleFS
+    {
+        Preferences prefs;
+        prefs.begin("storage", false); prefs.clear(); prefs.end();
+        prefs.begin("sync", false);    prefs.clear(); prefs.end();
+        prefs.begin("mood", false);    prefs.clear(); prefs.end();
+        prefs.begin("pal", false);     prefs.clear(); prefs.end();
+    }
+    LittleFS.format();
+    delay(200);
+    esp_restart();
+}
+
+bool menuServiceScreen(bool pressed, bool wasPressed) {
+    if (menuScreen == MenuScreen::List) return false;
+    if (!menuScreenReleased) {
+        if (!pressed) menuScreenReleased = true;
+        return true;
+    }
+    if (pressed && !wasPressed) lastActivityTime = millis();
+    if (menuScreen == MenuScreen::Info) {
+        if (!pressed && wasPressed) closeMenuScreen();
+        return true;
+    }
+    if (pressed && !wasPressed) {
+        menuResetPressing = true;
+        menuResetPressedAt = millis();
+    } else if (pressed && menuResetPressing && millis() - menuResetPressedAt >= TRASH_HOLD_MS) {
+        factoryReset();
+    } else if (!pressed && wasPressed && menuResetPressing) {
+        closeMenuScreen();
+    }
+    return true;
+}
 
 void showMenu() {
     MENU_ITEMS[MENU_MUTE] = Audio::muted() ? "unmute" : "mute";
@@ -18,11 +80,12 @@ void showMenu() {
 void enterMenu() {
     cameraOff();
     captureHeld = false;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     Display::clearToast();
     hintToastShowing = false;
     menuSelected = 0;
+    menuScreen = MenuScreen::List;
     mode = Mode::Menu;
     lastActivityTime = millis();
     Audio::playClick();
@@ -35,8 +98,8 @@ void leaveMenu() {
     Serial.println("Menu: close");
     cameraOn();
     mode = Mode::Viewfinder;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     lastActivityTime = millis();
     hintToastShowing = false;
 }
@@ -65,17 +128,13 @@ void menuRunDiagnostics() {
     };
     Display::drawDiagnostics(lines, 8);
     Serial.println("Menu: diagnostics");
-    while (!shutterPressed()) delay(10);
-    while (shutterPressed()) delay(10);
-    showMenu();
+    openMenuScreen(MenuScreen::Info);
 }
 
 void menuShareBlog() {
     Display::drawShareBlog(Identity::shortCode(), "lttl.cam");
     Serial.printf("Menu: share blog — code %s\n", Identity::shortCode());
-    while (!shutterPressed()) delay(10);
-    while (shutterPressed()) delay(10);
-    showMenu();
+    openMenuScreen(MenuScreen::Info);
 }
 
 void menuSoundTest() {
@@ -95,37 +154,13 @@ void menuSoundTest() {
 void menuContrastTest() {
     Serial.println("Menu: contrast test");
     Display::drawTestPattern();
-    while (!shutterPressed()) delay(10);
-    while (shutterPressed()) delay(10);
-    showMenu();
+    openMenuScreen(MenuScreen::Info);
 }
 
 void menuFactoryReset() {
     Display::drawPairing("reset?", "hold to confirm, press to cancel");
     Serial.println("Menu: factory reset prompt");
-    while (!shutterPressed()) delay(10);
-    uint32_t start = millis();
-    while (shutterPressed()) {
-        if (millis() - start >= TRASH_HOLD_MS) {
-            Serial.println("Menu: FACTORY RESET");
-            Display::drawPairing("resetting", "goodbye");
-            delay(500);
-            // Erase NVS and LittleFS
-            {
-                Preferences prefs;
-                prefs.begin("storage", false); prefs.clear(); prefs.end();
-                prefs.begin("sync", false);    prefs.clear(); prefs.end();
-                prefs.begin("mood", false);    prefs.clear(); prefs.end();
-                prefs.begin("pal", false);     prefs.clear(); prefs.end();
-            }
-            LittleFS.format();
-            delay(200);
-            esp_restart();
-            return;
-        }
-        delay(10);
-    }
-    showMenu();
+    openMenuScreen(MenuScreen::ResetConfirm);
 }
 
 void menuReboot() {

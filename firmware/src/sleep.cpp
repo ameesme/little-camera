@@ -82,8 +82,8 @@ void enterAsleep() {
     sleepBreathIn = false;
     showSleepFace(true);
     asleepSince = millis();
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     mode = Mode::Asleep;
 }
 
@@ -108,8 +108,8 @@ void wakeFromAsleep(bool fromHold) {
     if (fromHold) enterWakeViewfinder();
     mode = Mode::Viewfinder;
     hintToastShowing = false;
-    gestureActive = false;
-    holdFired = false;
+    gesture.active = false;
+    gesture.fired = false;
     lastActivityTime = millis();
 }
 
@@ -239,7 +239,7 @@ void enterSleepMode() {
         // USB keeps the console and radio available without powering the sensor.
         mode = Mode::Asleep;
         asleepSince = millis();
-        gestureActive = false;
+        gesture.active = false;
         lastPressed = false;
 #ifndef LC_NO_BLE
         Sync::begin();
