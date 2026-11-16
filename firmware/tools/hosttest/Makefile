@@ -22,7 +22,7 @@ clean:
 # build (storage, console, identity, main). Arduino/ESP-IDF headers are stubbed
 # under stubs/; this catches typos and API mismatches without PlatformIO. It
 # is not a substitute for a real build.
-CHECK_SRCS = ../../src/audio.cpp ../../src/mood_store.cpp ../../src/storage.cpp ../../src/console.cpp ../../src/identity.cpp ../../src/ota.cpp ../../src/sync.cpp ../../src/main.cpp
+CHECK_SRCS = ../../src/audio.cpp ../../src/mood_store.cpp ../../src/storage.cpp ../../src/console.cpp ../../src/identity.cpp ../../src/ota.cpp ../../src/sync.cpp ../../src/main.cpp ../../src/battery.cpp ../../src/mood_glue.cpp ../../src/menu.cpp ../../src/sleep.cpp ../../src/phone.cpp
 
 check:
 	@for f in $(CHECK_SRCS); do \
