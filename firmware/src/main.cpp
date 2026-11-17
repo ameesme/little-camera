@@ -38,10 +38,28 @@ bool galleryDirty = false;
 bool galleryToastWasVisible = false;
 // Same for the save screen, which is also drawn once and then left alone.
 bool saveToastWasVisible = false;
-// The decoded photo. Its own buffer rather than Display's: 9.6KB is noise next
-// to the 77KB camera frame, and Display keeps its bitmaps-in, pixels-out
-// contract (which is what lets the preview tool render the gallery).
-uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
+// Motion photos, an experiment switched in the menu (docs/protocol.md §2.1):
+// one press takes MOTION_FRAMES frames MOTION_FRAME_MS apart and saves them as
+// one file that loops. Off by default, persisted in NVS("camera").motion.
+bool motionOn = false;
+// Decoded frames, 1-bit, panel polarity. Shared by the shot under review and
+// the gallery because the two are never up at once: 28.8KB once instead of
+// twice. Display keeps its bitmaps-in, pixels-out contract (which is what lets
+// the preview tool render the gallery), so these are ours and not Display's.
+static uint8_t frameBits[MOTION_FRAMES][FRAME_BYTES];
+static uint8_t* const galleryBits = frameBits[0];
+// The shot being taken: frames wanted, frames in hand, when the first and the
+// last were grabbed, and the interval measured between them.
+static int shotTarget = 1;
+static int shotFrames = 0;
+static uint32_t shotStartedAt = 0;
+static uint32_t shotLastAt = 0;
+static uint16_t shotFrameMs = 0;
+// Playback of whatever motion photo is on screen (save screen or gallery).
+static int playFrames = 1;
+static int playFrame = 0;
+static uint16_t playMs = MOTION_FRAME_MS;
+static uint32_t playStepAt = 0;
 uint8_t offeredPal = 0;
 uint32_t palShownAt = 0;
 uint32_t palDrawnAt = 0;
@@ -188,6 +206,7 @@ void leavePalWelcome() {
 // copied onto the flash by some future tool might be the wrong size.
 void showGalleryPhoto() {
     galleryDirty = false;
+    playFrames = 1;
     int total = Storage::photoCount();
     if (total <= 0) {
         Display::drawGalleryEmpty();
@@ -196,7 +215,13 @@ void showGalleryPhoto() {
     if (galleryOrdinal >= total) galleryOrdinal = 0;
     for (int tries = 0; tries < total; tries++) {
         int index = Storage::photoAt(galleryOrdinal);
-        if (index > 0 && Storage::loadPhoto(index, galleryBits, sizeof(galleryBits))) {
+        uint16_t ms = 0;
+        const int frames = index > 0 ? Storage::loadFrames(index, galleryBits, FRAME_BYTES, MOTION_FRAMES, &ms) : 0;
+        if (frames > 0) {
+            playFrames = frames;
+            playFrame = 0;
+            playMs = ms ? ms : MOTION_FRAME_MS;
+            playStepAt = millis();
             Display::drawGallery(galleryBits, galleryOrdinal, total);
             return;
         }
@@ -223,7 +248,7 @@ void enterGallery() {
     Serial.println("Gallery: open");
     int total = Storage::photoCount();
     int index = total > 0 ? Storage::photoAt(0) : 0;
-    if (index > 0 && Storage::loadPhoto(index, galleryBits, sizeof(galleryBits))) {
+    if (index > 0 && Storage::loadPhoto(index, galleryBits, FRAME_BYTES)) {
         uint32_t start = millis();
         uint32_t slid;
         while ((slid = millis() - start) < SAVE_SLIDE_MS) {
@@ -349,6 +374,14 @@ void setup() {
     moodBoot();
     applyMute();
     palBoot();
+    {
+        Preferences prefs;
+        if (prefs.begin("camera", true)) {
+            motionOn = prefs.getUChar("motion", 0) != 0;
+            prefs.end();
+        }
+        if (motionOn) Serial.println("Motion: on");
+    }
     Display::setPal(palState.id);
     palShowCare();
     Audio::playMelody(Audio::Melody::TaDaDa);
@@ -519,6 +552,11 @@ void loop() {
                     Audio::playClick();
                     Audio::playMelody(Audio::Melody::TaDaDa);
                     captureShownAt = millis();
+                    shotTarget = motionOn ? MOTION_FRAMES : 1;
+                    shotFrames = 1;
+                    shotStartedAt = shotLastAt = captureShownAt;
+                    shotFrameMs = 0;
+                    memcpy(frameBits[0], Display::photoBits(), FRAME_BYTES);
                     mode = Mode::Capture;
                 }
             }
@@ -527,6 +565,25 @@ void loop() {
         }
 
         case Mode::Capture: {
+            // A motion shot keeps grabbing until it has its frames; each one goes up as
+            // it lands, so the panel shows the burst happening. The dwell starts after.
+            if (shotFrames < shotTarget) {
+                if (millis() - shotLastAt < MOTION_FRAME_MS) break;
+                uint8_t* frame = Camera::capture();
+                if (!frame) break;
+                savedFrame = frame;
+                shotLastAt = millis();
+                Display::drawCapture(frame, Camera::WIDTH, Camera::HEIGHT);
+                memcpy(frameBits[shotFrames++], Display::photoBits(), FRAME_BYTES);
+                Audio::playClick(true);
+                if (shotFrames == shotTarget) {
+                    // The real interval, capture waits included, so playback runs at the speed it was shot.
+                    shotFrameMs = (uint16_t)((shotLastAt - shotStartedAt) / (shotTarget - 1));
+                    captureShownAt = shotLastAt;
+                    Serial.printf("Motion: %d frames, %ums apart\n", shotFrames, (unsigned)shotFrameMs);
+                }
+                break;
+            }
             uint32_t elapsed = millis() - captureShownAt;
             if (elapsed < CAPTURE_DWELL_MS) break;
 
@@ -539,6 +596,10 @@ void loop() {
             Display::clearToast();
             saveToastWasVisible = false;
             Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+            playFrames = shotFrames;
+            playFrame = shotFrames - 1;
+            playMs = shotFrameMs ? shotFrameMs : MOTION_FRAME_MS;
+            playStepAt = millis();
             mode = Mode::Save;
             cameraOff();
             gesture.active = false;
@@ -572,9 +633,15 @@ void loop() {
                 // what actually happened. The write is ~10KB and stalls the
                 // frozen frame briefly before the slide starts, which reads as
                 // part of the button press rather than as a dropped frame.
-                Storage::Result r = Storage::savePhoto(Display::photoBits(),
-                                                       Display::PHOTO_WIDTH,
-                                                       Display::PHOTO_HEIGHT);
+                // A motion shot saves its frames, not whichever one is on the panel right now.
+                const uint8_t* frames[MOTION_FRAMES] = {};
+                for (int i = 0; i < shotFrames && i < MOTION_FRAMES; i++) frames[i] = frameBits[i];
+                Storage::Result r = shotFrames > 1
+                    ? Storage::savePhotoFrames(frames, shotFrames, shotFrameMs,
+                                               Display::PHOTO_WIDTH, Display::PHOTO_HEIGHT)
+                    : Storage::savePhoto(Display::photoBits(),
+                                         Display::PHOTO_WIDTH,
+                                         Display::PHOTO_HEIGHT);
                 Audio::playClick();
                 switch (r) {
                     case Storage::Result::Ok:
@@ -610,7 +677,13 @@ void loop() {
             // "phone connected" raised here also goes away again.
             if (mode == Mode::Save) {
                 bool toastNow = Display::toastVisible();
-                if (toastNow != saveToastWasVisible) {
+                bool step = playFrames > 1 && millis() - playStepAt >= playMs;
+                if (step) {
+                    playStepAt = millis();
+                    playFrame = (playFrame + 1) % playFrames;
+                    Display::setPhotoBits(frameBits[playFrame]);
+                }
+                if (step || toastNow != saveToastWasVisible) {
                     saveToastWasVisible = toastNow;
                     // Not drawSave(): the camera is off and its framebuffer is
                     // gone. t=1 is the same layout off the cached dither.
@@ -654,6 +727,13 @@ void loop() {
                 galleryToastWasVisible = toastNow;
                 showGalleryPhoto();
                 Display::drawHoldProgress(pressed && gesture.active ? millis() - gesture.startedAt : 0,
+                                          GALLERY_HOLD_MS);
+            } else if (playFrames > 1 && millis() - playStepAt >= playMs && Storage::photoCount() > 0) {
+                // A motion photo loops; a still never repaints.
+                playStepAt = millis();
+                playFrame = (playFrame + 1) % playFrames;
+                Display::drawGallery(frameBits[playFrame], galleryOrdinal, Storage::photoCount());
+                Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                           GALLERY_HOLD_MS);
             }
             break;

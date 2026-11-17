@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { encodePbmFrames, parsePbm } from '@little-camera/pbm';
 import { bindCamera, findCamera } from '../src/repo/cameras.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
 import { listOutbox } from '../src/repo/outbox.js';
@@ -74,6 +75,22 @@ describe('POST /api/camera/photos', () => {
     expect(dup.body).toMatchObject({ id: r.body.id, status: 'duplicate', kind: 'photo' });
   });
 
+  it('stores a motion photo whole, with its frame count and interval', async () => {
+    const frames = ['cat', 'cup', 'moon'].map((n) => parsePbm(fixture(n)).rows);
+    const bytes = encodePbmFrames(320, 240, frames, { boot: 3, up: 1000, t: 1_700_000_000, ms: 412 });
+    expect(bytes.length).toBeGreaterThan(16 * 1024);
+    const r = await upload(w, bytes, 3);
+    expect(r.status).toBe(201);
+    const row = findPhotoByPublicId(w.env.db, r.body.id)!;
+    expect(row).toMatchObject({ frames: 3, frame_ms: 412, captured_at: 1_700_000_000 });
+    expect(new Uint8Array(readFileSync(join(w.env.config.dataDir, row.path)))).toEqual(bytes);
+  });
+
+  it('records a still as one frame', async () => {
+    const r = await upload(w, fixture('cat'), 4);
+    expect(findPhotoByPublicId(w.env.db, r.body.id)).toMatchObject({ frames: 1, frame_ms: null });
+  });
+
   it('dates from the camera clock when the file has t > 0', async () => {
     const r = await upload(w, fixture('cup', { boot: 3, up: 1000, t: 1_700_000_000 }), 2, {
       'x-captured-at': '1234',
@@ -112,7 +129,7 @@ describe('POST /api/camera/photos', () => {
       }),
     );
     expect(bad.status).toBe(415);
-    const big = await upload(w, new Uint8Array(17_000), 1);
+    const big = await upload(w, new Uint8Array(70_000), 1);
     expect(big.status).toBe(413);
     const p1 = await upload(w, new TextEncoder().encode('P1\n2 2\n0 1\n1 0\n'), 1);
     expect(p1.status).toBe(400);

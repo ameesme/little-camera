@@ -1,7 +1,5 @@
 import { Hono } from 'hono';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { parsePbm, pbmToPng } from '@little-camera/pbm';
+import { photoImage } from '../lib/photo-image.js';
 import { apexUrl, blogUrl } from '../config.js';
 import { approveClaim, confirmAddress } from '../core/cameras.js';
 import { hashToken } from '../lib/tokens.js';
@@ -76,17 +74,17 @@ export function ownerRoutes(env: Env): Hono {
           to={mail.to_email}
           status={mail.status}
           text={linked}
-          html={mail.html_body.replace('cid:photo', `${u(`/dev/mailbox/${mail.id}`)}/photo.png`)}
+          html={mail.html_body.replace('cid:photo', `${u(`/dev/mailbox/${mail.id}`)}/photo`)}
         />,
       );
     });
 
-    app.get('/dev/mailbox/:id/photo.png', (c) => {
+    app.get('/dev/mailbox/:id/photo', (c) => {
       const mail = findOutbox(env.db, Number(c.req.param('id')));
       const photo = mail?.photo_id ? findPhotoById(env.db, mail.photo_id) : null;
       if (!photo) return c.notFound();
-      const pbm = parsePbm(new Uint8Array(readFileSync(join(env.config.dataDir, photo.path))));
-      return c.body(pbmToPng(pbm), 200, { 'content-type': 'image/png' });
+      const image = photoImage(env, photo);
+      return c.body(image.bytes, 200, { 'content-type': image.type });
     });
   }
 

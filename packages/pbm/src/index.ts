@@ -3,7 +3,9 @@ export {
   type PbmMeta,
   bytesPerRow,
   parsePbm,
+  parsePbmFrames,
   encodePbm,
+  encodePbmFrames,
   getPixel,
   setPixel,
   blankPbm,
@@ -12,4 +14,5 @@ export {
   toGray,
 } from './pbm.js';
 export { pbmToPng, pbmToPngScaled, crc32 } from './png.js';
+export { pbmFramesToGif } from './gif.js';
 export { ALPHABET, shortCode } from './codes.js';

@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 
 /// What the blog holds: the pictures with what people said under them, who reads it, and the way out.
@@ -153,14 +154,7 @@ private struct PhotoPost: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncImage(url: URL(string: photo.url)) { image in
-                image
-                    .resizable()
-                    .interpolation(.none)
-                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
-            } placeholder: {
-                Dither().aspectRatio(4.0 / 3.0, contentMode: .fit)
-            }
+            MotionImage(url: URL(string: photo.url), frameMs: photo.frameMs ?? 400)
             .overlay(Rectangle().stroke(Theme.ink, lineWidth: 1))
             Caption(Date(timeIntervalSince1970: TimeInterval(photo.capturedAt)).formatted(date: .abbreviated, time: .shortened))
             ForEach(photo.comments) { comment in
@@ -246,9 +240,11 @@ private struct PhotoPost: View {
     private func save() {
         guard let url = URL(string: photo.url) else { return }
         Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
-                  let image = UIImage(data: data) else { return }
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            // The file's own bytes rather than a UIImage, which would flatten a motion photo's GIF to its first frame.
+            try? await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
+            }
         }
     }
 }

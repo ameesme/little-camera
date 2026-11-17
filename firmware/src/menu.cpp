@@ -4,7 +4,7 @@
 
 namespace App {
 
-const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "pal screen", "exit"};
+const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "pal screen", "motion: off", "exit"};
 int menuSelected = 0;
 
 // A screen opened from the list. These used to be blocking waits on the pin, which
@@ -44,6 +44,7 @@ static void factoryReset() {
         prefs.begin("sync", false);    prefs.clear(); prefs.end();
         prefs.begin("mood", false);    prefs.clear(); prefs.end();
         prefs.begin("pal", false);     prefs.clear(); prefs.end();
+        prefs.begin("camera", false);  prefs.clear(); prefs.end();
     }
     LittleFS.format();
     delay(200);
@@ -74,6 +75,7 @@ bool menuServiceScreen(bool pressed, bool wasPressed) {
 
 void showMenu() {
     MENU_ITEMS[MENU_MUTE] = Audio::muted() ? "unmute" : "mute";
+    MENU_ITEMS[MENU_MOTION] = motionOn ? "motion: on" : "motion: off";
     Display::drawMenu(MENU_ITEMS, MENU_COUNT, menuSelected);
 }
 
@@ -186,6 +188,20 @@ void menuUnmute() {
     Display::showToast("sound on", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
 }
 
+// The motion experiment's switch. Leaves the menu with a toast, like mute, so
+// the next press in the viewfinder is already the new kind of shot.
+void menuMotion() {
+    motionOn = !motionOn;
+    Preferences prefs;
+    if (prefs.begin("camera", false)) {
+        prefs.putUChar("motion", motionOn ? 1 : 0);
+        prefs.end();
+    }
+    Serial.printf("Menu: motion %s\n", motionOn ? "on" : "off");
+    leaveMenu();
+    Display::showToast(motionOn ? "motion on" : "motion off", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
+}
+
 // Test entry: offers a random pal whether or not one is equipped, and equipping
 // replaces it.
 void menuPalScreen() {
@@ -204,7 +220,8 @@ void menuSelect() {
         case 5: menuFactoryReset(); break;
         case MENU_MUTE: Audio::muted() ? menuUnmute() : menuMute(); break;
         case 7: menuPalScreen(); break;
-        case 8: leaveMenu(); break;
+        case MENU_MOTION: menuMotion(); break;
+        case 9: leaveMenu(); break;
     }
 }
 

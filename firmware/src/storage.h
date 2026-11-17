@@ -43,6 +43,11 @@ bool init();
 // header with the boot counter, millis() and the clock if it has been set.
 Result savePhoto(const uint8_t* bits, int width, int height);
 
+// A motion photo (docs/protocol.md §2.1): `count` frames of the same shape and
+// polarity, written back to back as P4 images in one file, the first stamped
+// with `frameMs`. count == 1 writes exactly what savePhoto() above writes.
+Result savePhotoFrames(const uint8_t* const* frames, int count, uint16_t frameMs, int width, int height);
+
 int photoCount();
 int unsyncedCount();
 int newestIndex();                 // -1 if none
@@ -57,6 +62,12 @@ bool photoInfo(int index, PhotoInfo* out);
 // Full read into a panel-polarity bitmap (set bit = white), `len` must equal
 // the raster size (9600 for 320x240). Rejects other dimensions.
 bool loadPhoto(int index, uint8_t* bits, size_t len);
+
+// Every frame of a photo, up to `maxFrames`, into consecutive `len`-byte
+// slots of `bits`. Returns the frames read (1 for a still, 0 on failure) and
+// the interval in `frameMs` (0 for a still). Stops quietly at a frame that is
+// cut short or a different size, keeping the ones before it.
+int loadFrames(int index, uint8_t* bits, size_t len, int maxFrames, uint16_t* frameMs);
 
 // Raw file bytes (header + raster, a valid PBM) from `offset`. Returns bytes
 // read, 0 at end of file, -1 on error. Stateless: open, seek, read, close.

@@ -12,6 +12,8 @@ export interface PbmMeta {
   up?: number;
   /** Unix time at capture time, 0 when the camera did not know the time. */
   t?: number;
+  /** Motion photos only (protocol §2.1): how long each frame shows, in ms. */
+  ms?: number;
 }
 
 export interface Pbm {
@@ -39,7 +41,38 @@ const isSpace = (b: number) => b === 0x20 || b === 0x09 || b === 0x0a || b === 0
  * Trailing bytes after the raster are ignored.
  */
 export function parsePbm(buf: Uint8Array): Pbm {
-  let pos = 0;
+  return parseAt(buf, 0).pbm;
+}
+
+/**
+ * Every image in a file, in order: one for a still, three for a motion photo
+ * (protocol §2.1), which is the images back to back. The first must parse or
+ * this throws like parsePbm; after it, parsing stops at the first image that
+ * is cut short, malformed or a different size, keeping the frames before it.
+ * Only the first image's comment counts, so `meta` is the same on every frame.
+ */
+export function parsePbmFrames(buf: Uint8Array, maxFrames = 8): Pbm[] {
+  const first = parseAt(buf, 0);
+  const frames = [first.pbm];
+  let pos = first.end;
+  while (frames.length < maxFrames) {
+    while (pos < buf.length && isSpace(buf[pos])) pos++;
+    if (pos >= buf.length) break;
+    let next: { pbm: Pbm; end: number };
+    try {
+      next = parseAt(buf, pos);
+    } catch {
+      break;
+    }
+    if (next.pbm.width !== first.pbm.width || next.pbm.height !== first.pbm.height) break;
+    frames.push({ ...next.pbm, meta: first.pbm.meta });
+    pos = next.end;
+  }
+  return frames;
+}
+
+function parseAt(buf: Uint8Array, start: number): { pbm: Pbm; end: number } {
+  let pos = start;
   const meta: PbmMeta = {};
 
   // A comment runs to the end of the line. Parse `key=value` pairs out of it
@@ -54,7 +87,7 @@ export function parsePbm(buf: Uint8Array): Pbm {
       const key = pair.slice(0, eq);
       const value = Number(pair.slice(eq + 1));
       if (!Number.isFinite(value)) continue;
-      if (key === 'boot' || key === 'up' || key === 't') meta[key] = value;
+      if (key === 'boot' || key === 'up' || key === 't' || key === 'ms') meta[key] = value;
     }
     pos = end;
   };
@@ -89,7 +122,7 @@ export function parsePbm(buf: Uint8Array): Pbm {
   const size = bytesPerRow(width) * height;
   if (buf.length - pos < size) throw new Error(`pbm: raster too short (${buf.length - pos} < ${size})`);
   const rows = buf.slice(pos, pos + size);
-  return { width, height, rows, meta };
+  return { pbm: { width, height, rows, meta }, end: pos + size };
 }
 
 function parseDimension(token: string, name: string): number {
@@ -109,7 +142,7 @@ function asciiSlice(buf: Uint8Array, start: number, end: number): string {
  * Encode a binary PBM. With `meta` the header is exactly what the firmware
  * writes (`P4\n# boot=.. up=.. t=..\n320 240\n`); without it (or with an
  * empty object) the comment line is omitted, which is what older firmware
- * produced. Only keys that are present are written, in boot, up, t order.
+ * produced. Only keys that are present are written, in boot, up, t, ms order.
  */
 export function encodePbm(width: number, height: number, rows: Uint8Array, meta?: PbmMeta): Uint8Array<ArrayBuffer> {
   const size = bytesPerRow(width) * height;
@@ -119,11 +152,28 @@ export function encodePbm(width: number, height: number, rows: Uint8Array, meta?
     if (meta.boot !== undefined) parts.push(`boot=${meta.boot}`);
     if (meta.up !== undefined) parts.push(`up=${meta.up}`);
     if (meta.t !== undefined) parts.push(`t=${meta.t}`);
+    if (meta.ms !== undefined) parts.push(`ms=${meta.ms}`);
   }
   const header = 'P4\n' + (parts.length ? `# ${parts.join(' ')}\n` : '') + `${width} ${height}\n`;
   const out = new Uint8Array(header.length + size);
   for (let i = 0; i < header.length; i++) out[i] = header.charCodeAt(i);
   out.set(rows, header.length);
+  return out;
+}
+
+/**
+ * A motion photo as the firmware writes it (protocol §2.1): the first frame
+ * with the comment line, the rest bare, back to back.
+ */
+export function encodePbmFrames(width: number, height: number, frames: Uint8Array[], meta?: PbmMeta): Uint8Array<ArrayBuffer> {
+  if (frames.length === 0) throw new Error('pbm: no frames');
+  const parts = frames.map((rows, i) => encodePbm(width, height, rows, i === 0 ? meta : undefined));
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.length;
+  }
   return out;
 }
 

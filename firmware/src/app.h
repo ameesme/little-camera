@@ -135,9 +135,15 @@ enum class Mode {
     PalFound,    // "you got a little pal" after a save; press equips, hold skips
     PalWelcome,  // The awake face and the new pal sliding in; press or wait to go on
 };
-constexpr int MENU_COUNT = 9;
+constexpr int MENU_COUNT = 10;
 // One slot that reads "unmute" while muted, so the list and its indices never shift.
 constexpr int MENU_MUTE = 6;
+constexpr int MENU_MOTION = 8;
+
+// Motion photos (docs/protocol.md §2.1): frames a press, the gap asked for between them, and one frame's size.
+constexpr int MOTION_FRAMES = 3;
+constexpr uint32_t MOTION_FRAME_MS = 400;
+constexpr size_t FRAME_BYTES = Display::PHOTO_BYTES * Display::PHOTO_HEIGHT;
 
 // Companion pal — persisted in NVS("pal"): its care as a blob under "care",
 // and under "id" the bare id that firmware before pal care stored.
@@ -196,7 +202,7 @@ extern int galleryOrdinal;
 extern bool galleryDirty;
 extern bool galleryToastWasVisible;
 extern bool saveToastWasVisible;
-extern uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
+extern bool motionOn;
 extern uint8_t offeredPal;
 extern uint32_t palShownAt;
 extern uint32_t palDrawnAt;
@@ -285,6 +291,7 @@ void menuFactoryReset();
 void menuReboot();
 void menuMute();
 void menuUnmute();
+void menuMotion();
 void menuPalScreen();
 void menuSelect();
 

@@ -15,6 +15,10 @@ export interface PhotoRow {
   captured_at: number;
   captured_at_source: CapturedAtSource;
   uploaded_at: number;
+  /** 1 for a still, more for a motion photo (protocol §2.1). */
+  frames: number;
+  /** How long each frame shows; null for a still. */
+  frame_ms: number | null;
 }
 
 export function findPhotoById(db: Db, id: number): PhotoRow | null {
@@ -40,8 +44,8 @@ export function insertPhoto(
   const r = db
     .prepare(
       `INSERT INTO photos (public_id, camera_id, blog_id, kind, sha256, path, camera_index,
-                           captured_at, captured_at_source, uploaded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           captured_at, captured_at_source, uploaded_at, frames, frame_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       p.public_id,
@@ -54,6 +58,8 @@ export function insertPhoto(
       p.captured_at,
       p.captured_at_source,
       p.uploaded_at,
+      p.frames,
+      p.frame_ms,
     );
   return findPhotoById(db, Number(r.lastInsertRowid))!;
 }
