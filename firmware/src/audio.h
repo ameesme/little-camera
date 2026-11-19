@@ -17,6 +17,10 @@ enum class Melody {
 
 void init(uint8_t buzzerPin);
 void playClick(bool light = false);
+// One beat of a motion burst: the shutter click straight into note `step` of
+// ta-da-da, so three frames sound "click-ta, click-da, click-da". Blocking,
+// ~40 ms, bit-banged like the click it starts with.
+void playClickNote(int step);
 // Every sound is a no-op until esp_timer reaches this.
 void muteUntil(int64_t uptimeUs);
 bool muted();

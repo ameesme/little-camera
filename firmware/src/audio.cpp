@@ -133,6 +133,20 @@ void playClick(bool light) {
     digitalWrite(_buzzerPin, LOW);
 }
 
+void playClickNote(int step) {
+    if (muted()) return;
+    // Bit-banged rather than handed to the tone() melody machine: the note has
+    // to land right on the click's tail, which the async melody's own gaps
+    // would smear, and a burst is three frames long at most, so the blocking
+    // ~35 ms a frame is spent while the camera is grabbing anyway. Steps past
+    // the melody hold its top note.
+    const int n = sizeof(MELODY0_FREQS) / sizeof(MELODY0_FREQS[0]);
+    const int i = step < 0 ? 0 : (step >= n ? n - 1 : step);
+    playClick();
+    square(MELODY0_FREQS[i], (uint32_t)MELODY0_DURS[i] * 1000);
+    digitalWrite(_buzzerPin, LOW);
+}
+
 // Output policy for Chirp::play(): the pin, and a wait that busy-waits the
 // sub-millisecond half-periods but yields (delay) for the inter-segment gaps,
 // so the idle and BLE tasks get the silence even if not the sound. Chirps use
