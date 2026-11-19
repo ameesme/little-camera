@@ -17,9 +17,6 @@ enum class Melody {
 
 void init(uint8_t buzzerPin);
 void playClick(bool light = false);
-// The shutter click for frame `step` of a motion burst: the same sweep, raised
-// a major third per step, so a burst is heard climbing.
-void playClickStep(int step);
 // Every sound is a no-op until esp_timer reaches this.
 void muteUntil(int64_t uptimeUs);
 bool muted();

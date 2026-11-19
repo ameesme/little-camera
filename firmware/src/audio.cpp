@@ -133,20 +133,6 @@ void playClick(bool light) {
     digitalWrite(_buzzerPin, LOW);
 }
 
-void playClickStep(int step) {
-    if (muted()) return;
-    // A major third (x1.26) per step: 100, 126, 159%. The jitter is cut to
-    // +-4% from the shutter's +-15%, which would otherwise swallow a step and
-    // make a burst sometimes fall; the clicks within a burst still differ.
-    // The top of step 2 is ~6.6 kHz, still inside what the piezo does well.
-    static constexpr uint16_t STEPS[] = {100, 126, 159, 200};
-    const int i = step < 0 ? 0 : (step > 3 ? 3 : step);
-    const uint32_t scale = STEPS[i] * (uint32_t)random(96, 105) / 100;
-    release();
-    for (int f = 4000; f > 800; f -= 400) square((uint32_t)f * scale / 100, 800);
-    digitalWrite(_buzzerPin, LOW);
-}
-
 // Output policy for Chirp::play(): the pin, and a wait that busy-waits the
 // sub-millisecond half-periods but yields (delay) for the inter-segment gaps,
 // so the idle and BLE tasks get the silence even if not the sound. Chirps use

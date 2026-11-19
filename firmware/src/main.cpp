@@ -549,16 +549,12 @@ void loop() {
                 savedFrame = Camera::capture();
                 if (savedFrame) {
                     Display::drawCapture(savedFrame, Camera::WIDTH, Camera::HEIGHT);
-                    // A still is click + ta-da-da at once. A motion burst is
-                    // click, click, click + ta-da-da, climbing: the melody waits
-                    // for the last frame so it marks the end of the shot.
+                    // A still is click + ta-da-da at once. A motion burst is a
+                    // click per frame, and the melody waits for the last one so
+                    // it marks the end of the shot rather than its start.
                     shotTarget = motionOn ? MOTION_FRAMES : 1;
-                    if (shotTarget > 1) {
-                        Audio::playClickStep(0);
-                    } else {
-                        Audio::playClick();
-                        Audio::playMelody(Audio::Melody::TaDaDa);
-                    }
+                    Audio::playClick();
+                    if (shotTarget == 1) Audio::playMelody(Audio::Melody::TaDaDa);
                     captureShownAt = millis();
                     shotFrames = 1;
                     shotStartedAt = shotLastAt = captureShownAt;
@@ -582,7 +578,7 @@ void loop() {
                 shotLastAt = millis();
                 Display::drawCapture(frame, Camera::WIDTH, Camera::HEIGHT);
                 memcpy(frameBits[shotFrames++], Display::photoBits(), FRAME_BYTES);
-                Audio::playClickStep(shotFrames - 1);
+                Audio::playClick();
                 if (shotFrames == shotTarget) {
                     Audio::playMelody(Audio::Melody::TaDaDa);
                     // The real interval, capture waits included, so playback runs at the speed it was shot.
