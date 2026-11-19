@@ -142,7 +142,13 @@ constexpr int MENU_MOTION = 8;
 
 // Motion photos (docs/protocol.md §2.1): frames a press, the gap asked for between them, and one frame's size.
 constexpr int MOTION_FRAMES = 3;
-constexpr uint32_t MOTION_FRAME_MS = 400;
+// 250 rather than 400: at 400 plus the capture itself the burst, and its
+// click-ta beats, dragged. Closer frames make for a subtler loop that plays
+// back faster, since playback runs at the measured interval.
+constexpr uint32_t MOTION_FRAME_MS = 250;
+// What a motion photo without `ms=` shows each frame for: the protocol's
+// default, which stays 400 whatever the camera now shoots at.
+constexpr uint16_t MOTION_DEFAULT_MS = 400;
 constexpr size_t FRAME_BYTES = Display::PHOTO_BYTES * Display::PHOTO_HEIGHT;
 
 // Companion pal — persisted in NVS("pal"): its care as a blob under "care",

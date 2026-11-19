@@ -78,7 +78,7 @@ Files from older firmware have no comment line. Every reader must accept both. R
 
 ### 2.1 Motion photos (experimental)
 
-With **motion** switched on in the camera's menu, one press takes three frames about 400 ms apart and stores them as one photo: the three P4 images back to back in the same `NNNN.pbm`, which is the multi-image form Netpbm itself allows. Only the first image carries the comment line, and it gains one key:
+With **motion** switched on in the camera's menu, one press takes three frames a few hundred milliseconds apart and stores them as one photo: the three P4 images back to back in the same `NNNN.pbm`, which is the multi-image form Netpbm itself allows. Only the first image carries the comment line, and it gains one key:
 
 ```
 P4

@@ -58,7 +58,7 @@ static uint16_t shotFrameMs = 0;
 // Playback of whatever motion photo is on screen (save screen or gallery).
 static int playFrames = 1;
 static int playFrame = 0;
-static uint16_t playMs = MOTION_FRAME_MS;
+static uint16_t playMs = MOTION_DEFAULT_MS;
 static uint32_t playStepAt = 0;
 uint8_t offeredPal = 0;
 uint32_t palShownAt = 0;
@@ -220,7 +220,7 @@ void showGalleryPhoto() {
         if (frames > 0) {
             playFrames = frames;
             playFrame = 0;
-            playMs = ms ? ms : MOTION_FRAME_MS;
+            playMs = ms ? ms : MOTION_DEFAULT_MS;
             playStepAt = millis();
             Display::drawGallery(galleryBits, galleryOrdinal, total);
             return;
@@ -605,7 +605,7 @@ void loop() {
             Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
             playFrames = shotFrames;
             playFrame = shotFrames - 1;
-            playMs = shotFrameMs ? shotFrameMs : MOTION_FRAME_MS;
+            playMs = shotFrameMs ? shotFrameMs : MOTION_DEFAULT_MS;
             playStepAt = millis();
             mode = Mode::Save;
             cameraOff();
