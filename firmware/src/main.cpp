@@ -55,6 +55,15 @@ static int shotFrames = 0;
 static uint32_t shotStartedAt = 0;
 static uint32_t shotLastAt = 0;
 static uint16_t shotFrameMs = 0;
+// The burst's click-ta beats run on their own clock: beat k plays at
+// shotBeatAt + k * MOTION_FRAME_MS, and each capture starts early by however
+// long the last capture + dither took (shotLeadMs) plus a margin, then holds
+// its beat until the clock says so. Anchoring each wait on the previous
+// capture instead made the first gap longer than the rest by the first beat's
+// own sound and draw, which is what the ear picked up. The frames themselves
+// still land when the sensor gives them; only the sound is evened out.
+static uint32_t shotBeatAt = 0;
+static uint32_t shotLeadMs = 0;
 // Playback of whatever motion photo is on screen (save screen or gallery).
 static int playFrames = 1;
 static int playFrame = 0;
@@ -546,9 +555,13 @@ void loop() {
                 Serial.println("Shutter — capturing");
                 Display::clearToast();
                 hintToastShowing = false;
+                const uint32_t captureStart = millis();
                 savedFrame = Camera::capture();
                 if (savedFrame) {
+                    const uint32_t captureEnd = millis();
                     Display::drawCapture(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+                    shotLeadMs = millis() - captureStart;
+                    shotBeatAt = millis();
                     // A still is click + ta-da-da at once. A motion burst spreads
                     // the melody over its frames, each note fused to that frame's
                     // click: click-ta, click-da, click-da.
@@ -561,7 +574,7 @@ void loop() {
                     }
                     captureShownAt = millis();
                     shotFrames = 1;
-                    shotStartedAt = shotLastAt = captureShownAt;
+                    shotStartedAt = shotLastAt = captureEnd;
                     shotFrameMs = 0;
                     memcpy(frameBits[0], Display::photoBits(), FRAME_BYTES);
                     mode = Mode::Capture;
@@ -575,13 +588,19 @@ void loop() {
             // A motion shot keeps grabbing until it has its frames; each one goes up as
             // it lands, so the panel shows the burst happening. The dwell starts after.
             if (shotFrames < shotTarget) {
-                if (millis() - shotLastAt < MOTION_FRAME_MS) break;
+                const uint32_t beatAt = shotBeatAt + (uint32_t)shotFrames * MOTION_FRAME_MS;
+                if ((int32_t)(millis() - (beatAt - shotLeadMs - MOTION_BEAT_SLACK_MS)) < 0) break;
+                const uint32_t captureStart = millis();
                 uint8_t* frame = Camera::capture();
                 if (!frame) break;
                 savedFrame = frame;
                 shotLastAt = millis();
                 Display::drawCapture(frame, Camera::WIDTH, Camera::HEIGHT);
                 memcpy(frameBits[shotFrames++], Display::photoBits(), FRAME_BYTES);
+                shotLeadMs = millis() - captureStart;
+                // Early is the usual case and costs at most the slack; late
+                // (a slow capture or a retry) plays at once, a beat behind.
+                while ((int32_t)(beatAt - millis()) > 0) delay(1);
                 Audio::playClickNote(shotFrames - 1);
                 if (shotFrames == shotTarget) {
                     // The real interval, capture waits included, so playback runs at the speed it was shot.

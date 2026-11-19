@@ -142,10 +142,15 @@ constexpr int MENU_MOTION = 8;
 
 // Motion photos (docs/protocol.md §2.1): frames a press, the gap asked for between them, and one frame's size.
 constexpr int MOTION_FRAMES = 3;
-// 250 rather than 400: at 400 plus the capture itself the burst, and its
-// click-ta beats, dragged. Closer frames make for a subtler loop that plays
-// back faster, since playback runs at the measured interval.
+// The burst's beat: click-ta sounds exactly this far apart, and frames land
+// about as far apart. 250 rather than 400, which dragged. Closer frames make
+// for a subtler loop that plays back faster, since playback runs at the
+// measured interval.
 constexpr uint32_t MOTION_FRAME_MS = 250;
+// How much earlier than its beat a frame's capture starts, on top of the last
+// capture + dither time: covers waiting for the sensor's next frame
+// (CAMERA_GRAB_LATEST with one buffer), which varies by up to a frame period.
+constexpr uint32_t MOTION_BEAT_SLACK_MS = 40;
 // What a motion photo without `ms=` shows each frame for: the protocol's
 // default, which stays 400 whatever the camera now shoots at.
 constexpr uint16_t MOTION_DEFAULT_MS = 400;
