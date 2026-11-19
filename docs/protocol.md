@@ -9,7 +9,7 @@ The single source of truth for how the three parties talk. The firmware (`firmwa
 └──────────┘                └──────────┘                        └──────────┘
 ```
 
-The phone is a dumb pipe. It never authenticates as a person; it authenticates **as the camera**, using an id and a secret it read from the camera over an encrypted BLE link. Making a blog, showing the QR verification picture and approving subscribers are all camera-scoped API calls the app makes; the web keeps only the two things a person must do out of band, in their own mail client: confirming the address and letting a phone in. Firmware travels the same pipe backwards — server to phone over HTTPS (§4.7), phone to camera over BLE (§3.7) — and is verified at the far end, so the pipe stays dumb.
+The phone is a dumb pipe. It never authenticates as a person; it authenticates **as the camera**, using an id and a secret it read from the camera over an encrypted BLE link. **The app is trusted**: whoever holds a camera's secret manages the blog that camera posts to. Making a blog and approving subscribers are camera-scoped API calls the app makes; the web keeps only the two things a person must do out of band, in their own mail client: confirming an address, and adding a camera to a blog that address already owns. Firmware travels the same pipe backwards — server to phone over HTTPS (§4.7), phone to camera over BLE (§3.7) — and is verified at the far end, so the pipe stays dumb.
 
 Hosts: the service is `lttl.cam`. A blog is one label under it (`mees.lttl.cam`), the landing page owns `lttl.cam/`, and everything this server answers on that domain sits under `/api` (machines) or `/app` (people) so a proxy can tell the two apart.
 
@@ -75,6 +75,31 @@ P4
 | `t` | Unix time at capture time, `0` if the camera did not know the time (no phone had connected since boot) |
 
 Files from older firmware have no comment line. Every reader must accept both. Readers must skip any `#` comment between tokens, per the PBM spec.
+
+### 2.1 Motion photos (experimental)
+
+With **motion** switched on in the camera's menu, one press takes three frames about 400 ms apart and stores them as one photo: the three P4 images back to back in the same `NNNN.pbm`, which is the multi-image form Netpbm itself allows. Only the first image carries the comment line, and it gains one key:
+
+```
+P4
+# boot=17 up=48213 t=1757789000 ms=412
+320 240
+<9600 bytes of frame 1>P4
+320 240
+<9600 bytes of frame 2>P4
+320 240
+<9600 bytes of frame 3>
+```
+
+| Field | Meaning |
+|---|---|
+| `ms` | How long each frame shows, in milliseconds: the interval the camera actually measured between frames. Present only on a motion photo |
+
+- **The frame count is what is in the file**, not a header field: a reader keeps parsing images until the bytes run out. Every frame must be 320×240; a reader stops at the first one that is not, or that is cut short, and keeps the frames before it.
+- **A reader that only knows the first image sees a still**, the first frame, so every older reader (old phone, old server, any PBM viewer) degrades to a photo rather than an error. That is the reason for this shape over a new format.
+- Playback loops forever, every frame for `ms` (400 if absent).
+- A motion photo is ~29 KB, three times a still: the camera holds about a third as many, and the upload limit in §4.3 is sized for it.
+- Header, dating rule, sync and `ACK` are unchanged: a motion photo is one file, one index, one photo.
 
 Dating rule (applied by the phone at sync time, and by the server as a fallback):
 
@@ -146,7 +171,7 @@ MTU: the camera requests 512. The usable notification payload is `MTU − 3` ATT
 | `0x04` | `ACK` | `u16 index` | The phone has the file safely. Camera marks it synced (rename `/0007.pbm` → `/0007s.pbm`) |
 | `0x05` | `DELETE` | `u16 index` | Deletes the file. The bridge does not use this by default |
 | `0x06` | `ABORT` | | Stops the running stream |
-| `0x07` | `PROMPT` | `u8 kind` | What the phone is waiting for: `0` nothing, `1` the verification card (§5), `2` the picture that heads the blog, `3` say hello (the phone is showing the owner that the two have found each other, so the panel says it too and returns by itself). The camera wakes if it was asleep, names the shot on its own screen, and goes back to `0` by itself once a photo is saved. Purely cosmetic: the kind of an uploaded photo is still decided server-side (§4.3) |
+| `0x07` | `PROMPT` | `u8 kind` | What the phone is waiting for: `0` nothing, `1` retired (it named the verification card; refused like any unknown kind from firmware 0.10.0), `2` the picture that heads the blog, `3` say hello (the phone is showing the owner that the two have found each other, so the panel says it too and returns by itself). The camera wakes if it was asleep, names the shot on its own screen, and goes back to `0` by itself once a photo is saved. Purely cosmetic: the kind of an uploaded photo is still decided server-side (§4.3) |
 | `0x08` | `CHIRP` | `u8 times` (1..3) | The camera chirps in its current mood, that many times. For a step on the phone that the camera should be noticed for; it draws nothing and changes nothing |
 | `0x10` | `UPDATE_BEGIN` | `u32 size`, `u8[32] sha256` | Opens a firmware update session (§3.7) for an image of `size` bytes with that SHA-256. Answered with `UPDATE_STATUS` |
 | `0x11` | `UPDATE_END` | | Every byte is in: verify, arm the new slot, reboot |
@@ -279,7 +304,7 @@ bricking it:
 
 Base: `https://lttl.cam/api/camera`. JSON unless noted. Errors are `{ "error": "<code>", "message": "<human text>" }`.
 
-Only two prefixes on that domain are the server's: `/api/…` for machines and `/app/…` for the two pages an emailed link opens — `/app/verify-email` and `/app/claim`. There is no owner session and no management on the web: the app does all of it over this API. Everything else, `/` above all, belongs to the landing page behind the same proxy. Blogs are unaffected, each owning the root of its own subdomain.
+Only two prefixes on that domain are the server's: `/api/…` for machines and `/app/…` for the two pages an emailed link opens — `/app/confirm` and `/app/claim`. There is no owner session and no management on the web: the app does all of it over this API. Everything else, `/` above all, belongs to the landing page behind the same proxy. Blogs are unaffected, each owning the root of its own subdomain.
 
 ### 4.1 Authentication
 
@@ -317,7 +342,7 @@ Raw PBM body.
 | `X-Captured-At: 1757789000` | no | phone's estimate when the file has `t=0` |
 | `X-Captured-At-Source: phone` | no | `phone` or `upload` |
 
-Size limit 16 KB. Must parse as `P4 320 240`.
+Size limit 64 KB. Must parse as `P4 320 240`; a motion photo (§2.1) is one to eight such images back to back, and the server keeps the file as it came.
 
 Response `201` (new) or `200` (`"status": "duplicate"`, same `camera_id` + sha256 seen before):
 
@@ -325,12 +350,12 @@ Response `201` (new) or `200` (`"status": "duplicate"`, same `camera_id` + sha25
 {
   "id": "k3m9q2z8x1w4",
   "status": "stored" | "duplicate",
-  "kind": "photo" | "verification" | "avatar",
+  "kind": "photo" | "avatar",
   "bound": null | { "handle": "mees", "name": "Mees", "url": "https://mees.lttl.cam" }
 }
 ```
 
-Server-side, in order: parse + hash → dedupe → date (rule in §2) → if the camera is unbound and any verification code is live, try to decode a QR (§5) → if bound and an avatar was requested and `captured_at` is after the request, this photo becomes the avatar.
+Server-side, in order: parse + hash → dedupe → date (rule in §2) → if bound and an avatar was requested and `captured_at` is after the request, this photo becomes the avatar. Photos from an unbound camera are kept for a week and move to its blog when it gets one.
 
 ### 4.4 `GET /status`
 
@@ -341,19 +366,16 @@ Server-side, in order: parse + hash → dedupe → date (rule in §2) → if the
   "bound": null | { "handle": "mees", "name": "Mees", "url": "…", "photo_count": 12 },
   "avatar": { "requested_at": 1757789000 | null, "has_avatar": false },
   "firmware": { "installed": "0.2.0" | null, "latest": null | { "version": "0.3.0", "size": 1481712, "sha256": "…", "url": "…", "notes": "…", "released_at": 1757789000 }, "update_available": false },
-  "claim": "unbound" | "pending" | "approved",
-  "pending": null | { "handle": "mees", "name": "Mees", "verified": false },
   "confirmed_email": null | "mees@example.com",
   "subscribers": [ { "id": 3, "email": "sanne@example.com", "name": "Sanne" | null, "status": "pending" | "approved" | "blocked", "added_by": "self" | "owner" } ],
   "server_time": 1757789000
 }
 ```
 
-`subscribers` is empty and `bound` is `null` until the camera is bound. `pending` is the blog this camera is being
-set up for but has not photographed the code of yet (§4.9 approved it, §5 has not bound it), with `verified` saying
-whether its address has been confirmed; it is how a phone that was closed mid-onboarding picks up where it left off
-instead of making the blog a second time. `confirmed_email` is an address whose owner has opened the link in §4.9 but
-has not named a blog yet, and is what `POST /blog` makes one from. `claim` is how far the phone has got with §4.9; the battery and the rest of the camera's own state are not here, because the phone reads them off `Info` (§3.1) and sends them the other way (§4.8).
+`subscribers` is empty and `bound` is `null` until the camera is bound. `confirmed_email` is an address whose owner has
+opened the link in §4.9 but has not named a blog yet, and is what `POST /blog` makes one from; it is how a phone that was
+closed mid-onboarding picks up where it left off. The battery and the rest of the camera's own state are not here,
+because the phone reads them off `Info` (§3.1) and sends them the other way (§4.8).
 
 ### 4.5 Subscribers (bound cameras only)
 
@@ -366,20 +388,22 @@ has not named a blog yet, and is what `POST /blog` makes one from. `claim` is ho
 
 `{}` → `200 { "requested_at": 1757789000 }`. The next photo captured after this moment becomes the profile picture.
 
-### 4.7 `GET /feed` (bound and claimed)
+### 4.7 `GET /feed` (bound cameras only)
 
-The owner's own blog as data, newest first. `403 unclaimed` until §4.9 is through.
+The owner's own blog as data, newest first.
 
 ```json
 {
-  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png", "kind": "photo" | "avatar", "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…", "created_at": 1757789200 } ] } ],
+  "photos": [ { "id": "5jk7ferd11ap", "url": "…/photos/5jk7ferd11ap.png" | "…/photos/5jk7ferd11ap.gif", "kind": "photo" | "avatar", "frames": 1, "frame_ms": 400, "captured_at": 1757789000, "uploaded_at": 1757789100, "comments": [ { "id": 1, "name": "Sanne", "body": "…", "created_at": 1757789200 } ] } ],
   "next": "1757789100.0" | null
 }
 ```
 
 Twenty a page. Pass `next` back as `?before=` for the next one.
 
-- `POST /feed/:id/comments` `{ "body": "…" }` → `201 { "name": "Mees" }`. The owner's own comment, under the blog's name: a claimed camera's blog is the owner's (§4.9), so the phone needs nothing further.
+`frames` is 1 for a still and more for a motion photo (§2.1), and `frame_ms` is how long each frame shows. The `url` of a still is a 1-bit PNG; that of a motion photo is a **GIF that loops forever** (`…/photos/<id>.gif`), with the PBM's pixels unchanged and each frame shown for `frame_ms` rounded to GIF's 10 ms ticks. A photo has exactly one of the two addresses, and the other is a 404. GIF rather than APNG because more places animate it: mail clients and the Photos app on iOS show an APNG's first frame only. Only the served form changes; the stored PBM is still the photo.
+
+- `POST /feed/:id/comments` `{ "body": "…" }` → `201 { "name": "Mees" }`. The owner's own comment, under the blog's name.
 - `DELETE /feed/:id` → `200 { "ok": true }`. Takes the `id` out of `photos[]`. Not reversible: the row, its comments and the stored PBM go. `404 not_found` if the photo is not on this camera's blog.
 
 ### 4.8 `POST /telemetry`
@@ -392,22 +416,21 @@ What the phone read out of `Info` (§3.1), relayed so the blog and the app can s
 
 Stored as given. **The percentage is the camera's**: the server does not recompute it, and the blog shows no battery at all until a phone has sent one, because an invented number is worse than none.
 
-`GET /handle?handle=<handle>` answers `{ handle, available }`, while the owner is still typing a new one. Whether that blog has confirmed its address is `pending.verified` in §4.4; the phone waits on it before asking for the verification photo, since an unconfirmed blog is a 404 to everyone.
+### 4.9 Getting a blog
 
-### 4.9 Letting a phone in
-
-The camera credential proves a camera, not a person. Reading a blog's pictures, comments and list is a person's business, so the phone asks the owner once, by email.
+The camera credential is all a phone needs: whoever holds a camera manages the blog it posts to. What goes
+through an inbox is only *which address a blog belongs to*, so that every camera leads to a blog and every
+blog to one person who can be reached.
 
 **The address comes first.** Nothing is named, and no row is written, until someone has opened a link sent
 to the address they typed. A half-finished sign-up leaves a token that expires, not a blog nobody confirmed.
 
-- `POST /claim` `{}` on a bound camera, or `{ "email": "…" }` on an unbound one → `200 { "state": "pending" }` and a mail to the owner. On an unbound camera the server mails whichever link fits: an address that already owns a blog gets `/app/claim?t=…` to let this phone into it, and an address it has never seen gets `/app/confirm?t=…` to start one. **The answer is identical either way**, so the form says nothing about who has a camera, and the app shows the same screen for both.
+- `POST /claim` `{ "email": "…" }` on an unbound camera → `200 { "state": "pending" }` and a mail. The server mails whichever link fits: an address that already owns a blog gets `/app/claim?t=…` to add this camera to it, and an address it has never seen gets `/app/confirm?t=…` to start one. **The answer is identical either way**, so the form says nothing about who has a camera, and the app shows the same screen for both. `409 already_bound` on a camera that has a blog.
 - Opening `/app/confirm?t=…` records the address against that camera, where `confirmed_email` in §4.4 reports it. It names no blog, because there is none yet.
-- `POST /blog` `{ "name": "…", "handle": "…" }` → `201 { "handle", "url" }`. Names the blog for whatever `confirmed_email` holds; the address is never sent again, because the phone does not get to choose it at this point. `409 address_unconfirmed` before that link is opened, `409 already_bound` if the camera has a blog, `409 handle_taken` otherwise. The blog is verified from birth, the phone is let in on the spot, and `confirmed_email` is cleared. Binding is still the QR photo (§5), except that the app skips it for now and the server binds here instead.
+- `POST /blog` `{ "name": "…", "handle": "…" }` → `201 { "handle", "url" }`. Names the blog for whatever `confirmed_email` holds and binds the camera to it; the address is never sent again, because the phone does not get to choose it at this point. `409 address_unconfirmed` before that link is opened, `409 already_bound` if the camera has a blog, `409 handle_taken` or `409 email_taken` otherwise. The blog is verified from birth and `confirmed_email` is cleared.
 - `GET /handle?handle=…` → `200 { "handle", "available" }`. So the app can say *taken* before the form is sent.
-- `POST /verification-code` `{}` → `201 { "code": "KQ7M2X", "expires_at": … }`. The code the app draws as the QR (§5). `409 no_blog` until there is a blog to bind to, `409 already_bound` once the camera is on one.
-- The claim mail links to `/app/claim?t=…`, which **asks** and grants nothing; the `POST` behind its button is what approves. Mail clients prefetch links, so a GET must not be the grant. Confirming an address is not a grant — it says only that the address is reachable — so `/app/confirm` needs no such button.
-- The approval names the camera *and* the blog, so a link cannot be replayed onto another phone, and an approval for one blog does not follow the camera to another.
+- The claim mail links to `/app/claim?t=…`, which **asks** and binds nothing; the `POST` behind its button is what binds the camera to the blog, moves the camera's earlier photos onto it and mails the owner that it is linked. Mail clients prefetch links, so a GET must not be the grant. Confirming an address is not a grant — it says only that the address is reachable — so `/app/confirm` needs no such button.
+- The link names the camera *and* the blog, so it cannot be replayed onto another camera, and it does nothing to a camera that has found a blog in the meantime.
 
 ### 4.10 Firmware releases
 
@@ -448,21 +471,18 @@ is trusted with the image.
 
 ---
 
-## 5. Verification picture
+## 5. Binding
 
-The app shows a QR code on the phone's own screen, from the code `POST /verification-code` (§4.9) hands it. Payload:
+A camera posts to at most one blog, and §4.9 is the only way it comes to: its owner names a blog for a
+confirmed address, or opens the emailed link for a blog that address already owns. There is no way to
+move a bound camera to another blog yet.
 
-```
-<6 chars from the alphabet in §1>
-```
+The verification picture that used to live here — a QR on the phone's screen, photographed by the camera
+and decoded server-side — is gone: one-bit photos of a phone screen did not decode reliably in practice.
+Photos stored as `kind = verification` from that time are never shown.
 
-Six characters and nothing else: that is 6 bytes, which is all QR version 1 at error correction **H** holds in byte mode, and byte mode is the only one CoreImage's generator offers. A prefix would push the phone to version 2 and cost a fifth of every module's width, which the camera cannot spare. Nothing needs the prefix to tell our code apart, because only a code the server has issued and not yet expired binds anything.
-
-QR version 1 (21×21 modules), error correction **H**, rendered as large as the phone's screen allows with a 4-module quiet zone on white. Code lifetime 15 minutes; the app asks for a fresh one when it expires.
-
-The server decodes the uploaded 1-bit photo with these variants until one yields `^[A-Z2-9]{6}$`, stopping at the first hit: nearest-neighbour scale `{2, 3, 1}` as-is, then a greyscale box blur of radius `{1, 2}` at scale `{2, 3}`, then the 3×3 majority filter at scale `{2, 3, 1}`, all with both polarities. The blur is what reads a photo of a phone screen: the camera's dither speckles a white module at about the module spacing, and averaging the window back into grey undoes what the one-bit file threw away. A match binds `camera_id` to the blog, tags the photo `kind = verification`, back-fills the camera's unclaimed photos onto the blog and emails the owner.
-
-Photographing a QR code is the only way to bind, and it works on a camera that is already bound: whoever holds the camera can move it to another blog. Photos stay with the blog they were posted to, so a rebind takes the camera and not the history.
+Proof that a picture came from a particular camera is planned as a signature made on the camera, checked
+against a public key the server learns at manufacture. Nothing of it exists yet.
 
 ---
 

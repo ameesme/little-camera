@@ -1,16 +1,13 @@
 import Foundation
 
-/// What the server says about this camera's blog: whether it has one, whether this phone is allowed
-/// to see it, what is on it, and who reads it.
+/// What the server says about this camera's blog: whether it has one, what is on it, and who reads it.
 @Observable @MainActor
 final class Blog {
     private(set) var status: StatusResponse?
     private(set) var error: String?
     private(set) var photos: [FeedPhoto] = []
     private(set) var nextPage: String?
-    private(set) var askedToBeLetIn = false
     private(set) var made: ServerClient.MadeBlog?
-    private(set) var verificationCode: String?
     /// Set when the server refused the blog for a reason a screen can act on, rather than only report.
     private(set) var takenEmail = false
     private(set) var availability: Availability = .unknown
@@ -33,10 +30,6 @@ final class Blog {
 
     var bound: BoundBlog? { status?.bound }
     var isLinked: Bool { status?.bound != nil }
-    var claim: ClaimState? { status?.claim }
-    /// The blog this camera is being set up for but has not bound yet (§4.4). The server remembers it,
-    /// so a phone reopened mid-onboarding resumes rather than making the same owner a second blog.
-    var pending: PendingBlog? { status?.pending }
     /// An address whose owner has opened the link but has not named a blog for it yet (§4.4).
     var confirmedEmail: String? { status?.confirmedEmail }
     /// The blog has no picture at its head yet, which is the last thing onboarding asks for.
@@ -52,11 +45,11 @@ final class Blog {
             let fresh = try await server.status()
             status = fresh
             onStatus?(fresh)
-            if fresh.claim == .approved { await loadFeed(reset: true) }
+            if fresh.bound != nil { await loadFeed(reset: true) }
         }
     }
 
-    // MARK: Being let in (§4.9)
+    // MARK: Getting a blog (§4.9)
 
     func createBlog(name: String, handle: String) {
         takenEmail = false
@@ -72,20 +65,11 @@ final class Blog {
         }
     }
 
-    /// For a camera that already has a blog: the owner says yes by email, and `claim` turns approved.
-    func askToBeLetIn() {
-        perform { [self] in
-            try await server.requestClaim(email: nil)
-            askedToBeLetIn = true
-        }
-    }
-
     /// The one question asked of an unbound camera: the owner's address. The server mails a way into the
     /// blog that address already owns, or a way to confirm it and start one, and says nothing about which.
     func useAddress(_ email: String) {
         perform { [self] in
             try await server.requestClaim(email: email.trimmed)
-            askedToBeLetIn = true
         }
     }
 
@@ -101,12 +85,6 @@ final class Blog {
             return
         }
         availability = free ? .free : .taken
-    }
-
-    /// Asked for once the blog exists; the camera photographs it off this screen.
-    func fetchVerificationCode() {
-        guard verificationCode == nil else { return }
-        perform { [self] in verificationCode = try await server.verificationCode().code }
     }
 
     // MARK: The blog itself
@@ -172,11 +150,9 @@ final class Blog {
         refresh()
     }
 
-    func seedDemo(status: StatusResponse, photos: [FeedPhoto], code: String?, asked: Bool) {
+    func seedDemo(status: StatusResponse, photos: [FeedPhoto]) {
         self.status = status
         self.photos = photos
-        verificationCode = code
-        askedToBeLetIn = asked
         made = Demo.made
         availability = Demo.availability
         takenEmail = Demo.takenEmail
@@ -188,9 +164,7 @@ final class Blog {
         status = nil
         photos = []
         nextPage = nil
-        askedToBeLetIn = false
         made = nil
-        verificationCode = nil
         error = nil
     }
 

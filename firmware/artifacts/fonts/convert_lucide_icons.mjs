@@ -44,7 +44,6 @@ const ICONS = [
   ["lucide-battery-charging.svg", "BATTERY_CHARGING"],
   ["lucide-sparkles.svg", "SPARKLES"],
   ["lucide-user.svg", "USER"],
-  ["lucide-scan-line.svg", "SCAN"],
   ["lucide-triangle-alert.svg", "ALERT"],
   ["blog-phone.svg", "BLOG"],
 ];

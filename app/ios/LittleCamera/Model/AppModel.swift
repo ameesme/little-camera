@@ -12,9 +12,7 @@ final class AppModel {
         case setup
         /// Paired, and the camera is behind the firmware the server has published.
         case firmware
-        /// The camera has a blog already, so the owner has to prove the blog is theirs.
-        case claim
-        /// No blog on this camera: make one, or sign in to one and bind it.
+        /// No blog on this camera: make one, or sign in to one by email.
         case onboarding
         /// Everything is set up; the tabs take over.
         case ready
@@ -61,10 +59,8 @@ final class AppModel {
         if let forced = Demo.stage {
             camera.seedDemo(info: Demo.info)
             blog.seedDemo(
-                status: Demo.status(claim: forced == .claim ? .pending : .approved, bound: Demo.step == .avatar || (Demo.step == nil && forced != .onboarding)),
-                photos: forced == .ready && Demo.name != "empty" ? Demo.photos : [],
-                code: Demo.code,
-                asked: Demo.asked
+                status: Demo.status(bound: Demo.step == .avatar || (Demo.step == nil && forced != .onboarding)),
+                photos: forced == .ready && Demo.name != "empty" ? Demo.photos : []
             )
             if let found = Demo.found { camera.seedFound(found, pairing: Demo.pairing) }
             firmware.seedDemo(release: Demo.release)
@@ -81,11 +77,9 @@ final class AppModel {
         // and the way in ends on that hello rather than on the connection that caused it.
         if !camera.isLinked || (!setUp && (camera.info == nil || !connectedSeen)) { return .setup }
         if !firmwareDeferred && firmware.isAvailable(for: camera) { return .firmware }
-        switch blog.claim {
-        case .approved: return celebrating || (blog.needsAvatar && !avatarSkipped) ? .onboarding : .ready
-        case .pending: return .claim
-        case .unbound, .none: return .onboarding
-        }
+        // Whoever holds the camera manages its blog, so a bound camera needs nothing more from its owner.
+        guard blog.isLinked else { return .onboarding }
+        return celebrating || (blog.needsAvatar && !avatarSkipped) ? .onboarding : .ready
     }
 
     func confirmConnected() {
@@ -150,7 +144,7 @@ final class AppModel {
         // never met — on a link the camera will not encrypt, because its own bond went with the app.
         if settings.cameraId == nil { Keychain.deleteEverySecret() }
         blog.onStatus = { [weak self] status in
-            guard let self, status.claim == .approved, status.bound != nil else { return }
+            guard let self, status.bound != nil else { return }
             setUp = true
             settings.setUp = true
         }

@@ -5,605 +5,81 @@
  * uplink. Pin map is the v3q netlist; see AGENTS.md.
  */
 
-#include <Arduino.h>
-#include <esp_sleep.h>
-#include <esp_system.h>
-#include <driver/gpio.h>
-#include <esp_random.h>
-#include <esp_timer.h>
-#include <time.h>
-#include "audio.h"
-#include "chirp.h"
-#include "camera.h"
-#include "console.h"
-#include "display.h"
-#include "identity.h"
-#include "mood.h"
-#include "mood_store.h"
-#include "ota.h"
-#include "pal.h"
-#include "power.h"
-#include "storage.h"
-#include "sync.h"
-#include "sync_protocol.h"
-#include "version.h"
-#include <Preferences.h>
-#include <LittleFS.h>
+#include "app.h"
 
-// Sharp Memory LCD (LS027B7DH01) on J3, each line through a 330R guard
-constexpr uint8_t PIN_LCD_SCLK = 4;
-constexpr uint8_t PIN_LCD_MOSI = 5;   // SI — write-only bus, no MISO
-constexpr uint8_t PIN_LCD_CS   = 6;   // SCS — ACTIVE HIGH
-constexpr uint8_t PIN_LCD_DISP = 7;   // HIGH = panel shows
-
-// Q2 (DMG1012UW) gate, low-side, buzzer to +3V3. Must idle LOW: HIGH turns
-// the FET on, which puts near-DC through the coil.
-constexpr uint8_t PIN_BUZZ    = 46;
-
-// D2MQ, NO to GND, with R26 10k pull-up and C24 100n on the line, so the
-// board does the pulling and pressed reads LOW. (The previous carrier had the
-// switch's NC terminal routed, which inverted this.)
-constexpr uint8_t PIN_SHUTTER = 44;
-
-// Power sense. VBAT is halved by R34/R35 (1M/1M); VBUS and CHG are dividers
-// read as logic, and CHG only means anything with VBUS present.
-constexpr uint8_t PIN_VBAT = 3;
-constexpr uint8_t PIN_VBUS = 16;
-constexpr uint8_t PIN_CHG  = 17;
-
-static inline bool shutterPressed() {
-    return digitalRead(PIN_SHUTTER) == LOW;
-}
-
-// Timing constants
-constexpr uint32_t IDLE_TIMEOUT_MS = 20000;  // 20 seconds idle -> sleep
-// Looking at a photo is slower than framing one: the gallery, and the save
-// screen with a photo waiting on a decision, get longer before the sleep
-// face comes up.
-constexpr uint32_t REVIEW_IDLE_TIMEOUT_MS = 30000;
-// A photo the phone is standing by for: long enough to find the card and frame it, short enough
-// that a camera put down mid-ask still sleeps.
-constexpr uint32_t PROMPT_IDLE_TIMEOUT_MS = 120000;
-constexpr uint32_t HINT_TOAST_DELAY_MS = 5000;  // Show hint after 5s idle
-// Pairing holds the screen until the phone is done with it. The timeout is the
-// escape hatch for a phone that walks away mid-dialog; the result lingers just
-// long enough to be read.
-constexpr uint32_t PAIRING_TIMEOUT_MS = 60000;
-constexpr uint32_t PAIRING_RESULT_MS = 6000;
-// Between two chirps: long enough to be two and not a stutter, short enough to feel like one phrase.
-constexpr uint32_t CHIRP_GAP_MIN_MS = 40;
-constexpr uint32_t CHIRP_GAP_MAX_MS = 300;
-
-// A firmware update owns the screen until the phone is done with it or gives
-// up; sync.cpp's own timeouts are the escape hatch, so there is none here.
-// How long the outcome stays up afterwards, and how long a freshly updated
-// image has to prove it can stay on its feet before the trial ends
-// (docs/protocol.md §3.7). Twenty seconds covers boot, the camera, the radio
-// and the first idle timeout — an image that cannot manage that is one a
-// rollback can actually fix.
-constexpr uint32_t UPDATE_RESULT_MS = 3000;
-constexpr uint32_t OTA_CONFIRM_MS = 20000;
-
-// How long the bare capture holds before the layout starts sliding, and how
-// long the slide itself takes. The dwell exists so the shot registers as its
-// own moment instead of being swallowed by the animation.
-constexpr uint32_t CAPTURE_DWELL_MS = 350;
-constexpr uint32_t SAVE_SLIDE_MS = 280;
-// Point in the slide out where the frozen capture hands back to the live
-// camera. Grabbing a frame costs a sensor-frame wait, so the live half runs at
-// a lower frame rate than the frozen half — starting at the halfway mark keeps
-// most of the motion smooth while still masking the dither change.
-constexpr float DISMISS_LIVE_AT = 0.5f;
-
-// Save-screen gestures. Long enough that trash reads as a deliberate act rather
-// than a slow tap — it's the one irreversible thing the button can do.
-constexpr uint32_t TRASH_HOLD_MS = 1500;
-
-// Hold in the viewfinder to open the gallery, hold in the gallery to leave it.
-// 3.5x the measured ~200ms press, so a tap never becomes a hold by accident,
-// and well short of TRASH_HOLD_MS so the two holds stay apart by feel.
-constexpr uint32_t GALLERY_HOLD_MS = 700;
-// Keep holding past the gallery threshold and the system menu opens instead.
-constexpr uint32_t MENU_HOLD_MS = 2000;
-
-// After the idle timeout the sleep face goes up at once, but the radio keeps
-// advertising behind it for this long so a phone can still collect photos.
-// Only then does the chip light-sleep (radio off). A phone mid-transfer
-// stretches the window.
-constexpr uint32_t RADIO_LINGER_MS = 30000;
-// Waking — with the radio still on or from light sleep — takes a hold, not a
-// tap. A camera in a bag gets tapped; a second of pressure is intent.
-constexpr uint32_t WAKE_HOLD_MS = 1000;
-constexpr uint32_t SLEEP_TAP_MAX_MS = 300;
-constexpr uint32_t WAKE_SLIDE_MS = 180;
-constexpr uint32_t WAKE_FACE_DELAY_MS = 300;
-
-// One button drives everything, so the UI is a strict mode machine: the
-// meaning of a press depends entirely on which screen is up.
-enum class Mode {
-    Viewfinder,  // Live preview; press shoots, hold opens the gallery
-    Capture,     // Frozen frame: dwell, then slide into Save
-    Save,        // Frame plus send/trash; press sends, hold trashes
-    Dismissing,  // Slide back out after an action, then resume the viewfinder
-    Gallery,     // Stored photos, newest first; press = next, hold = back
-    Menu,        // System menu; press = next item, hold = select
-    Asleep,      // Sleep face up, radio still advertising; hold wakes
-    Pairing,     // The phone is asking for the passkey; the code owns the screen
-    Updating,    // New firmware coming in over BLE; progress owns the screen
-    PalFound,    // "you got a little pal" after a save; press equips, hold skips
-    PalWelcome,  // The awake face and the new pal sliding in; press or wait to go on
-};
+namespace App {
 
 // State variables
-static Mode mode = Mode::Viewfinder;
-static bool lastPressed = false;
-static uint32_t lastActivityTime = 0;
-static bool hintToastShowing = false;
-static uint32_t captureShownAt = 0;
+Mode mode = Mode::Viewfinder;
+bool lastPressed = false;
+uint32_t lastActivityTime = 0;
+bool hintToastShowing = false;
+uint32_t captureShownAt = 0;
 // The frame being reviewed. Camera::capture() hands back the driver's
 // framebuffer and only recycles it on the next call, so this stays valid as
 // long as Capture/Save never grab a new frame — which they don't.
-static uint8_t* savedFrame = nullptr;
-// Save-screen gesture tracking: when the current press began, whether a press
-// is in progress, and whether it already crossed the hold threshold.
-static uint32_t pressStartedAt = 0;
-static bool gestureActive = false;
-static bool holdFired = false;
+uint8_t* savedFrame = nullptr;
+// The press in progress, shared by every screen (gesture.h).
+Gesture::State gesture;
 // Dismiss slide: when it started and the toast to raise once it lands.
-static uint32_t dismissStartedAt = 0;
-static const char* pendingToast = nullptr;
+uint32_t dismissStartedAt = 0;
+const char* pendingToast = nullptr;
 // Grab-on-press, commit-on-release: the shutter still fires the instant it is
 // pressed (that's what a camera button does), but whether the frozen frame
 // goes on to the save screen or gets thrown away for the gallery is decided by
 // whether the button is still down at GALLERY_HOLD_MS. True from the press
 // edge until that decision is made.
-static bool captureHeld = false;
+bool captureHeld = false;
 // Gallery: which photo (0 = newest), whether the screen needs redrawing, and
 // what the toast looked like at the last redraw — the gallery is static, so it
 // only repaints when something about it changed.
-static int galleryOrdinal = 0;
-static bool galleryDirty = false;
-static bool galleryToastWasVisible = false;
+int galleryOrdinal = 0;
+bool galleryDirty = false;
+bool galleryToastWasVisible = false;
 // Same for the save screen, which is also drawn once and then left alone.
-static bool saveToastWasVisible = false;
-// The decoded photo. Its own buffer rather than Display's: 9.6KB is noise next
-// to the 77KB camera frame, and Display keeps its bitmaps-in, pixels-out
-// contract (which is what lets the preview tool render the gallery).
-static uint8_t galleryBits[Display::PHOTO_BYTES * Display::PHOTO_HEIGHT];
-// System menu
-static const char* MENU_ITEMS[] = {"diagnostics", "share blog", "sound test", "contrast test", "reboot", "factory reset", "mute", "pal screen", "exit"};
-constexpr int MENU_COUNT = 9;
-// One slot that reads "unmute" while muted, so the list and its indices never shift.
-constexpr int MENU_MUTE = 6;
-static int menuSelected = 0;
-
-// Companion pal — persisted in NVS("pal"): its care as a blob under "care",
-// and under "id" the bare id that firmware before pal care stored.
-// 30 fps. A frame redraws and sends only the badge's rows (~2/3 of the panel),
-// so the loop keeps time for the melody and the hold fill between frames.
-constexpr uint32_t PAL_FRAME_MS = 33;
-static Pal::State palState;
-static uint8_t offeredPal = 0;
-static uint32_t palShownAt = 0;
-static uint32_t palDrawnAt = 0;
-static bool palToastWasVisible = false;
+bool saveToastWasVisible = false;
+// Motion photos, an experiment switched in the menu (docs/protocol.md §2.1):
+// one press takes MOTION_FRAMES frames MOTION_FRAME_MS apart and saves them as
+// one file that loops. Off by default, persisted in NVS("camera").motion.
+bool motionOn = false;
+// Decoded frames, 1-bit, panel polarity. Shared by the shot under review and
+// the gallery because the two are never up at once: 28.8KB once instead of
+// twice. Display keeps its bitmaps-in, pixels-out contract (which is what lets
+// the preview tool render the gallery), so these are ours and not Display's.
+static uint8_t frameBits[MOTION_FRAMES][FRAME_BYTES];
+static uint8_t* const galleryBits = frameBits[0];
+// The shot being taken: frames wanted, frames in hand, when the first and the
+// last were grabbed, and the interval measured between them.
+static int shotTarget = 1;
+static int shotFrames = 0;
+static uint32_t shotStartedAt = 0;
+static uint32_t shotLastAt = 0;
+static uint16_t shotFrameMs = 0;
+// Playback of whatever motion photo is on screen (save screen or gallery).
+static int playFrames = 1;
+static int playFrame = 0;
+static uint16_t playMs = MOTION_FRAME_MS;
+static uint32_t playStepAt = 0;
+uint8_t offeredPal = 0;
+uint32_t palShownAt = 0;
+uint32_t palDrawnAt = 0;
+bool palToastWasVisible = false;
 // Frames drawn since palFpsSince, logged so the rate can be checked on a board.
-static uint32_t palFrames = 0;
-static uint32_t palFpsSince = 0;
+uint32_t palFrames = 0;
+uint32_t palFpsSince = 0;
 // Opened from the menu to test the screen: it goes back to the menu afterwards
 // instead of sliding out a save layout that has no photo behind it.
-static bool palFromMenu = false;
-// The welcome after equipping: the pal slides in, then it waits a beat.
-constexpr uint32_t PAL_WELCOME_SLIDE_MS = 500;
-constexpr uint32_t PAL_WELCOME_MS = 2200;
-static uint32_t palWelcomeAt = 0;
+bool palFromMenu = false;
+uint32_t palWelcomeAt = 0;
 // Read once on entry: the face should not change expression mid-welcome.
-static uint8_t palWelcomeHappiness = 255;
-
-static Mood::Clock moodClock();
-
-// After moodBoot(): the pal's life runs on the mood's clock.
-static void palBoot() {
-    Pal::Persisted p = {};
-    bool have = false;
-    uint8_t legacyId = 0;
-    Preferences prefs;
-    if (prefs.begin("pal", true)) {
-        have = prefs.getBytes("care", &p, sizeof p) == sizeof p;
-        legacyId = prefs.getUChar("id", 0);
-        prefs.end();
-    }
-    const Mood::Clock c = moodClock();
-    Pal::boot(palState, c, have ? &p : nullptr, legacyId);
-    Serial.printf("Pal: %u%s food=%u life=%lus\n", palState.id, palState.dead ? " (dead)" : "",
-                  palState.food, (unsigned long)Pal::left(palState, c));
-}
-
-// On every change, and on the mood's own cadence, so a reset loses at most
-// the 15 minutes the mood would.
-static void palPersist(const char* why) {
-    if (!palState.id) return;
-    const Pal::Persisted p = Pal::snapshot(palState, moodClock());
-    Preferences prefs;
-    if (!prefs.begin("pal", false)) return;
-    prefs.putBytes("care", &p, sizeof p);
-    prefs.putUChar("id", palState.id);
-    prefs.end();
-    Serial.printf("Pal: saved (%s) food=%u life=%lus%s\n", why, p.food, (unsigned long)p.leftS,
-                  p.dead ? " dead" : "");
-}
-
-// Hand the sleep face the pal's bar, food and fate. True while the panel shows them out of date.
-static bool palShowCare() {
-    return Display::setPalCare(Pal::life(palState, moodClock()), palState.food, palState.dead);
-}
-
-// When the sleep face went up (the radio window counts from here).
-// Camera::deinit() is not idempotent, so the driver's state is tracked too.
-static uint32_t asleepSince = 0;
-static bool cameraReady = false;
-static bool radioOn = false;
-// Pairing: where to go back to, when it started, and when it ended (0 = still
-// waiting on the phone).
-static Mode modeBeforePairing = Mode::Viewfinder;
-static uint32_t pairingStartedAt = 0;
-// The hello is the owner's to dismiss, on the phone or on the button, so it does not end on a beat.
-static bool helloShowing = false;
-static uint32_t pairingDoneAt = 0;
-// Updating: where to go back to if it does not end in a reboot, the percent
-// on screen, and when the outcome went up (0 = still running).
-static Mode modeBeforeUpdate = Mode::Viewfinder;
-static int updatePercent = -1;
-static uint32_t updateEndedAt = 0;
-// A failure restarts the camera rather than dropping back to the viewfinder.
-// Nothing is wrong with the image it is running — the half-written slot is —
-// and coming back up clean is both what the screen promises and the cheapest
-// way to be sure the flash writer let go of everything.
-static bool updateFailed = false;
-
-// Forward declaration
-void enterSleepMode();
-
-// ---- Mood (docs/mood.md) ---------------------------------------------------
-//
-// The state machine lives in mood.h and knows nothing about hardware; this is
-// its clock, its flash and its buzzer. Uptime comes from esp_timer: 64-bit,
-// runs through light sleep, never wraps. The wall clock only exists once a
-// phone has set it. -DLC_MOOD_FAST makes uptime run 600x — an hour in six
-// seconds, the whole week in about seventeen minutes — for bench testing.
-constexpr uint32_t BREATH_MS = 5000;  // Sleep face breath period, awake; asleep it is the VCOM tick
-
-// The breath is a liveness cue for whoever just put the camera down, and an
-// hour later nobody is watching it. It runs for BREATH_WINDOW_MS after the face
-// goes up, restarted by a tap because a tap says someone is there; after that
-// the sleep tick stretches and only the mood and a battery sample ride it. The
-// panel holds the face either way — on v3q its VCOM is U8's job, not ours — and
-// a handful of random daily chirps does not need sub-minute timing.
-constexpr uint32_t BREATH_WINDOW_MS = 120000;
-constexpr uint32_t SLEEP_TICK_MS = 60000;
-
-static Mood::State moodState;
-static Chirp::Rng moodRng(1);
-static int16_t moodTzMin = 0;
-static bool moodTzKnown = false;
-static uint8_t sleepFaceBand = 0xFF;   // Band the face was last drawn for
-static bool sleepBreathIn = false;
-static uint32_t sleepFaceDrawnAt = 0;
-static char sleepStatus[16] = "";      // Battery debug line, as last drawn
-static uint32_t sleepStatusMv = 0;
-static bool sleepStatusChg = false;
-static bool sleepStatusUsb = false;
-static bool lastUsb = false;
-
-static Mood::Clock moodClock() {
-    Mood::Clock c;
-    uint64_t up = (uint64_t)esp_timer_get_time() / 1000000ULL;
-#ifdef LC_MOOD_FAST
-    up *= 600;
-#endif
-    c.uptimeS = (uint32_t)up;
-    time_t t = time(nullptr);
-    c.epoch = (t > 0 && (uint64_t)t >= Mood::EPOCH_VALID_FROM) ? (uint32_t)t : 0;
-    c.tzMin = moodTzMin;
-    c.tzKnown = moodTzKnown;
-    return c;
-}
-
-static void moodPersist(const char* why) {
-    Mood::Clock c = moodClock();
-    MoodStore::save(Mood::snapshot(moodState, c));
-    Mood::markPersisted(moodState, c);
-    Serial.printf("Mood: saved (%s) elapsed=%lus happiness=%u\n", why,
-                  (unsigned long)Mood::elapsed(moodState, c), Mood::happiness(moodState, c));
-    if (Pal::alive(palState)) palPersist(why);
-}
-
-// After Storage::init(): the newest photo's header is the fallback when NVS
-// has no mood yet (first boot of this firmware on a camera with photos).
-static void moodBoot() {
-    moodRng = Chirp::Rng(esp_random());
-    moodTzKnown = MoodStore::loadTz(&moodTzMin);
-    Mood::Persisted p;
-    const bool have = MoodStore::load(&p);
-    uint32_t newestEpoch = 0;
-    Storage::PhotoInfo info;
-    const int newest = Storage::newestIndex();
-    if (newest > 0 && Storage::photoInfo(newest, &info)) newestEpoch = info.epoch;
-    Mood::Clock c = moodClock();
-    Mood::boot(moodState, c, have ? &p : nullptr, newestEpoch, moodRng);
-    Serial.printf("Mood: %s elapsed=%lus happiness=%u band=%u clock=%s tz=%s%d\n", have ? "resumed" : "fresh",
-                  (unsigned long)Mood::elapsed(moodState, c), Mood::happiness(moodState, c),
-                  Chirp::band(Mood::happiness(moodState, c)), c.epoch ? "set" : "unset",
-                  moodTzKnown ? "" : "unknown ", moodTzMin);
-    if (!have) moodPersist("first boot");
-}
-
-// Mute holds until midnight on the chirp schedule's day: local once the phone has set the clock, else a powered-on 24 h period.
-static void applyMute() {
-    const uint32_t now = Mood::detail::dailyNow(moodState, moodClock());
-    uint32_t day;
-    if (!MoodStore::loadMuteDay(&day) || day != now / Mood::DAY_S) return;
-    const uint32_t leftS = Mood::DAY_S - now % Mood::DAY_S;
-    Audio::muteUntil(esp_timer_get_time() + (int64_t)leftS * 1000000);
-    Serial.printf("Audio: muted for %lus\n", (unsigned long)leftS);
-}
-
-static uint8_t moodHappiness();
-
-static void moodOnPhoto() {
-    Mood::onPhoto(moodState, moodClock(), moodRng);
-    moodPersist("photo");
-}
-
-// The phone set the clock (and maybe told us the timezone).
-static void moodOnClock(bool tzKnown, int16_t tzMin) {
-    if (tzKnown && (!moodTzKnown || moodTzMin != tzMin)) {
-        moodTzMin = tzMin;
-        moodTzKnown = true;
-        MoodStore::saveTz(tzMin);
-    }
-    Mood::onClockSet(moodState, moodClock());
-    Pal::onClockSet(palState, moodClock());
-    moodPersist("clock");
-}
-
-// Compose, log, then play. The play blocks for up to 300ms, so the line is on
-// the monitor before the sound. Audio::init first: this is also called straight
-// out of light sleep, where the pin has to be claimed again.
-static void playMoodChirp(uint8_t happiness, const char* why, int count = 0) {
-    Audio::init(PIN_BUZZ);
-    if (count <= 0) count = 1 + (int)(esp_random() % 3);
-    for (int i = 0; i < count; i++) {
-        if (i) delay(CHIRP_GAP_MIN_MS + esp_random() % (CHIRP_GAP_MAX_MS - CHIRP_GAP_MIN_MS + 1));
-        Chirp::Rng rng(esp_random());
-        Chirp::Score s = Chirp::compose(happiness, rng);
-        char desc[64];
-        Chirp::describe(s, desc, sizeof(desc));
-        Serial.printf("%s: chirp %d/%d happiness=%u/255 band=%u %s = %lums\n", why, i + 1, count,
-                      happiness, Chirp::band(happiness), desc, (unsigned long)Chirp::totalMs(s));
-        Audio::playChirp(s);
-    }
-}
-
-// Ask the mood what it owes and pay it if this is a good moment. The state
-// machine never knows what screen is up; `quiet` is decided by the caller:
-// a screen a chirp may interrupt, button up, nothing else sounding, no
-// transfer running. A chirp that is not paid stays due for the next call.
-static void serviceMood(bool quiet, const char* why) {
-    Mood::Clock c = moodClock();
-    // Silently: a pal can run out at three in the morning. The tombstone says it.
-    if (Pal::poll(palState, c)) {
-        Serial.printf("Pal: %u died\n", palState.id);
-        palPersist("died");
-        palShowCare();
-    }
-    Mood::Due d = Mood::poll(moodState, c, moodRng);
-    if (d != Mood::Due::None && quiet) {
-        playMoodChirp(moodHappiness(), why);
-        Mood::onChirpPlayed(moodState, c, d, moodRng);
-        moodPersist(d == Mood::Due::HourChirp ? "hour chirp" : "attention chirp");
-    } else if (Mood::persistDue(moodState, c)) {
-        moodPersist("cadence");
-    }
-}
-
-// Millivolts, never a percentage: the TP4054 cannot be paused, so a reading
-// taken on USB is pulled up by the charge current and a percentage would be
-// confidently wrong just when someone is watching it.
-static uint32_t batteryMv() {
-    analogSetPinAttenuation(PIN_VBAT, ADC_11db);
-    uint32_t sum = 0;
-    for (int i = 0; i < 16; i++) sum += analogReadMilliVolts(PIN_VBAT);
-    // Hand the pin back so the ADC unit is deleted instead of sitting attached
-    // through light sleep: a power readout that costs power is worth nothing.
-    pinMode(PIN_VBAT, INPUT);
-    return (sum / 16) * 2;
-}
-
-static bool onCharge() {
-    return digitalRead(PIN_VBUS) == HIGH && digitalRead(PIN_CHG) == LOW;
-}
-
-static bool onUsb() {
-    return digitalRead(PIN_VBUS) == HIGH;
-}
-
-// Info asks twice a second while a phone is connected; the ADC does not need
-// telling that often, and the mood and the clock are free.
-constexpr uint32_t TELEMETRY_SAMPLE_MS = 5000;
-static uint32_t batterySampledAt = 0;
-static uint16_t batterySampleMv = 0;
-static uint8_t prevBatteryBars = 4;
-
-static void readTelemetry(Sync::Telemetry* out) {
-    const uint8_t happiness = moodHappiness();
-    out->vbatMv = batterySampleMv;
-    out->usb = onUsb();
-    out->charging = onCharge();
-    out->batteryPercent = Power::percent(batterySampleMv, out->charging, out->usb);
-    const Mood::Clock c = moodClock();
-    out->happiness = happiness;
-    out->moodElapsedS = Mood::elapsed(moodState, c);
-}
-
-// ADC noise is tens of mV once doubled, so the last digit would flap on a
-// still battery — and each flap costs a full frame. Widen if it looks jumpy.
-constexpr uint32_t BATTERY_DEADBAND_MV = 20;
-
-// Standby readings go to flash, because the one thing that cannot be done to a
-// sleeping camera is read its serial port — the port stays enumerated and
-// nothing answers. Pull them afterwards with the console's `log`. Five minutes
-// is coarse enough that the writes are nothing against a 4mA idle and fine
-// enough to show the knee of a discharge curve; unplugging is logged the moment
-// it happens, since that is where a standby run starts.
-constexpr uint32_t BATTERY_LOG_INTERVAL_MS = 5 * 60 * 1000;
-static uint32_t batteryLoggedAt = 0;
-static bool batteryLogged = false;
-
-static void logBattery(uint32_t mv, bool chg, bool chgChanged) {
-    const uint32_t now = millis();
-    if (batteryLogged && !chgChanged && now - batteryLoggedAt < BATTERY_LOG_INTERVAL_MS) return;
-    batteryLoggedAt = now;
-    batteryLogged = true;
-    char line[32];
-    snprintf(line, sizeof line, "%lu,%lu,%d", (unsigned long)(now / 1000),
-             (unsigned long)mv, chg ? 1 : 0);
-    Storage::appendLog(line);
-}
-
-// Reads the battery, keeps `sleepStatus` in step with it, logs a standby
-// sample. True when the text moved. Separate from the face because once the
-// breath stops the sleep tick still has to sample, with nothing to draw.
-static bool sampleBattery(bool standby = true) {
-    const uint32_t mv = batteryMv();
-    const bool chg = onCharge();
-    const bool usb = onUsb();
-    batterySampleMv = (uint16_t)mv;
-    batterySampledAt = millis();
-    const bool chgChanged = sleepStatus[0] && chg != sleepStatusChg;
-    const bool usbChanged = sleepStatus[0] && usb != sleepStatusUsb;
-    const uint32_t drift = mv > sleepStatusMv ? mv - sleepStatusMv : sleepStatusMv - mv;
-    const uint8_t pct = Power::percent(mv, chg, usb);
-    const uint8_t bars = Power::bars(pct, prevBatteryBars);
-    bool moved = bars != prevBatteryBars;
-    prevBatteryBars = bars;
-    Display::setBatteryPercent(pct);
-    Display::setBatteryBars(bars);
-    if (!sleepStatus[0] || chgChanged || usbChanged || drift >= BATTERY_DEADBAND_MV) {
-        sleepStatusMv = mv;
-        sleepStatusChg = chg;
-        sleepStatusUsb = usb;
-        Display::setCharging(chg);
-        Display::setUsb(usb);
-        snprintf(sleepStatus, sizeof sleepStatus, "%u.%02uV", (unsigned)(mv / 1000),
-                 (unsigned)(mv % 1000 / 10));
-        if (!moved) moved = true;
-    }
-    if (standby) logBattery(mv, chg, chgChanged || usbChanged);
-    return moved;
-}
-
-static uint8_t moodHappiness() {
-    // Share the telemetry sample instead of running the ADC on every viewfinder frame.
-    if (!batterySampleMv || millis() - batterySampledAt >= TELEMETRY_SAMPLE_MS ||
-        onUsb() != sleepStatusUsb || onCharge() != sleepStatusChg) sampleBattery(false);
-    uint8_t h = Mood::happiness(moodState, moodClock());
-    const uint8_t ceiling = prevBatteryBars <= 1 ? 63 : (prevBatteryBars == 2 ? 127 : 255);
-    if (h > ceiling) h = ceiling;
-    Display::setFaceBand(Chirp::band(h));
-    return h;
-}
-
-// The sleep face for the current mood. A full frame when it first goes up or
-// the band moved; a breath (the other frame, face rows only) otherwise.
-static void showSleepFace(bool full) {
-    const uint8_t h = moodHappiness();
-    const uint8_t band = Chirp::band(h);
-    if (band != sleepFaceBand) full = true;
-    sleepFaceBand = band;
-    // The viewfinder's sidebar wears the same face, so it learns the band here
-    // rather than asking mood.h from inside the panel driver.
-    Display::setFaceBand(band);
-    // The pal's corner sits outside the face rows a breath sends.
-    if (palShowCare()) full = true;
-
-    Display::drawSleep(h, sleepBreathIn, !full);
-    sleepFaceDrawnAt = millis();
-}
-
-// A tap on the sleep face with food in hand feeds the pal: the item hops over,
-// the pal eats with a sound, a heart rises and the bar fills. Blocking for
-// ~1.5 s, like the chirp it replaces, because it also runs straight out of
-// light sleep where there is no loop to animate from.
-static void feedPal(const char* why) {
-    const Mood::Clock c = moodClock();
-    const uint8_t from = Pal::life(palState, c);
-    if (!Pal::feed(palState, c)) return;
-    Serial.printf("%s: fed pal %u, life %u -> %u/255, %u food left\n", why, palState.id, from,
-                  Pal::life(palState, c), palState.food);
-    palPersist("fed");
-    palShowCare();
-    Audio::init(PIN_BUZZ);
-    const uint8_t h = moodHappiness();
-    Display::drawPalFeed(h, sleepBreathIn, 0, from, true);
-    uint32_t start = millis();
-    bool chomped = false;
-    for (;;) {
-        const uint32_t t = millis() - start;
-        if (t >= Display::PAL_FEED_MS) break;
-        if (!chomped && t >= Display::PAL_FEED_TOSS_MS) {
-            chomped = true;
-            Display::drawPalFeed(h, sleepBreathIn, Display::PAL_FEED_TOSS_MS, from, false);
-            const uint32_t before = millis();
-            Audio::playFeed();
-            // The animation waits out the blocking sound instead of skipping ahead.
-            start += millis() - before;
-            continue;
-        }
-        Display::drawPalFeed(h, sleepBreathIn, t, from, false);
-        delay(PAL_FRAME_MS);
-    }
-    showSleepFace(true);
-}
-
-// After a tap in light sleep the chip is up for the sound anyway, so the pal
-// idles a few seconds before going back to rest: ~60 mA for 4 s per tap,
-// against a pal that otherwise never moves on battery. A press ends it early;
-// the level-triggered GPIO wake then picks that press up as usual.
-constexpr uint32_t TAP_IDLE_MS = 4000;
-static void idlePalAfterTap() {
-    const uint32_t start = millis();
-    while (millis() - start < TAP_IDLE_MS && !shutterPressed()) {
-        Display::animateSleepPal(millis());
-        delay(20);
-    }
-    Display::animateSleepPal(0);
-}
-
-// What a tap on the sleep face does: feed the pal if there is food for it, chirp otherwise.
-static void sleepTap(const char* why) {
-    if (Pal::alive(palState) && palState.food) feedPal(why);
-    else playMoodChirp(moodHappiness(), why);
-}
-
-static void breatheSleepFace() {
-    sleepBreathIn = !sleepBreathIn;
-    showSleepFace(sampleBattery());
-}
-
-static void serviceUsb(bool asleep) {
-    const bool usb = onUsb();
-    if (usb == lastUsb) return;
-    lastUsb = usb;
-    sampleBattery();
-    if (asleep) showSleepFace(true);
-    if (usb) playMoodChirp(255, "Charger", 1);
-}
+uint8_t palWelcomeHappiness = 255;
+bool cameraReady = false;
+bool radioOn = false;
 
 // Boot/wake gate, not a debounce: light sleep wakes on the pressed level, i.e.
 // with the button still held, so the loop would otherwise see it as a fresh
 // press. Block until the line has been continuously released for stableMs.
-static void waitForStableRelease(uint32_t stableMs) {
+void waitForStableRelease(uint32_t stableMs) {
     uint32_t stableStart = millis();
     while (millis() - stableStart < stableMs) {
         if (shutterPressed()) {
@@ -617,7 +93,7 @@ static void waitForStableRelease(uint32_t stableMs) {
 // Measured on this switch: real presses hold ~200ms, release bounce lasts
 // ~1ms — 10ms sits comfortably between the two, so no additional edge-timing
 // window is needed. R26/C24 soften the edge but don't remove that bounce.
-static bool confirmPressed() {
+bool confirmPressed() {
     for (int i = 0; i < 5; i++) {
         delay(2);
         if (!shutterPressed()) return false;
@@ -630,7 +106,7 @@ static bool confirmPressed() {
 // pays a re-init when frames are wanted again. Camera::deinit() frees the
 // framebuffer, so dropping the reviewed frame is part of switching off rather
 // than something each caller has to remember.
-static bool cameraOn() {
+bool cameraOn() {
     if (!cameraReady) {
         cameraReady = Camera::init();
         if (!cameraReady) Serial.println("Camera init failed");
@@ -638,15 +114,211 @@ static bool cameraOn() {
     return cameraReady;
 }
 
-static void cameraOff() {
+void cameraOff() {
     if (!cameraReady) return;
     Camera::deinit();
     cameraReady = false;
     savedFrame = nullptr;
 }
 
-static void completeWakeFace(bool fromHold = true);
-static void enterWakeViewfinder();
+// Ease-out cubic. The panel only manages ~10 frames across a slide, and at that
+// frame count a linear ramp reads as a mechanical stutter — decelerating into
+// the resting layout hides it. Both slides end at rest, so both use it: the
+// dismiss just runs the position backwards.
+float easeOutCubic(float p) {
+    float inv = 1.0f - p;
+    return 1.0f - inv * inv * inv;
+}
+
+// Start sliding the save layout back out. The toast waits until the slide
+// lands — raising it mid-slide would drop it on top of the columns still
+// moving underneath it.
+void startDismiss(const char* toast) {
+    Display::clearToast();
+    pendingToast = toast;
+    // The second half of the slide wants live frames, and the sensor has been
+    // off since the Save screen went up. The stall lands on the button press,
+    // next to the flash write, rather than mid-animation.
+    cameraOn();
+    dismissStartedAt = millis();
+    mode = Mode::Dismissing;
+}
+
+// A save with no pal equipped offers one. A mode rather than a blocking loop so
+// the radio, toasts and the idle timeout keep running; walking away counts as
+// a skip, and the next photo offers again.
+void enterPalFound() {
+    palFromMenu = false;
+    offeredPal = 1 + (uint8_t)(esp_random() % Pal::COUNT);
+    Serial.printf("Pal: offering %u\n", offeredPal);
+    Audio::playMelody(Audio::Melody::PalFound);
+    Display::clearToast();
+    gesture.active = false;
+    gesture.fired = false;
+    lastActivityTime = millis();
+    palShownAt = palDrawnAt = palFpsSince = millis();
+    palFrames = 0;
+    Display::drawPalDialog(offeredPal, 0);
+    palToastWasVisible = Display::toastVisible();
+    mode = Mode::PalFound;
+}
+
+void leavePalFound(const char* toast) {
+    if (!palFromMenu) {
+        startDismiss(toast);
+        return;
+    }
+    mode = Mode::Menu;
+    gesture.active = false;
+    gesture.fired = false;
+    lastActivityTime = millis();
+    // No toast: the menu never repaints when one expires, so it would stick.
+    showMenu();
+}
+
+void enterPalWelcome() {
+    Audio::playMelody(Audio::Melody::Saved);
+    Display::clearToast();
+    gesture.active = false;
+    gesture.fired = false;
+    lastActivityTime = millis();
+    palWelcomeAt = palDrawnAt = millis();
+    palWelcomeHappiness = moodHappiness();
+    Display::drawPalWelcome(palWelcomeHappiness, palState.id, 0.0f, 0, true);
+    mode = Mode::PalWelcome;
+}
+
+// From a save, the welcome face is the awake face, so it hands over to the
+// viewfinder exactly as a wake does: the face slides up and its miniature
+// settles into the sidebar. From the menu test it just goes back to the menu.
+void leavePalWelcome() {
+    if (palFromMenu) {
+        leavePalFound(nullptr);
+        return;
+    }
+    cameraOn();
+    enterWakeViewfinder();
+    returnToViewfinder();
+}
+
+// Draw the current gallery photo. Files that fail to decode are skipped — a
+// partial write can't leave one behind (savePhoto removes them), but a file
+// copied onto the flash by some future tool might be the wrong size.
+void showGalleryPhoto() {
+    galleryDirty = false;
+    playFrames = 1;
+    int total = Storage::photoCount();
+    if (total <= 0) {
+        Display::drawGalleryEmpty();
+        return;
+    }
+    if (galleryOrdinal >= total) galleryOrdinal = 0;
+    for (int tries = 0; tries < total; tries++) {
+        int index = Storage::photoAt(galleryOrdinal);
+        uint16_t ms = 0;
+        const int frames = index > 0 ? Storage::loadFrames(index, galleryBits, FRAME_BYTES, MOTION_FRAMES, &ms) : 0;
+        if (frames > 0) {
+            playFrames = frames;
+            playFrame = 0;
+            playMs = ms ? ms : MOTION_FRAME_MS;
+            playStepAt = millis();
+            Display::drawGallery(galleryBits, galleryOrdinal, total);
+            return;
+        }
+        Serial.printf("Gallery: could not load #%04d, skipping\n", index);
+        galleryOrdinal = (galleryOrdinal + 1) % total;
+    }
+    Display::drawGalleryEmpty();
+}
+
+// Open the gallery. Called while the shutter is still held, so lastPressed is
+// already true and the gallery's press-edge test can't fire until the button
+// is released — the hold that opened it doesn't also advance it.
+void enterGallery() {
+    cameraOff();
+    captureHeld = false;
+    galleryOrdinal = 0;
+    gesture.active = false;
+    gesture.fired = false;
+    Display::clearToast();
+    hintToastShowing = false;
+    galleryToastWasVisible = false;
+    mode = Mode::Gallery;
+    lastActivityTime = millis();
+    Serial.println("Gallery: open");
+    int total = Storage::photoCount();
+    int index = total > 0 ? Storage::photoAt(0) : 0;
+    if (index > 0 && Storage::loadPhoto(index, galleryBits, FRAME_BYTES)) {
+        uint32_t start = millis();
+        uint32_t slid;
+        while ((slid = millis() - start) < SAVE_SLIDE_MS) {
+            if (shutterPressed() && (millis() - gesture.startedAt) >= MENU_HOLD_MS) {
+                enterMenu();
+                return;
+            }
+            Display::drawGalleryTransition(galleryBits, 0, total,
+                                           easeOutCubic((float)slid / SAVE_SLIDE_MS));
+            Audio::update();
+        }
+    }
+    // The button may still be held from the viewfinder — wait for menu or release.
+    while (shutterPressed()) {
+        if ((millis() - gesture.startedAt) >= MENU_HOLD_MS) {
+            enterMenu();
+            return;
+        }
+        delay(5);
+    }
+    showGalleryPhoto();
+}
+
+// Back to the viewfinder. Also called mid-hold, and the viewfinder's own
+// press-edge test likewise waits for a release, so leaving never shoots.
+void leaveGallery() {
+    Display::clearToast();
+    cameraOn();          // The slide out hands over to live frames halfway
+    Audio::playClick();  // Regular: back to the camera
+    Serial.println("Gallery: close");
+    // Slide back out like the save dismiss: the gallery photo rides the card
+    // for the first half, the live viewfinder takes over from DISMISS_LIVE_AT
+    // so the dither switch hides in the motion. The empty gallery got no
+    // slide in, so it gets none out.
+    if (Storage::photoCount() > 0) {
+        uint32_t start = millis();
+        uint32_t slid;
+        while ((slid = millis() - start) < SAVE_SLIDE_MS) {
+            float p = (float)slid / SAVE_SLIDE_MS;
+            uint8_t* live = (p >= DISMISS_LIVE_AT) ? Camera::capture() : nullptr;
+            Display::drawGalleryDismissTransition(live, Camera::WIDTH, Camera::HEIGHT,
+                                                  galleryOrdinal, Storage::photoCount(),
+                                                  1.0f - easeOutCubic(p));
+            Audio::update();
+        }
+    }
+    mode = Mode::Viewfinder;
+    gesture.active = false;
+    lastActivityTime = millis();
+    hintToastShowing = false;
+}
+
+// Slide finished: back to live preview, with a toast naming what happened.
+void returnToViewfinder() {
+    savedFrame = nullptr;
+    mode = Mode::Viewfinder;
+    gesture.active = false;
+    lastActivityTime = millis();
+    hintToastShowing = false;
+    Display::clearToast();
+    if (pendingToast) {
+        Display::showToast(pendingToast, Display::ToastHAlign::Right,
+                           Display::ToastVAlign::Top);
+        pendingToast = nullptr;
+    }
+}
+
+}  // namespace App
+
+using namespace App;
 
 void setup() {
     // Plain INPUT: R26 is the pull-up, so the internal one would only fight
@@ -702,6 +374,14 @@ void setup() {
     moodBoot();
     applyMute();
     palBoot();
+    {
+        Preferences prefs;
+        if (prefs.begin("camera", true)) {
+            motionOn = prefs.getUChar("motion", 0) != 0;
+            prefs.end();
+        }
+        if (motionOn) Serial.println("Motion: on");
+    }
     Display::setPal(palState.id);
     palShowCare();
     Audio::playMelody(Audio::Melody::TaDaDa);
@@ -736,860 +416,6 @@ void setup() {
 
     // Initialize activity timer
     lastActivityTime = millis();
-}
-
-static float easeOutCubic(float p);
-
-static void completeWakeFace(bool fromHold) {
-    const uint8_t happiness = moodHappiness();
-    if (fromHold) Display::drawWakeProgress(WAKE_HOLD_MS, WAKE_HOLD_MS);
-    Display::drawAwake(happiness);
-    playMoodChirp(happiness, "Wake", 1);
-}
-
-static void enterWakeViewfinder() {
-    const uint8_t happiness = moodHappiness();
-    Display::setFaceBand(Chirp::band(happiness));
-    uint8_t* frame = Camera::capture();
-    // A failed sensor must not animate a stale photo from before sleep.
-    if (!frame) return;
-    // Keep the face visible through sensor startup and capture so its exit leads straight to a real frame.
-    const uint32_t exitStart = millis();
-    for (;;) {
-        const uint32_t elapsed = millis() - exitStart;
-        const float t = elapsed >= WAKE_SLIDE_MS ? 1.0f : (float)elapsed / WAKE_SLIDE_MS;
-        Display::drawWakeExit(happiness, easeOutCubic(t));
-        if (t >= 1.0f) break;
-        delay(1);
-    }
-    Display::drawWakeEnter(frame, Camera::WIDTH, Camera::HEIGHT, 0.0f);
-    frame = nullptr;
-    // Hold the cached first frame during the wake handoff so the miniature gets its own beat.
-    delay(WAKE_FACE_DELAY_MS);
-    const uint32_t start = millis();
-    for (;;) {
-        const uint32_t elapsed = millis() - start;
-        const float t = elapsed >= WAKE_SLIDE_MS ? 1.0f : (float)elapsed / WAKE_SLIDE_MS;
-        Display::drawWakeEnter(frame, Camera::WIDTH, Camera::HEIGHT, easeOutCubic(t));
-        frame = nullptr;
-        if (t >= 1.0f) break;
-        delay(1);
-    }
-}
-
-static uint32_t heldToWake() {
-    Display::clearWakeProgress();
-    uint32_t start = millis();
-    while (millis() - start < WAKE_HOLD_MS) {
-        if (!shutterPressed()) {
-            const uint32_t held = millis() - start;
-            Display::clearWakeProgress();
-            showSleepFace(true);
-            return held;
-        }
-        Display::drawWakeProgress(millis() - start, WAKE_HOLD_MS);
-        delay(10);
-    }
-    completeWakeFace();
-    return WAKE_HOLD_MS;
-}
-
-// ---- System menu -----------------------------------------------------------
-
-static void showMenu() {
-    MENU_ITEMS[MENU_MUTE] = Audio::muted() ? "unmute" : "mute";
-    Display::drawMenu(MENU_ITEMS, MENU_COUNT, menuSelected);
-}
-
-static void enterMenu() {
-    cameraOff();
-    captureHeld = false;
-    gestureActive = false;
-    holdFired = false;
-    Display::clearToast();
-    hintToastShowing = false;
-    menuSelected = 0;
-    mode = Mode::Menu;
-    lastActivityTime = millis();
-    Audio::playClick();
-    Serial.println("Menu: open");
-    showMenu();
-}
-
-static void leaveMenu() {
-    Audio::playClick();
-    Serial.println("Menu: close");
-    cameraOn();
-    mode = Mode::Viewfinder;
-    gestureActive = false;
-    holdFired = false;
-    lastActivityTime = millis();
-    hintToastShowing = false;
-}
-
-static void menuRunDiagnostics() {
-    char versionBuf[16], bootBuf[16], shotsBuf[16], photosBuf[16], storageBuf[32], battBuf[16], uptimeBuf[16];
-    snprintf(versionBuf, sizeof(versionBuf), "%s", LC_VERSION_STRING);
-    snprintf(bootBuf, sizeof(bootBuf), "%u", (unsigned)Storage::bootCount());
-    snprintf(shotsBuf, sizeof(shotsBuf), "%u", (unsigned)Storage::shotCount());
-    snprintf(photosBuf, sizeof(photosBuf), "%d (%d unsynced)", Storage::photoCount(), Storage::unsyncedCount());
-    snprintf(storageBuf, sizeof(storageBuf), "%uK / %uK",
-             (unsigned)(Storage::usedBytes() / 1024), (unsigned)(Storage::totalBytes() / 1024));
-    snprintf(battBuf, sizeof(battBuf), "%umV", (unsigned)batterySampleMv);
-    const uint32_t upS = millis() / 1000;
-    if (upS >= 3600) snprintf(uptimeBuf, sizeof(uptimeBuf), "%uh%02um", (unsigned)(upS / 3600), (unsigned)((upS % 3600) / 60));
-    else snprintf(uptimeBuf, sizeof(uptimeBuf), "%um%02us", (unsigned)(upS / 60), (unsigned)(upS % 60));
-    Display::DiagLine lines[] = {
-        {"firmware", versionBuf},
-        {"camera", Identity::deviceName()},
-        {"code", Identity::shortCode()},
-        {"boots", bootBuf},
-        {"photos", photosBuf},
-        {"storage", storageBuf},
-        {"battery", battBuf},
-        {"uptime", uptimeBuf},
-    };
-    Display::drawDiagnostics(lines, 8);
-    Serial.println("Menu: diagnostics");
-    while (!shutterPressed()) delay(10);
-    while (shutterPressed()) delay(10);
-    showMenu();
-}
-
-static void menuShareBlog() {
-    Display::drawShareBlog(Identity::shortCode(), "lttl.cam");
-    Serial.printf("Menu: share blog — code %s\n", Identity::shortCode());
-    while (!shutterPressed()) delay(10);
-    while (shutterPressed()) delay(10);
-    showMenu();
-}
-
-static void menuSoundTest() {
-    Serial.println("Menu: sound test");
-    while (shutterPressed()) delay(5);
-    Display::showToast("sound test", Display::ToastHAlign::Center, Display::ToastVAlign::Top, true, 0);
-    showMenu();
-    for (int band = 3; band >= 0; band--) {
-        uint8_t h = band == 3 ? 240 : band == 2 ? 160 : band == 1 ? 80 : 20;
-        playMoodChirp(h, "Sound test", 1);
-        delay(400);
-    }
-    Display::clearToast();
-    showMenu();
-}
-
-static void menuContrastTest() {
-    Serial.println("Menu: contrast test");
-    Display::drawTestPattern();
-    while (!shutterPressed()) delay(10);
-    while (shutterPressed()) delay(10);
-    showMenu();
-}
-
-static void menuFactoryReset() {
-    Display::drawPairing("reset?", "hold to confirm, press to cancel");
-    Serial.println("Menu: factory reset prompt");
-    while (!shutterPressed()) delay(10);
-    uint32_t start = millis();
-    while (shutterPressed()) {
-        if (millis() - start >= TRASH_HOLD_MS) {
-            Serial.println("Menu: FACTORY RESET");
-            Display::drawPairing("resetting", "goodbye");
-            delay(500);
-            // Erase NVS and LittleFS
-            {
-                Preferences prefs;
-                prefs.begin("storage", false); prefs.clear(); prefs.end();
-                prefs.begin("sync", false);    prefs.clear(); prefs.end();
-                prefs.begin("mood", false);    prefs.clear(); prefs.end();
-                prefs.begin("pal", false);     prefs.clear(); prefs.end();
-            }
-            LittleFS.format();
-            delay(200);
-            esp_restart();
-            return;
-        }
-        delay(10);
-    }
-    showMenu();
-}
-
-static void menuReboot() {
-    Serial.println("Menu: reboot");
-    Display::drawPairing("reboot", nullptr);
-    delay(300);
-    esp_restart();
-}
-
-static void menuMute() {
-    MoodStore::saveMuteDay(Mood::detail::dailyNow(moodState, moodClock()) / Mood::DAY_S);
-    applyMute();
-    leaveMenu();
-    Display::showToast("muted till midnight", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
-}
-
-static void menuUnmute() {
-    MoodStore::clearMuteDay();
-    Audio::muteUntil(0);
-    Serial.println("Audio: unmuted");
-    // After the unmute, so leaving the menu clicks and confirms sound is back.
-    leaveMenu();
-    Display::showToast("sound on", Display::ToastHAlign::Right, Display::ToastVAlign::Top);
-}
-
-static void enterPalFound();
-
-// Test entry: offers a random pal whether or not one is equipped, and equipping
-// replaces it.
-static void menuPalScreen() {
-    Serial.println("Menu: pal screen");
-    enterPalFound();
-    palFromMenu = true;
-}
-
-static void menuSelect() {
-    switch (menuSelected) {
-        case 0: menuRunDiagnostics(); break;
-        case 1: menuShareBlog(); break;
-        case 2: menuSoundTest(); break;
-        case 3: menuContrastTest(); break;
-        case 4: menuReboot(); break;
-        case 5: menuFactoryReset(); break;
-        case MENU_MUTE: Audio::muted() ? menuUnmute() : menuMute(); break;
-        case 7: menuPalScreen(); break;
-        case 8: leaveMenu(); break;
-    }
-}
-
-// Idle timeout: sleep face up, camera driver down, radio still on. To the
-// user this is sleep; to a phone it is another RADIO_LINGER_MS of chances to
-// collect photos before the chip really goes down (enterSleepMode). A photo
-// under review is discarded: walking away is not consent to keep it.
-static void enterAsleep() {
-    Display::clearToast();
-    hintToastShowing = false;
-    pendingToast = nullptr;
-    savedFrame = nullptr;
-    captureHeld = false;
-    Audio::playMelody(Audio::Melody::DaDaTa);
-#ifndef LC_NO_BLE
-    if (!radioOn) { Sync::begin(); radioOn = true; }
-#endif
-    Serial.println("Asleep (radio on)");
-    cameraOff();
-    sampleBattery();
-    sleepBreathIn = false;
-    showSleepFace(true);
-    asleepSince = millis();
-    gestureActive = false;
-    holdFired = false;
-    mode = Mode::Asleep;
-}
-
-// A one-second hold on the sleeping camera: back to the viewfinder, at the
-// moment the hold completes rather than on release. The shutter is still
-// down on the way out and the viewfinder acts on press edges only, so the
-// hold does not shoot.
-static void wakeFromAsleep(bool fromHold = false) {
-#ifndef LC_NO_BLE
-    // Keep the radio if a phone is mid-session (it prompted this wake) or on USB
-    if (radioOn && !Sync::connected() && !onUsb()) {
-        Sync::end();
-        radioOn = false;
-    }
-#endif
-    Serial.println(radioOn ? "Woke (radio stays)" : "Woke");
-    if (!fromHold) {
-        Audio::init(PIN_BUZZ);
-        Audio::playClick();
-    }
-    cameraOn();
-    if (fromHold) enterWakeViewfinder();
-    mode = Mode::Viewfinder;
-    hintToastShowing = false;
-    gestureActive = false;
-    holdFired = false;
-    lastActivityTime = millis();
-}
-
-// The passkey takes the whole screen. As a toast it was both too small to read
-// out and too easy to lose: the viewfinder's own "press to shoot" hint painted
-// straight over it. The camera does not wake for this — pairing needs the
-// radio and the panel, not the sensor — so a sleeping camera pairs and goes
-// back to its face.
-// The pairing screen takes the panel from wherever the camera was, the sleep face included, and
-// leavePairing() hands it back.
-static void takeOverForPairing() {
-    if (mode != Mode::Pairing) modeBeforePairing = mode;
-    Display::clearToast();
-    hintToastShowing = false;
-    savedFrame = nullptr;
-    captureHeld = false;
-    gestureActive = false;
-    holdFired = false;
-    mode = Mode::Pairing;
-}
-
-static void enterPairing(uint32_t code) {
-    helloShowing = false;
-    char text[16];
-    snprintf(text, sizeof(text), "%06lu", (unsigned long)code);
-    takeOverForPairing();
-    pairingStartedAt = millis();
-    pairingDoneAt = 0;
-    Display::drawPairing(text, "type this on your phone");
-    Serial.printf("Pairing: code %s\n", text);
-}
-
-// Back to whatever was up before. A photo under review is not worth restoring
-// through a pairing dialog, so anything that was not the sleep face resumes as
-// the viewfinder.
-static void leavePairing() {
-    helloShowing = false;
-    if (modeBeforePairing == Mode::Asleep) {
-        mode = Mode::Asleep;
-        // The phone that just paired is about to sync: give the radio its full
-        // window again rather than whatever was left of the old one.
-        asleepSince = millis();
-        sleepBreathIn = false;
-        showSleepFace(true);
-    } else {
-        mode = Mode::Viewfinder;
-        lastActivityTime = millis();
-    }
-    hintToastShowing = false;
-    gestureActive = false;
-    holdFired = false;
-    Serial.println("Pairing: over");
-}
-
-// New firmware is coming in. It takes minutes and cannot be interrupted, so it
-// takes the screen the way pairing does — and the idle timeout is off while it
-// runs (see loop()), or the camera would fall asleep halfway through and take
-// the radio down with it.
-static void enterUpdating(uint32_t size) {
-    if (mode != Mode::Updating) modeBeforeUpdate = mode;
-    Display::clearToast();
-    hintToastShowing = false;
-    pendingToast = nullptr;
-    savedFrame = nullptr;
-    captureHeld = false;
-    gestureActive = false;
-    holdFired = false;
-    // Nothing is going to be photographed for the next few minutes, and the
-    // sensor is milliamps and 77KB of DRAM that the flash writer would rather
-    // have. Same teardown as the idle timeout does.
-    if (cameraReady) {
-        Camera::deinit();
-        cameraReady = false;
-    }
-    mode = Mode::Updating;
-    updateEndedAt = 0;
-    updateFailed = false;
-    updatePercent = 0;
-    Display::drawUpdate("freshing up", 0, "keep the phone close");
-    Serial.printf("Update: receiving %u bytes, fw now %s\n", (unsigned)size, LC_VERSION_STRING);
-}
-
-// Back to whatever was up before, after an update that did not end in a
-// reboot. A photo under review is long gone; anything that was not the sleep
-// face resumes as the viewfinder, exactly as pairing does.
-static void leaveUpdating() {
-    if (modeBeforeUpdate == Mode::Asleep) {
-        mode = Mode::Asleep;
-        // The phone may well try again: give the radio a full window.
-        asleepSince = millis();
-        sleepBreathIn = false;
-        showSleepFace(true);
-    } else {
-        if (!cameraReady) {
-            cameraReady = Camera::init();
-            if (!cameraReady) Serial.println("Camera re-init failed after the update");
-        }
-        mode = Mode::Viewfinder;
-        lastActivityTime = millis();
-    }
-    hintToastShowing = false;
-    gestureActive = false;
-    holdFired = false;
-}
-
-// The image is on flash, verified and armed. Everything after this line is
-// about leaving cleanly: the phone should see the link close rather than
-// vanish, and the melody is the last thing this firmware does.
-static void finishUpdating() {
-    Serial.println("Update: verified and armed — restarting into it");
-    Display::drawUpdate("brb", -1, "it will only be a minute i promise");
-    Audio::playMelody(Audio::Melody::TaDaDa);
-    while (Audio::isPlaying()) {
-        Audio::update();
-        delay(10);
-    }
-#ifndef LC_NO_BLE
-    Sync::end();
-#endif
-    delay(200);
-    esp_restart();
-}
-
-// It did not work. Say so, and say the part that matters: the camera is still
-// the camera it was a minute ago.
-static void failUpdating(uint32_t status) {
-    if (mode != Mode::Updating) return;
-    updateFailed = status != SyncProto::STATUS_ABORTED;
-    Serial.printf("Update: %s (status %u)\n", updateFailed ? "failed" : "stopped", (unsigned)status);
-    if (updateFailed) {
-        Display::drawUpdate("ugh fuck", -1, "that didn't work, restarting", UI::getAlertIcon());
-    } else {
-        Display::drawUpdate("update stopped", -1, "nothing changed");
-    }
-    Audio::playMelody(Audio::Melody::DaDaTa);
-    updateEndedAt = millis();
-}
-
-// The phone is waiting for one particular photo: the card that binds this
-// camera to a blog, or the picture that heads it (docs/protocol.md §3.3). The
-// camera says which, because the person holding it is looking at the camera,
-// not at the phone. A sleeping camera wakes for it — being asked for a photo is
-// the one message that is useless behind a closed face.
-static void enterPrompt(uint8_t kind) {
-    // Hello is not something to wait for, it is something to say: the same screen the passkey ends on,
-    // and the only greeting the camera can give a phone it is already bonded to.
-    if (kind == SyncProto::PROMPT_HELLO) {
-        takeOverForPairing();
-        pairingDoneAt = millis();
-        helloShowing = true;
-        Display::drawPairing("oh hi", nullptr);
-        Serial.println("Sync: saying oh hi");
-        return;
-    }
-    if (kind == SyncProto::PROMPT_NONE && helloShowing) {
-        leavePairing();
-        return;
-    }
-    const Display::Prompt want = kind == SyncProto::PROMPT_VERIFICATION ? Display::Prompt::Verification
-                               : kind == SyncProto::PROMPT_SELFIE       ? Display::Prompt::Selfie
-                                                                        : Display::Prompt::None;
-    Display::setPrompt(want);
-    if (want == Display::Prompt::None) {
-        Display::clearToast();
-        hintToastShowing = false;
-        return;
-    }
-    if (mode == Mode::Asleep) wakeFromAsleep();
-    if (mode != Mode::Viewfinder) return;
-    // Indefinite: it stands until the shot is taken or the phone takes it back,
-    // unlike the "press to shoot" hint it replaces.
-    Display::showToast(want == Display::Prompt::Verification ? "photograph the card" : "take one of you",
-                       Display::ToastHAlign::Center, Display::ToastVAlign::Bottom, true, 0);
-    hintToastShowing = true;
-    lastActivityTime = millis();
-}
-
-// Sync raises its events from loop() on the main thread, so drawing here is
-// safe. Only pairing has a screen: connecting and transferring are the phone's
-// business, and it shows its own progress.
-static void handleSyncEvents() {
-    Sync::Event ev;
-    while (Sync::nextEvent(&ev)) {
-        switch (ev.kind) {
-            case Sync::Event::ClockSet:
-                // Never a screen change: the mood just learns the time.
-                moodOnClock((ev.value & Sync::CLOCK_TZ_KNOWN) != 0, (int16_t)(uint16_t)(ev.value & 0xFFFF));
-                break;
-            case Sync::Event::Connected:
-                Serial.println("Sync: phone connected");
-                break;
-            case Sync::Event::Disconnected:
-                Serial.println("Sync: phone gone");
-                break;
-            case Sync::Event::Passkey:
-                enterPairing(ev.value);
-                break;
-            case Sync::Event::Chirp:
-                playMoodChirp(moodHappiness(), "Asked", (int)ev.value);
-                break;
-            case Sync::Event::Prompt:
-                enterPrompt((uint8_t)ev.value);
-                break;
-            case Sync::Event::PairingDone:
-                Serial.printf("Sync: link %s\n", ev.value ? "encrypted" : "NOT encrypted");
-                // Only the screen that asked for the passkey: the link re-authenticates on every
-                // connection, and the hello a phone wants said is PROMPT_HELLO, not this.
-                if (mode == Mode::Pairing && !helloShowing) {
-                    pairingDoneAt = millis();
-                    Display::drawPairing(ev.value ? "oh hi" : "not this time", nullptr);
-                }
-                break;
-            case Sync::Event::UpdateBegan:
-                enterUpdating(ev.value);
-                break;
-            case Sync::Event::UpdateProgress:
-                // Bar only: a whole frame is 50ms of SPI, long enough for the
-                // radio to outrun the chunk ring behind it.
-                if (mode == Mode::Updating && !updateEndedAt && (int)ev.value != updatePercent) {
-                    updatePercent = (int)ev.value;
-                    Display::drawUpdateProgress(updatePercent);
-                }
-                break;
-            case Sync::Event::UpdateReady:
-                finishUpdating();  // Does not return
-                break;
-            case Sync::Event::UpdateFailed:
-                failUpdating(ev.value);
-                break;
-            default:
-                break;  // Connected, Disconnected, Sent: no screen of their own
-        }
-    }
-}
-
-void enterSleepMode() {
-    Serial.println("Entering sleep mode...");
-
-    // Clear any active toast before sleep
-    Display::clearToast();
-    hintToastShowing = false;
-
-    // Camera::deinit() below frees the driver's framebuffer, so any frame we
-    // were reviewing dies with it. Drop back to the viewfinder rather than
-    // waking into a save screen pointing at freed memory.
-    mode = Mode::Viewfinder;
-    savedFrame = nullptr;
-    pendingToast = nullptr;
-    captureHeld = false;
-
-    // Sleep face and melody are normally already done by enterAsleep(); this
-    // keeps the direct path (and the preview's expectations) intact.
-    while (Audio::isPlaying()) {
-        Audio::update();
-        delay(10);
-    }
-    showSleepFace(true);
-    // Light sleep stops the loop that animates the pal: leave it at rest, not mid-blink.
-    Display::animateSleepPal(0);
-
-    // Radio off before the camera: light sleep and a live BLE controller is
-    // undefined territory in this Arduino core, and the phone is told nothing
-    // — it reconnects when the camera advertises again after wake.
-#ifndef LC_NO_BLE
-    Sync::end();
-    radioOn = false;
-#endif
-
-    // Drops the camera rails via CAM_EN, so the sensor costs nothing while we
-    // are out — unlike the previous board, where it stayed biased at ~20mA
-    // through sleep (docs/camera_standby.md). Costs a re-init on wake.
-    // (Usually already done by enterAsleep(), which precedes this.)
-    cameraOff();
-
-    // Pressed is LOW on this board, so that is the level that wakes us.
-    gpio_wakeup_enable((gpio_num_t)PIN_SHUTTER, GPIO_INTR_LOW_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
-
-    // Small delay to let display finish and avoid immediate wake
-    delay(100);
-
-    // The panel keeps showing the sleep face while we're out, and DISP stays
-    // HIGH across light sleep. On v3q the panel's VCOM comes from U8's
-    // EXTCOMIN with EXTMODE tied high, so burn-in is handled in copper and no
-    // longer depends on us waking up; the timer stays for the breath and the
-    // mood's clock, and stretches to SLEEP_TICK_MS once the breath is over.
-    //
-    // Only the shutter or USB ends the sleep. Anything else — the BT
-    // controller's own wake source if the radio was not fully down, a
-    // rejected sleep call, an undefined cause — is not a person, and treating
-    // it as one is exactly how the camera "wakes by itself".
-    uint32_t breathUntil = millis() + BREATH_WINDOW_MS;
-    bool usbWake = false;
-    // VBUS is level-triggered: arming HIGH also catches a plug during sleep setup.
-    gpio_wakeup_enable((gpio_num_t)PIN_VBUS, GPIO_INTR_HIGH_LEVEL);
-    for (;;) {
-        serviceUsb(true);
-        if (onUsb()) {
-            usbWake = true;
-            break;
-        }
-        const bool breathing = (int32_t)(breathUntil - millis()) > 0;
-        esp_sleep_enable_timer_wakeup(
-            (uint64_t)(breathing ? Display::VCOM_INTERVAL_MS : SLEEP_TICK_MS) * 1000);
-        esp_err_t err = esp_light_sleep_start();
-        esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-
-        if (err != ESP_OK) {
-            // Refused to sleep at all (a wake source already pending). The
-            // cause is stale in that case, so don't read anything into it.
-            Serial.printf("Sleep: rejected (%d), retrying\n", (int)err);
-            delay(50);
-            continue;
-        }
-        serviceUsb(true);
-        if (onUsb()) {
-            usbWake = true;
-            break;
-        }
-        if (cause == ESP_SLEEP_WAKEUP_GPIO && shutterPressed()) {
-            // The button — but a tap is not enough. Hold to wake; a release
-            // before WAKE_HOLD_MS goes straight back to sleep.
-            const uint32_t held = heldToWake();
-            if (held >= WAKE_HOLD_MS) break;
-            if (held <= SLEEP_TAP_MAX_MS) {
-                sleepTap("Sleep tap");
-                idlePalAfterTap();
-            }
-            breathUntil = millis() + BREATH_WINDOW_MS;
-            continue;
-        }
-        if (cause == ESP_SLEEP_WAKEUP_TIMER) {
-            // Keep-alive tick, and the mood's clock while asleep: pay a due
-            // chirp. Radio and camera are down here, so a 300ms chirp costs
-            // nothing but the sound. The VCOM flip is now a no-op on the panel
-            // (EXTMODE is high) but stays so tools/preview keeps exercising the
-            // same byte stream.
-            serviceMood(true, "Sleep");
-            if (breathing) {
-                Display::toggleVcom();
-                breatheSleepFace();
-            } else {
-                // Both, not ||: the battery sample has to be taken either way.
-                const bool battery = sampleBattery();
-                if (palShowCare() || battery) showSleepFace(true);
-            }
-            continue;
-        }
-        Serial.printf("Sleep: ignoring wake cause %d\n", (int)cause);
-        delay(20);  // Don't spin hot if the source keeps firing
-    }
-
-    // Disable both wake sources after waking for real
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
-    gpio_wakeup_disable((gpio_num_t)PIN_SHUTTER);
-    gpio_wakeup_disable((gpio_num_t)PIN_VBUS);
-
-    if (usbWake) {
-        // USB keeps the console and radio available without powering the sensor.
-        mode = Mode::Asleep;
-        asleepSince = millis();
-        gestureActive = false;
-        lastPressed = false;
-#ifndef LC_NO_BLE
-        Sync::begin();
-        radioOn = true;
-#endif
-        return;
-    }
-
-    // Woke up! Reset activity timer and hint state
-    Serial.println("Woke up from sleep!");
-    lastActivityTime = millis();
-    hintToastShowing = false;
-    Display::clearToast();
-
-    // Bring the sensor back up (torn down before sleep). On failure the loop
-    // just gets nullptr frames from capture() and keeps a stale viewfinder,
-    // which beats halting a device the user just woke up.
-    cameraOn();
-    enterWakeViewfinder();
-
-#ifndef LC_NO_BLE
-    if (onUsb()) { Sync::begin(); radioOn = true; }
-#endif
-
-    // The shutter is still held (that is what woke us), and the viewfinder
-    // only acts on a press *edge*: marking it as already pressed means the
-    // hold that woke the camera doesn't also shoot, without making the user
-    // let go first. Release bounce is covered by confirmPressed() as usual.
-    lastPressed = true;
-}
-
-// Ease-out cubic. The panel only manages ~10 frames across a slide, and at that
-// frame count a linear ramp reads as a mechanical stutter — decelerating into
-// the resting layout hides it. Both slides end at rest, so both use it: the
-// dismiss just runs the position backwards.
-static float easeOutCubic(float p) {
-    float inv = 1.0f - p;
-    return 1.0f - inv * inv * inv;
-}
-
-// Start sliding the save layout back out. The toast waits until the slide
-// lands — raising it mid-slide would drop it on top of the columns still
-// moving underneath it.
-static void startDismiss(const char* toast) {
-    Display::clearToast();
-    pendingToast = toast;
-    // The second half of the slide wants live frames, and the sensor has been
-    // off since the Save screen went up. The stall lands on the button press,
-    // next to the flash write, rather than mid-animation.
-    cameraOn();
-    dismissStartedAt = millis();
-    mode = Mode::Dismissing;
-}
-
-// A save with no pal equipped offers one. A mode rather than a blocking loop so
-// the radio, toasts and the idle timeout keep running; walking away counts as
-// a skip, and the next photo offers again.
-static void enterPalFound() {
-    palFromMenu = false;
-    offeredPal = 1 + (uint8_t)(esp_random() % Pal::COUNT);
-    Serial.printf("Pal: offering %u\n", offeredPal);
-    Audio::playMelody(Audio::Melody::PalFound);
-    Display::clearToast();
-    gestureActive = false;
-    holdFired = false;
-    lastActivityTime = millis();
-    palShownAt = palDrawnAt = palFpsSince = millis();
-    palFrames = 0;
-    Display::drawPalDialog(offeredPal, 0);
-    palToastWasVisible = Display::toastVisible();
-    mode = Mode::PalFound;
-}
-
-static void leavePalFound(const char* toast) {
-    if (!palFromMenu) {
-        startDismiss(toast);
-        return;
-    }
-    mode = Mode::Menu;
-    gestureActive = false;
-    holdFired = false;
-    lastActivityTime = millis();
-    // No toast: the menu never repaints when one expires, so it would stick.
-    showMenu();
-}
-
-static void returnToViewfinder();
-
-static void enterPalWelcome() {
-    Audio::playMelody(Audio::Melody::Saved);
-    Display::clearToast();
-    gestureActive = false;
-    holdFired = false;
-    lastActivityTime = millis();
-    palWelcomeAt = palDrawnAt = millis();
-    palWelcomeHappiness = moodHappiness();
-    Display::drawPalWelcome(palWelcomeHappiness, palState.id, 0.0f, 0, true);
-    mode = Mode::PalWelcome;
-}
-
-// From a save, the welcome face is the awake face, so it hands over to the
-// viewfinder exactly as a wake does: the face slides up and its miniature
-// settles into the sidebar. From the menu test it just goes back to the menu.
-static void leavePalWelcome() {
-    if (palFromMenu) {
-        leavePalFound(nullptr);
-        return;
-    }
-    cameraOn();
-    enterWakeViewfinder();
-    returnToViewfinder();
-}
-
-// Draw the current gallery photo. Files that fail to decode are skipped — a
-// partial write can't leave one behind (savePhoto removes them), but a file
-// copied onto the flash by some future tool might be the wrong size.
-static void showGalleryPhoto() {
-    galleryDirty = false;
-    int total = Storage::photoCount();
-    if (total <= 0) {
-        Display::drawGalleryEmpty();
-        return;
-    }
-    if (galleryOrdinal >= total) galleryOrdinal = 0;
-    for (int tries = 0; tries < total; tries++) {
-        int index = Storage::photoAt(galleryOrdinal);
-        if (index > 0 && Storage::loadPhoto(index, galleryBits, sizeof(galleryBits))) {
-            Display::drawGallery(galleryBits, galleryOrdinal, total);
-            return;
-        }
-        Serial.printf("Gallery: could not load #%04d, skipping\n", index);
-        galleryOrdinal = (galleryOrdinal + 1) % total;
-    }
-    Display::drawGalleryEmpty();
-}
-
-// Open the gallery. Called while the shutter is still held, so lastPressed is
-// already true and the gallery's press-edge test can't fire until the button
-// is released — the hold that opened it doesn't also advance it.
-static void enterGallery() {
-    cameraOff();
-    captureHeld = false;
-    galleryOrdinal = 0;
-    gestureActive = false;
-    holdFired = false;
-    Display::clearToast();
-    hintToastShowing = false;
-    galleryToastWasVisible = false;
-    mode = Mode::Gallery;
-    lastActivityTime = millis();
-    Serial.println("Gallery: open");
-    int total = Storage::photoCount();
-    int index = total > 0 ? Storage::photoAt(0) : 0;
-    if (index > 0 && Storage::loadPhoto(index, galleryBits, sizeof(galleryBits))) {
-        uint32_t start = millis();
-        uint32_t slid;
-        while ((slid = millis() - start) < SAVE_SLIDE_MS) {
-            if (shutterPressed() && (millis() - pressStartedAt) >= MENU_HOLD_MS) {
-                enterMenu();
-                return;
-            }
-            Display::drawGalleryTransition(galleryBits, 0, total,
-                                           easeOutCubic((float)slid / SAVE_SLIDE_MS));
-            Audio::update();
-        }
-    }
-    // The button may still be held from the viewfinder — wait for menu or release.
-    while (shutterPressed()) {
-        if ((millis() - pressStartedAt) >= MENU_HOLD_MS) {
-            enterMenu();
-            return;
-        }
-        delay(5);
-    }
-    showGalleryPhoto();
-}
-
-// Back to the viewfinder. Also called mid-hold, and the viewfinder's own
-// press-edge test likewise waits for a release, so leaving never shoots.
-static void leaveGallery() {
-    Display::clearToast();
-    cameraOn();          // The slide out hands over to live frames halfway
-    Audio::playClick();  // Regular: back to the camera
-    Serial.println("Gallery: close");
-    // Slide back out like the save dismiss: the gallery photo rides the card
-    // for the first half, the live viewfinder takes over from DISMISS_LIVE_AT
-    // so the dither switch hides in the motion. The empty gallery got no
-    // slide in, so it gets none out.
-    if (Storage::photoCount() > 0) {
-        uint32_t start = millis();
-        uint32_t slid;
-        while ((slid = millis() - start) < SAVE_SLIDE_MS) {
-            float p = (float)slid / SAVE_SLIDE_MS;
-            uint8_t* live = (p >= DISMISS_LIVE_AT) ? Camera::capture() : nullptr;
-            Display::drawGalleryDismissTransition(live, Camera::WIDTH, Camera::HEIGHT,
-                                                  galleryOrdinal, Storage::photoCount(),
-                                                  1.0f - easeOutCubic(p));
-            Audio::update();
-        }
-    }
-    mode = Mode::Viewfinder;
-    gestureActive = false;
-    lastActivityTime = millis();
-    hintToastShowing = false;
-}
-
-// Slide finished: back to live preview, with a toast naming what happened.
-static void returnToViewfinder() {
-    savedFrame = nullptr;
-    mode = Mode::Viewfinder;
-    gestureActive = false;
-    lastActivityTime = millis();
-    hintToastShowing = false;
-    Display::clearToast();
-    if (pendingToast) {
-        Display::showToast(pendingToast, Display::ToastHAlign::Right,
-                           Display::ToastVAlign::Top);
-        pendingToast = nullptr;
-    }
 }
 
 void loop() {
@@ -1658,7 +484,7 @@ void loop() {
                 hintToastShowing = true;
             }
 
-            if (!gestureActive) {
+            if (!gesture.active) {
 #ifdef LC_PROFILE_VIEWFINDER
                 const uint32_t captureStart = micros();
 #endif
@@ -1699,22 +525,22 @@ void loop() {
             }
 
             if (pressed && !lastPressed) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-            } else if (pressed && gestureActive) {
-                const uint32_t held = millis() - pressStartedAt;
+                gesture.startedAt = millis();
+                gesture.active = true;
+                gesture.fired = false;
+            } else if (pressed && gesture.active) {
+                const uint32_t held = millis() - gesture.startedAt;
                 if (held < GALLERY_HOLD_MS) {
                     Display::drawHoldProgress(held, GALLERY_HOLD_MS);
-                } else if (!holdFired) {
+                } else if (!gesture.fired) {
                     Display::completeHold();
-                    holdFired = true;
+                    gesture.fired = true;
                     Audio::playClick(true);
                     enterGallery();
                     break;
                 }
-            } else if (!pressed && lastPressed && gestureActive) {
-                gestureActive = false;
+            } else if (!pressed && lastPressed && gesture.active) {
+                gesture.active = false;
                 Display::drawHoldProgress(0, GALLERY_HOLD_MS);
                 lastActivityTime = millis();
                 Serial.println("Shutter — capturing");
@@ -1726,14 +552,38 @@ void loop() {
                     Audio::playClick();
                     Audio::playMelody(Audio::Melody::TaDaDa);
                     captureShownAt = millis();
+                    shotTarget = motionOn ? MOTION_FRAMES : 1;
+                    shotFrames = 1;
+                    shotStartedAt = shotLastAt = captureShownAt;
+                    shotFrameMs = 0;
+                    memcpy(frameBits[0], Display::photoBits(), FRAME_BYTES);
                     mode = Mode::Capture;
                 }
             }
-            if (!pressed) gestureActive = false;
+            if (!pressed) gesture.active = false;
             break;
         }
 
         case Mode::Capture: {
+            // A motion shot keeps grabbing until it has its frames; each one goes up as
+            // it lands, so the panel shows the burst happening. The dwell starts after.
+            if (shotFrames < shotTarget) {
+                if (millis() - shotLastAt < MOTION_FRAME_MS) break;
+                uint8_t* frame = Camera::capture();
+                if (!frame) break;
+                savedFrame = frame;
+                shotLastAt = millis();
+                Display::drawCapture(frame, Camera::WIDTH, Camera::HEIGHT);
+                memcpy(frameBits[shotFrames++], Display::photoBits(), FRAME_BYTES);
+                Audio::playClick(true);
+                if (shotFrames == shotTarget) {
+                    // The real interval, capture waits included, so playback runs at the speed it was shot.
+                    shotFrameMs = (uint16_t)((shotLastAt - shotStartedAt) / (shotTarget - 1));
+                    captureShownAt = shotLastAt;
+                    Serial.printf("Motion: %d frames, %ums apart\n", shotFrames, (unsigned)shotFrameMs);
+                }
+                break;
+            }
             uint32_t elapsed = millis() - captureShownAt;
             if (elapsed < CAPTURE_DWELL_MS) break;
 
@@ -1746,36 +596,34 @@ void loop() {
             Display::clearToast();
             saveToastWasVisible = false;
             Display::drawSave(savedFrame, Camera::WIDTH, Camera::HEIGHT);
+            playFrames = shotFrames;
+            playFrame = shotFrames - 1;
+            playMs = shotFrameMs ? shotFrameMs : MOTION_FRAME_MS;
+            playStepAt = millis();
             mode = Mode::Save;
             cameraOff();
-            gestureActive = false;
-            holdFired = false;
+            gesture.active = false;
+            gesture.fired = false;
             break;
         }
 
         case Mode::Save: {
-            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+            Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                       TRASH_HOLD_MS);
-            if (pressed && !lastPressed && confirmPressed()) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-            }
-            // Re-read the clock instead of using `now` from the top of loop().
-            // confirmPressed() spends 10ms above, so on the iteration that
-            // starts a gesture `pressStartedAt` is *later* than `now` and the
-            // unsigned subtraction wraps to ~4.29 billion — which cleared the
-            // threshold instantly and made every press a trash.
-            else if (pressed && gestureActive && !holdFired &&
-                     (millis() - pressStartedAt) >= TRASH_HOLD_MS) {
-                // Fire on the threshold rather than on release, so the hold has
+            // The clock is read after confirmPressed(), which spends 10ms: with `now`
+            // from the top of loop() the press would start later than the time it
+            // is compared against. Gesture::step treats that as zero held, but a
+            // fresh clock is still the right one.
+            const bool confirmed = pressed && !lastPressed && confirmPressed();
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, confirmed, millis(), TRASH_HOLD_MS);
+            if (ev == Gesture::Event::Hold) {
+                // Fires on the threshold rather than on release, so the hold has
                 // a definite end the user can feel instead of a silent wait.
                 Serial.println("Save: trash");
                 Display::completeHold();
-                holdFired = true;
                 Audio::playMelody(Audio::Melody::DaDaTa);
                 startDismiss("deleted");
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 // Released before the threshold: a tap. No modem on this board,
                 // so "send" writes the photo to flash and stops there
@@ -1785,9 +633,15 @@ void loop() {
                 // what actually happened. The write is ~10KB and stalls the
                 // frozen frame briefly before the slide starts, which reads as
                 // part of the button press rather than as a dropped frame.
-                Storage::Result r = Storage::savePhoto(Display::photoBits(),
-                                                       Display::PHOTO_WIDTH,
-                                                       Display::PHOTO_HEIGHT);
+                // A motion shot saves its frames, not whichever one is on the panel right now.
+                const uint8_t* frames[MOTION_FRAMES] = {};
+                for (int i = 0; i < shotFrames && i < MOTION_FRAMES; i++) frames[i] = frameBits[i];
+                Storage::Result r = shotFrames > 1
+                    ? Storage::savePhotoFrames(frames, shotFrames, shotFrameMs,
+                                               Display::PHOTO_WIDTH, Display::PHOTO_HEIGHT)
+                    : Storage::savePhoto(Display::photoBits(),
+                                         Display::PHOTO_WIDTH,
+                                         Display::PHOTO_HEIGHT);
                 Audio::playClick();
                 switch (r) {
                     case Storage::Result::Ok:
@@ -1819,18 +673,22 @@ void loop() {
                 }
             }
 
-            if (!pressed) gestureActive = false;
-
             // Static screen: repaint only when a toast comes or goes, so a
             // "phone connected" raised here also goes away again.
             if (mode == Mode::Save) {
                 bool toastNow = Display::toastVisible();
-                if (toastNow != saveToastWasVisible) {
+                bool step = playFrames > 1 && millis() - playStepAt >= playMs;
+                if (step) {
+                    playStepAt = millis();
+                    playFrame = (playFrame + 1) % playFrames;
+                    Display::setPhotoBits(frameBits[playFrame]);
+                }
+                if (step || toastNow != saveToastWasVisible) {
                     saveToastWasVisible = toastNow;
                     // Not drawSave(): the camera is off and its framebuffer is
                     // gone. t=1 is the same layout off the cached dither.
                     Display::drawSaveTransition(1.0f);
-                    Display::drawHoldProgress(pressed && gestureActive ? millis() - pressStartedAt : 0,
+                    Display::drawHoldProgress(pressed && gesture.active ? millis() - gesture.startedAt : 0,
                                               TRASH_HOLD_MS);
                 }
             }
@@ -1838,21 +696,18 @@ void loop() {
         }
 
         case Mode::Gallery: {
-            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+            Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                       GALLERY_HOLD_MS);
-            if (pressed && !lastPressed && confirmPressed()) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-                lastActivityTime = pressStartedAt;  // Browsing is activity
-            } else if (pressed && gestureActive && !holdFired &&
-                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+            const bool confirmed = pressed && !lastPressed && confirmPressed();
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, confirmed, millis(), GALLERY_HOLD_MS);
+            if (ev == Gesture::Event::Began) {
+                lastActivityTime = gesture.startedAt;  // Browsing is activity
+            } else if (ev == Gesture::Event::Hold) {
                 // Fires on the threshold, like trash, so the hold has an end.
                 Display::completeHold();
-                holdFired = true;
                 leaveGallery();
                 break;
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 // A tap: next photo, wrapping. With one forward gesture,
                 // stopping at the oldest would strand the user; the counter
@@ -1864,7 +719,6 @@ void loop() {
                 }
                 Audio::playClick(true);
             }
-            if (!pressed) gestureActive = false;
 
             // Static screen: repaint only when the photo changed or a toast
             // came or went (the sync service raises toasts from outside).
@@ -1872,68 +726,72 @@ void loop() {
             if (galleryDirty || toastNow != galleryToastWasVisible) {
                 galleryToastWasVisible = toastNow;
                 showGalleryPhoto();
-                Display::drawHoldProgress(pressed && gestureActive ? millis() - pressStartedAt : 0,
+                Display::drawHoldProgress(pressed && gesture.active ? millis() - gesture.startedAt : 0,
+                                          GALLERY_HOLD_MS);
+            } else if (playFrames > 1 && millis() - playStepAt >= playMs && Storage::photoCount() > 0) {
+                // A motion photo loops; a still never repaints.
+                playStepAt = millis();
+                playFrame = (playFrame + 1) % playFrames;
+                Display::drawGallery(frameBits[playFrame], galleryOrdinal, Storage::photoCount());
+                Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                           GALLERY_HOLD_MS);
             }
             break;
         }
 
         case Mode::Menu: {
-            Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+            // A screen opened from the list owns the button and the panel until it closes.
+            if (menuServiceScreen(pressed, lastPressed)) break;
+            Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                       GALLERY_HOLD_MS);
-            if (pressed && !lastPressed) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, true, millis(), GALLERY_HOLD_MS);
+            if (ev == Gesture::Event::Began) {
                 lastActivityTime = millis();
-            } else if (pressed && gestureActive && !holdFired &&
-                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+            } else if (ev == Gesture::Event::Hold) {
                 Display::completeHold();
-                holdFired = true;
                 menuSelect();
                 break;
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 int prev = menuSelected;
                 menuSelected = (menuSelected + 1) % MENU_COUNT;
                 Audio::playClick(true);
                 Display::drawMenuSelect(MENU_ITEMS, MENU_COUNT, prev, menuSelected);
             }
-            if (!pressed) gestureActive = false;
             break;
         }
 
         case Mode::Asleep: {
             if (pressed && !lastPressed && confirmPressed()) {
                 Display::clearWakeProgress();
-                pressStartedAt = millis();
-                gestureActive = true;
-            } else if (pressed && gestureActive) {
-                Display::drawWakeProgress(millis() - pressStartedAt, WAKE_HOLD_MS);
-                if ((millis() - pressStartedAt) >= WAKE_HOLD_MS) {
+                gesture.startedAt = millis();
+                gesture.active = true;
+            } else if (pressed && gesture.active) {
+                Display::drawWakeProgress(millis() - gesture.startedAt, WAKE_HOLD_MS);
+                if ((millis() - gesture.startedAt) >= WAKE_HOLD_MS) {
                     completeWakeFace();
                     wakeFromAsleep(true);
                     break;
                 }
-            } else if (!pressed && lastPressed && gestureActive) {
-                const uint32_t held = millis() - pressStartedAt;
+            } else if (!pressed && lastPressed && gesture.active) {
+                const uint32_t held = millis() - gesture.startedAt;
                 Display::clearWakeProgress();
                 showSleepFace(true);
                 if (held <= SLEEP_TAP_MAX_MS) sleepTap("Asleep tap");
             }
-            if (!pressed) gestureActive = false;
+            if (!pressed) gesture.active = false;
 
             // The face breathes: the other frame every BREATH_MS.
-            if (!gestureActive && millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
+            if (!gesture.active && millis() - sleepFaceDrawnAt >= BREATH_MS) breatheSleepFace();
             // The pal idles while the chip is up; the wake fill owns the panel during a hold.
-            if (!gestureActive) Display::animateSleepPal(millis());
+            if (!gesture.active) Display::animateSleepPal(millis());
 
             // On USB power: stay awake indefinitely, keep the radio on.
             if (onUsb()) {
                 asleepSince = millis();
                 break;
             }
-            if (!gestureActive && millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
+            if (!gesture.active && millis() - asleepSince >= RADIO_LINGER_MS && !Sync::activeRecently(millis())) {
                 enterSleepMode();
                 return;
             }
@@ -1966,18 +824,14 @@ void loop() {
         }
 
         case Mode::PalFound: {
-            if (pressed && !lastPressed && confirmPressed()) {
-                pressStartedAt = millis();
-                gestureActive = true;
-                holdFired = false;
-            } else if (pressed && gestureActive && !holdFired &&
-                       (millis() - pressStartedAt) >= GALLERY_HOLD_MS) {
+            const bool confirmed = pressed && !lastPressed && confirmPressed();
+            const Gesture::Event ev = Gesture::step(gesture, pressed, lastPressed, confirmed, millis(), GALLERY_HOLD_MS);
+            if (ev == Gesture::Event::Hold) {
                 Serial.println("Pal: skipped");
                 Display::completeHold();
-                holdFired = true;
                 Audio::playClick(true);
                 leavePalFound(nullptr);
-            } else if (!pressed && lastPressed && gestureActive && !holdFired) {
+            } else if (ev == Gesture::Event::Tap) {
                 Display::flashPress();
                 Audio::playClick();
                 Pal::equip(palState, moodClock(), offeredPal);
@@ -1987,10 +841,9 @@ void loop() {
                 Serial.printf("Pal: equipped %u\n", palState.id);
                 enterPalWelcome();
             }
-            if (!pressed) gestureActive = false;
 
             if (mode == Mode::PalFound) {
-                Display::drawHoldProgress(pressed && gestureActive && !holdFired ? millis() - pressStartedAt : 0,
+                Display::drawHoldProgress(pressed && gesture.active && !gesture.fired ? millis() - gesture.startedAt : 0,
                                           GALLERY_HOLD_MS);
                 const bool toastNow = Display::toastVisible();
                 if (toastNow != palToastWasVisible) {

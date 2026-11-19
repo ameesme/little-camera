@@ -4,11 +4,9 @@ Who does what, in order, across the three codebases. Byte-level details live in 
 
 ## Registering a blog
 
-The app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. Then it asks for a name, an email and a handle, which becomes the subdomain, and makes the blog with `POST /api/camera/blog`. A link emailed to the owner confirms the address, and the blog answers `404` until it is opened.
+The app finds the camera, pairs with the six digits the camera puts on its own screen, and says hello to the server. Then it asks for an email address and the server mails it a link. For an address it has never seen, opening the link confirms it; the app then asks for a name and a handle, which becomes the subdomain, and `POST /api/camera/blog` makes the blog and binds the camera to it. For an address that already owns a blog, the link asks whether to add this camera to it, and saying yes binds it. Either way the server moves any earlier photos from that camera onto the blog and emails that the camera is linked.
 
-The app then asks the server for a code and draws the **verification picture** itself: a big QR, good for 15 minutes. The owner points the camera at their own phone and presses send; the app uploads that photo, and the server decodes the QR, binds the camera to the blog, moves any earlier photos from that camera onto it, and emails that the camera is linked.
-
-Photographing the code is the only way to bind, which makes holding the camera the proof. It also works on a camera that is already linked, so passing the camera on is just the new owner photographing their own code; the photos already posted stay where they are.
+The app is trusted: whoever holds the camera, paired to their phone, manages the blog it posts to. Which person that is stays on record, because a camera is bound to one blog and a blog belongs to one confirmed address.
 
 After binding, the app offers "take your profile picture", and the next photo captured becomes the avatar as well as a normal post.
 

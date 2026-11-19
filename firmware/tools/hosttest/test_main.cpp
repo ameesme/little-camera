@@ -15,6 +15,7 @@
 #include "../../src/sync_protocol.h"
 #include "../../src/power.h"
 #include "../../src/hold_progress.h"
+#include "../../src/gesture.h"
 #include "../../src/chirp.h"
 #include "../../src/mood.h"
 #include "../../src/pal.h"
@@ -95,6 +96,18 @@ static void testPbmHeader() {
     // Worst-case lengths fit MAX_HEADER
     n = Pbm::writeHeader(buf, sizeof(buf), 65535, 65535, 65535, 4294967295u, 4294967295u);
     CHECK(n > 0 && (size_t)n < Pbm::MAX_HEADER);
+
+    // Motion photo (protocol §2.1): ms on the first frame, worst case still fits the 64 bytes old firmware reads
+    n = Pbm::writeHeader(buf, sizeof(buf), 320, 240, 17, 48213, 1757789000u, 412);
+    CHECK(!strcmp(buf, "P4\n# boot=17 up=48213 t=1757789000 ms=412\n320 240\n"));
+    Pbm::Header hm;
+    CHECK(Pbm::parseHeader((const uint8_t*)buf, (size_t)n + 1, &hm));
+    CHECK(hm.ms == 412 && hm.t == 1757789000u && hm.rasterOffset == (size_t)n);
+    CHECK(h2.ms == 0);
+    n = Pbm::writeHeader(buf, sizeof(buf), 65535, 65535, 65535, 4294967295u, 4294967295u, 60000);
+    CHECK(n > 0 && (size_t)n < 64);
+    n = Pbm::writeFrameHeader(buf, sizeof(buf), 320, 240);
+    CHECK(n == 11 && !strcmp(buf, "P4\n320 240\n"));
 
     // Unknown keys are ignored, comments anywhere between tokens are fine
     const char* odd = "P4\n#hello\n# foo=1 t=99\n320\n# x\n240\n";
@@ -733,6 +746,53 @@ static void testPal() {
     CHECK(Pal::left(s, cs) == Pal::LIFE_S);
 }
 
+// The button on a screen with a hold action (gesture.h), stepped the way loop() does:
+// one call an iteration, the previous sample passed back in.
+static void testGesture() {
+    using Gesture::Event;
+    Gesture::State g;
+    // A tap: press, a few iterations, release before the threshold.
+    CHECK(Gesture::step(g, true, false, true, 1000, 700) == Event::Began);
+    CHECK(g.active && !g.fired && g.startedAt == 1000);
+    CHECK(Gesture::step(g, true, true, false, 1300, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 1400, 700) == Event::Tap);
+    CHECK(!g.active);
+    CHECK(Gesture::step(g, false, false, false, 1500, 700) == Event::None);
+
+    // A hold fires once, on the threshold, and its release is not a tap.
+    CHECK(Gesture::step(g, true, false, true, 2000, 700) == Event::Began);
+    CHECK(Gesture::step(g, true, true, false, 2699, 700) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 2700, 700) == Event::Hold);
+    CHECK(g.fired);
+    CHECK(Gesture::step(g, true, true, false, 5000, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 5100, 700) == Event::None);
+    CHECK(!g.active);
+
+    // A press edge the debounce rejected starts nothing, and neither does its release.
+    CHECK(Gesture::step(g, true, false, false, 6000, 700) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 9000, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 9100, 700) == Event::None);
+
+    // A button already down when the screen opened (the hold that opened it) is not this screen's press.
+    g = Gesture::State();
+    CHECK(Gesture::step(g, true, true, false, 100, 700) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 5000, 700) == Event::None);
+    CHECK(Gesture::step(g, false, true, false, 5100, 700) == Event::None);
+
+    // The bug that shipped: a clock sampled before the press began must not read as a long hold.
+    CHECK(Gesture::step(g, true, false, true, 10010, 1500) == Event::Began);
+    CHECK(Gesture::held(g, 10000) == 0);
+    CHECK(Gesture::step(g, true, true, false, 10000, 1500) == Event::None);
+    CHECK(Gesture::step(g, true, true, false, 11510, 1500) == Event::Hold);
+
+    // millis() wrapping mid-press changes nothing.
+    g = Gesture::State();
+    CHECK(Gesture::step(g, true, false, true, 0xFFFFFF00u, 700) == Event::Began);
+    CHECK(Gesture::step(g, true, true, false, 0x00000100u, 700) == Event::None);
+    CHECK(Gesture::held(g, 0x00000100u) == 512);
+    CHECK(Gesture::step(g, true, true, false, 0x000001BCu, 700) == Event::Hold);
+}
+
 int main() {
     CHECK(HoldProgress::pixels(0, 700, 184) == 0);
     CHECK(HoldProgress::pixels(199, 700, 184) == 0);
@@ -745,6 +805,7 @@ int main() {
     CHECK(HoldProgress::pixels(1500, 1500, 112) == 112);
     CHECK(HoldProgress::pixels(500, 0, 112) == 0);
     CHECK(HoldProgress::pixels(500, 700, 0) == 0);
+    testGesture();
     testMood();
     testPal();
     testChirp();

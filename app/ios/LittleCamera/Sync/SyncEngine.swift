@@ -176,7 +176,8 @@ final class SyncEngine {
                 )
                 settings.recordUpload(index: Int(entry.index), hash: hash)
                 kind = outcome.kind
-                log.add("#\(entry.index) → \(outcome.statusCode) \(outcome.isDuplicate ? "duplicate" : kind)")
+                let frames = PBM.frameCount(file)
+                log.add("#\(entry.index) → \(outcome.statusCode) \(outcome.isDuplicate ? "duplicate" : kind)\(frames > 1 ? ", \(frames) frames" : "")")
             }
             try await link.command(.ack(index: entry.index))
             partial[entry.index] = nil

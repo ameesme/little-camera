@@ -177,6 +177,7 @@ static int16_t _errNext[322];
 static uint8_t _photoBits[PHOTO_BYTES * PHOTO_HEIGHT];  // 9600 bytes
 
 const uint8_t* photoBits() { return _photoBits; }
+void setPhotoBits(const uint8_t* bits) { if (bits) memcpy(_photoBits, bits, sizeof(_photoBits)); }
 
 // UI state
 static int _batteryPercent = 100;
@@ -942,9 +943,6 @@ static void drawSidebarButton(int x, bool feedback = true) {
     const int buttonY = SIDEBAR_PADDING + FACE_BLOCK_HEIGHT + FACE_BLOCK_GAP;
     const int buttonH = INBOX_HEIGHT - FACE_BLOCK_HEIGHT - FACE_BLOCK_GAP;
     switch (_prompt) {
-        case Prompt::Verification:
-            drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getScanIcon(), "card", "press", feedback);
-            break;
         case Prompt::Selfie:
             drawBoxButton(x, buttonY, BOX_WIDTH, buttonH, UI::getUserIcon(), "you", "press", feedback);
             break;

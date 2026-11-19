@@ -167,7 +167,7 @@ int main() {
     Sim::setMillis(1300);
     Display::refresh();
     assert(!memcmp(before, SimPanel::pixels(), PIXELS));
-    Display::setPrompt(Display::Prompt::Verification);
+    Display::setPrompt(Display::Prompt::Selfie);
     Display::drawCapture(source, 320, 240);
     memcpy(before, SimPanel::pixels(), PIXELS);
     Display::drawHoldProgress(700, 700);

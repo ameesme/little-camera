@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { approveCameraClaim, bindCamera, findCamera } from '../src/repo/cameras.js';
+import { encodePbmFrames, parsePbm } from '@little-camera/pbm';
+import { bindCamera, findCamera } from '../src/repo/cameras.js';
 import { findPhotoByPublicId } from '../src/repo/photos.js';
 import { listOutbox } from '../src/repo/outbox.js';
-import { letPhoneIn } from '../src/core/cameras.js';
 import { findBlogByHandle } from '../src/repo/blogs.js';
 import { commentsForPhotos, insertComment } from '../src/repo/comments.js';
 import { createSubscriber, listSubscribers } from '../src/repo/subscribers.js';
@@ -75,6 +75,22 @@ describe('POST /api/camera/photos', () => {
     expect(dup.body).toMatchObject({ id: r.body.id, status: 'duplicate', kind: 'photo' });
   });
 
+  it('stores a motion photo whole, with its frame count and interval', async () => {
+    const frames = ['cat', 'cup', 'moon'].map((n) => parsePbm(fixture(n)).rows);
+    const bytes = encodePbmFrames(320, 240, frames, { boot: 3, up: 1000, t: 1_700_000_000, ms: 412 });
+    expect(bytes.length).toBeGreaterThan(16 * 1024);
+    const r = await upload(w, bytes, 3);
+    expect(r.status).toBe(201);
+    const row = findPhotoByPublicId(w.env.db, r.body.id)!;
+    expect(row).toMatchObject({ frames: 3, frame_ms: 412, captured_at: 1_700_000_000 });
+    expect(new Uint8Array(readFileSync(join(w.env.config.dataDir, row.path)))).toEqual(bytes);
+  });
+
+  it('records a still as one frame', async () => {
+    const r = await upload(w, fixture('cat'), 4);
+    expect(findPhotoByPublicId(w.env.db, r.body.id)).toMatchObject({ frames: 1, frame_ms: null });
+  });
+
   it('dates from the camera clock when the file has t > 0', async () => {
     const r = await upload(w, fixture('cup', { boot: 3, up: 1000, t: 1_700_000_000 }), 2, {
       'x-captured-at': '1234',
@@ -113,7 +129,7 @@ describe('POST /api/camera/photos', () => {
       }),
     );
     expect(bad.status).toBe(415);
-    const big = await upload(w, new Uint8Array(17_000), 1);
+    const big = await upload(w, new Uint8Array(70_000), 1);
     expect(big.status).toBe(413);
     const p1 = await upload(w, new TextEncoder().encode('P1\n2 2\n0 1\n1 0\n'), 1);
     expect(p1.status).toBe(400);
@@ -167,8 +183,6 @@ describe('GET /api/camera/status', () => {
       bound: null,
       avatar: { requested_at: null, has_avatar: false },
       firmware: { installed: null, latest: null, update_available: false },
-      claim: 'unbound',
-      pending: null,
       confirmed_email: null,
       subscribers: [],
       server_time: w.clock.t,
@@ -184,8 +198,6 @@ describe('GET /api/camera/status', () => {
       url: 'http://mees.localhost:3000',
       photo_count: 0,
     });
-    // Bound, but the owner has not let this phone in yet.
-    expect(bound.body.claim).toBe('pending');
     expect(bound.body.subscribers).toEqual([
       { id: 1, email: 'sanne@example.com', name: 'Sanne', status: 'approved', added_by: 'owner' },
     ]);
@@ -294,7 +306,7 @@ describe('POST /api/camera/telemetry', () => {
 });
 
 describe('the phone making a blog of its own', () => {
-  it('names it for the confirmed address and lets this phone in', async () => {
+  it('names it for the confirmed address and binds the camera to it', async () => {
     await hello(w);
     // There is nothing to name a blog for until someone has opened the link.
     const early = await cameraPost(w, '/blog', { name: 'Mees', handle: 'mees' });
@@ -312,15 +324,12 @@ describe('the phone making a blog of its own', () => {
     const made = findBlogByHandle(w.env.db, 'mees')!;
     expect(made.email).toBe('mees@example.com');
     expect(made.email_verified_at).toBe(w.clock.t);
-    // ponytail: temporary — the app skips the §5 code photo, so naming binds. Expect blog_id null again
-    // once the card comes back, and `pending` to cover the gap between naming and binding.
+    // Naming it binds it.
     expect(findCamera(w.env.db, CAM.id)!.blog_id).toBe(made.id);
 
     const status = await cameraGet(w, '/status');
-    expect(status.body.claim).toBe('approved');
     // Spent: the address belongs to the blog now, so it cannot name a second one.
     expect(status.body.confirmed_email).toBeNull();
-    expect(status.body.pending).toBeNull();
     expect(status.body.bound.handle).toBe('mees');
   });
 
@@ -346,92 +355,71 @@ describe('the phone making a blog of its own', () => {
   });
 });
 
-describe('letting a phone in', () => {
+describe('getting into a blog that already exists', () => {
   const claimLink = () => {
     const mail = listOutbox(w.env.db).find((m) => /new phone/i.test(m.subject))!;
     return mail.text_body.match(/\/app\/claim\?t=([A-Za-z0-9_-]+)/)![1];
   };
-
-  it('a phone holding a bound camera asks the owner, who has to confirm on the web', async () => {
-    await hello(w);
-    const blog = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    bindCamera(w.env.db, CAM.id, blog.id, w.clock.t);
-    expect((await cameraGet(w, '/status')).body.claim).toBe('pending');
-    // Until the owner says yes, the phone cannot read the blog.
-    expect((await cameraGet(w, '/feed')).status).toBe(403);
-
-    expect((await cameraPost(w, '/claim', {})).body).toEqual({ state: 'pending' });
-    const token = claimLink();
-
-    // The GET only asks; a mail scanner prefetching it grants nothing.
-    const page = await w.app.request(appPage(`/claim?t=${token}`));
-    expect(page.status).toBe(200);
-    expect(await page.text()).toContain('MM48F3');
-    expect((await cameraGet(w, '/status')).body.claim).toBe('pending');
-
-    const done = await w.app.request(
+  const approve = (token: string) =>
+    w.app.request(
       appPage('/claim', {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ t: token }),
       }),
     );
-    expect(done.status).toBe(200);
-    expect((await cameraGet(w, '/status')).body.claim).toBe('approved');
-    expect((await cameraGet(w, '/feed')).status).toBe(200);
-  });
 
-  it('an unbound camera claims by email, and the same answer comes back for an address nobody has', async () => {
+  it('gives the same answer for an address nobody has, and mails that one a way to start', async () => {
     await hello(w);
     makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
     expect((await cameraPost(w, '/claim', { email: 'nobody@example.com' })).body).toEqual({ state: 'pending' });
     // An address nobody owns is offered a blog of its own, never a way into someone else's.
-    expect(listOutbox(w.env.db).some((m) => /new phone/i.test(m.subject))).toBe(false);
     expect(listOutbox(w.env.db).map((m) => m.subject)).toEqual(['Confirm your email for your little camera']);
     expect(findCamera(w.env.db, CAM.id)!.verified_email).toBeNull();
-
     expect((await cameraPost(w, '/claim', { email: 'mees@example.com' })).body).toEqual({ state: 'pending' });
-    await w.app.request(
-      appPage('/claim', {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ t: claimLink() }),
-      }),
-    );
-    // Approved for that blog ahead of binding; the QR is still what binds it.
-    expect(findCamera(w.env.db, CAM.id)!.claim_blog_id).toBe(1);
-    expect(findCamera(w.env.db, CAM.id)!.blog_id).toBeNull();
   });
 
-  it('a claim approved for one blog does not follow the camera to another', async () => {
-    await hello(w);
-    const mees = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    const tess = makeBlog(w.env, { handle: 'tess', name: 'Tess', email: 'tess@example.com' });
-    bindCamera(w.env.db, CAM.id, mees.id, w.clock.t);
-    await cameraPost(w, '/claim', {});
-    await w.app.request(
-      appPage('/claim', {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ t: claimLink() }),
-      }),
-    );
-    expect((await cameraGet(w, '/status')).body.claim).toBe('approved');
-
-    bindCamera(w.env.db, CAM.id, tess.id, w.clock.t);
-    expect((await cameraGet(w, '/status')).body.claim).toBe('pending');
-    expect((await cameraGet(w, '/feed')).status).toBe(403);
-  });
-
-  it('an expired link grants nothing', async () => {
+  it('binds the camera once the owner confirms on the web, and moves its earlier photos across', async () => {
     await hello(w);
     const blog = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
-    bindCamera(w.env.db, CAM.id, blog.id, w.clock.t);
-    await cameraPost(w, '/claim', {});
+    const early = await upload(w, fixture('cat'), 1);
+    await cameraPost(w, '/claim', { email: 'mees@example.com' });
+    const token = claimLink();
+
+    // The GET only asks; a mail scanner prefetching it binds nothing.
+    const page = await w.app.request(appPage(`/claim?t=${token}`));
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('MM48F3');
+    expect((await cameraGet(w, '/status')).body.bound).toBeNull();
+
+    expect((await approve(token)).status).toBe(200);
+    expect((await cameraGet(w, '/status')).body.bound.handle).toBe('mees');
+    expect(findPhotoByPublicId(w.env.db, early.body.id)!.blog_id).toBe(blog.id);
+    expect((await cameraGet(w, '/feed')).status).toBe(200);
+  });
+
+  it('refuses a camera that already posts to a blog, and an old link does not move one', async () => {
+    await hello(w);
+    makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    const tess = makeBlog(w.env, { handle: 'tess', name: 'Tess', email: 'tess@example.com' });
+    await cameraPost(w, '/claim', { email: 'mees@example.com' });
+    const token = claimLink();
+
+    bindCamera(w.env.db, CAM.id, tess.id, w.clock.t);
+    expect((await cameraPost(w, '/claim', { email: 'mees@example.com' })).status).toBe(409);
+    expect((await approve(token)).status).toBe(410);
+    expect(findCamera(w.env.db, CAM.id)!.blog_id).toBe(tess.id);
+  });
+
+  it('an expired link binds nothing', async () => {
+    await hello(w);
+    makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
+    await cameraPost(w, '/claim', { email: 'mees@example.com' });
     const token = claimLink();
     w.clock.t += 3601;
     expect((await w.app.request(appPage(`/claim?t=${token}`))).status).toBe(410);
-    expect((await cameraGet(w, '/status')).body.claim).toBe('pending');
+    expect((await approve(token)).status).toBe(410);
+    expect((await cameraGet(w, '/status')).body.bound).toBeNull();
   });
 });
 
@@ -440,7 +428,6 @@ describe('GET /api/camera/feed', () => {
     await hello(w);
     const blog = makeBlog(w.env, { handle: 'mees', name: 'Mees', email: 'mees@example.com' });
     bindCamera(w.env.db, CAM.id, blog.id, w.clock.t);
-    letPhoneIn(w.env, findCamera(w.env.db, CAM.id)!, blog.id);
     return blog;
   }
 
@@ -529,24 +516,5 @@ describe('DELETE /api/camera/subscribers/:id', () => {
     expect((await cameraDelete(w, '/subscribers/1')).status).toBe(200);
     expect(listSubscribers(w.env.db, mees.id)).toHaveLength(0);
     expect((await cameraDelete(w, '/subscribers/1')).status).toBe(404);
-  });
-});
-
-describe('POST /api/camera/verification-code', () => {
-  it('hands the phone a code once it has a blog, and refuses once the camera is bound', async () => {
-    await hello(w);
-    expect((await cameraPost(w, '/verification-code', {})).status).toBe(409);
-
-    // A code is for moving an already-bound camera to another blog (§5), so it needs a claim on one
-    // the camera is not posting to. Naming a blog binds it for now, which is the 409 at the end.
-    const other = makeBlog(w.env, { handle: 'other', name: 'Other', email: 'other@example.com' });
-    approveCameraClaim(w.env.db, CAM.id, other.id, w.clock.t);
-    const made = await cameraPost(w, '/verification-code', {});
-    expect(made.status).toBe(201);
-    expect(made.body.code).toMatch(/^[A-Z2-9]{6}$/);
-    expect(made.body.expires_at - w.clock.t).toBe(15 * 60);
-
-    bindCamera(w.env.db, CAM.id, other.id, w.clock.t);
-    expect((await cameraPost(w, '/verification-code', {})).status).toBe(409);
   });
 });

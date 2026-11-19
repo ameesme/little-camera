@@ -6,23 +6,23 @@ One Node process serving two things, told apart by the `Host` header. On `BASE_D
 |---|---|
 | `/api/camera/*` | the camera API (`docs/protocol.md` §4) |
 | `/api/firmware/*` | firmware releases (§4.7), no auth |
-| `/app/*` | the two pages an emailed link opens — `/verify-email` and `/claim` — and the dev mailbox |
+| `/app/*` | the two pages an emailed link opens — `/confirm` and `/claim` — and the dev mailbox |
 
 Both prefixes are `API_PREFIX` / `APP_PREFIX` in `src/config.ts` and every link goes through `appUrl()` / `apiUrl()`, so they are written down once. `GET /` redirects into `/app` so a server running on its own still lands somewhere.
 
-Hono, Hono JSX, `node:sqlite` (in Node 22, so no native module), `nodemailer`, `qrcode`, `jsqr`. No client framework. `docs/protocol.md` has the camera API, `docs/flows.md` has who does what.
+Hono, Hono JSX, `node:sqlite` (in Node 22, so no native module), `nodemailer`. No client framework. `docs/protocol.md` has the camera API, `docs/flows.md` has who does what.
 
 ```
 core/     the five things in this domain, one file each, and the only place each is written
-          cameras      saying hello, binding by QR code, relayed telemetry, letting a phone in
+          cameras      saying hello, binding to a blog by email, relayed telemetry
           blogs        registering one, confirming its address, and who is reading it
-          photos       an upload: parse, dedupe, date, store, maybe bind, maybe avatar; and comments
+          photos       an upload: parse, dedupe, date, store, maybe avatar; and comments
           subscribers  adding, approving, blocking, joining, redeeming a link, and the mail for each
           firmware     the releases on disk, and whether one is newer than what a camera runs
 routes/   HTTP only: parse the request, call core/, render
 views/    the HTML, as whole pages
 repo/     plain SQL, one file per table
-lib/      plumbing with no opinions: dates, ids, tokens, cookies, mail, QR
+lib/      plumbing with no opinions: dates, ids, tokens, cookies, mail
 ```
 
 A blog is a handle, a name, a picture and the one email address that owns it, so the owner is a column and not a table of their own. A camera points at the blog it posts to, which lets a camera move to another blog without taking its old photos along.
@@ -41,9 +41,8 @@ pnpm seed     # a demo blog "mees" with the mockup's pictures and comments
 ## Walk the registration flow without a camera
 
 ```
-# the app makes the blog: POST /api/camera/blog, then open /app/dev/mailbox and click the link.
-# the code is what POST /api/camera/verification-code hands back; the app draws it as a QR.
-pnpm fake-camera --code KQ7M2X        # "photographs" the code and uploads it as a camera
+pnpm fake-camera --email mees@example.com   # then open /app/dev/mailbox and click the link
+pnpm fake-camera --blog mees --name Mees    # names the blog and binds the camera to it
 pnpm fake-camera --fixture moon       # post a picture
 pnpm fake-camera --status             # what the app would see
 pnpm fake-camera --firmware 0.1.0 --status   # the same, as a camera with an update waiting

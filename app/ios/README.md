@@ -1,6 +1,6 @@
 # Little Camera — iOS bridge
 
-This app pulls photos off the camera over BLE and uploads them to the server, authenticating as the camera itself, and carries new firmware the other way. It also owns the blog now: making one, getting back into one, reading its feed and its subscribers. The one thing it cannot do is prove a blog belongs to the person holding the camera — only that blog's inbox can, which is what the `claim` stage is for (`../../docs/protocol.md` §4.9). Wire format and the sync algorithm are §3.5 and §3.7, who-does-what is `../../docs/flows.md`.
+This app pulls photos off the camera over BLE and uploads them to the server, authenticating as the camera itself, and carries new firmware the other way. It also owns the blog now: making one, getting back into one, reading its feed and its subscribers. Whoever holds the camera manages its blog; the one thing that goes through an inbox is which address a blog belongs to, when one is made or a camera is added to it (`../../docs/protocol.md` §4.9). Wire format and the sync algorithm are §3.5 and §3.7, who-does-what is `../../docs/flows.md`.
 
 SwiftUI + CoreBluetooth + CryptoKit, iOS 26, Swift 6, no packages.
 
@@ -19,7 +19,7 @@ Every stage renders in the simulator without a camera, which is how the screensh
 xcrun simctl launch booted me.amees.littlecamera -demo onboarding
 ```
 
-`-demo <name>` seeds `Demo.swift` with a plausible camera, blog and feed and drops the app straight into that screen, with the radio and the server both switched off so nothing overwrites it. The names are the stages (`intro`, `setup`, `firmware`, `claim`, `onboarding`, `ready`) plus the screens inside them: `found`, `create`, `handle`, `email`, `email-taken`, `sent`, `bind`, `avatar`, `asked`. The `bind` screen turns the phone on its side, so a screenshot of it needs rotating.
+`-demo <name>` seeds `Demo.swift` with a plausible camera, blog and feed and drops the app straight into that screen, with the radio and the server both switched off so nothing overwrites it. The names are the stages (`intro`, `setup`, `firmware`, `onboarding`, `ready`) plus the screens inside them: `found`, `name`, `handle`, `email`, `email-taken`, `sent`, `avatar`.
 
 ## Layout
 
@@ -33,13 +33,13 @@ BLE/      CameraLink      one camera, one connection, all of it on a private que
 Sync/     SyncEngine      §3.5: SET_TIME, LIST, GET each with resume, upload, ACK
           FirmwareUpdater §3.7: chunks inside the camera's window, with rewind
           ServerClient    the HTTP camera API
-UI/       Stages/         setup → firmware → claim or onboarding → ready
+UI/       Stages/         setup → firmware → onboarding → ready
           Screens/        the two tabs, BlogTab and CameraTab
           Device/         the camera itself, a WKWebView around site/camera-element.js
           Ground          the landing page's dithered vignette, as a cached CGImage
 ```
 
-The app is **staged**, not one long page. `AppModel.stage` decides which of six takes the screen: `intro` until the owner presses Get started, `setup` until a camera is picked, `firmware` while there is an update worth offering, then either `claim` (the camera already posts to a blog, so the owner's inbox has to let this phone in) or `onboarding` (no blog yet: make one or sign into one, photograph the code, take the picture that heads it), and finally `ready`, which is the two tabs. Onboarding asks one question per screen and never puts two fields on one.
+The app is **staged**, not one long page. `AppModel.stage` decides which takes the screen: `intro` until the owner presses Get started, `setup` until a camera is picked, `firmware` while there is an update worth offering, then `onboarding` (no blog yet: make one or sign into one by email, take the picture that heads it), and finally `ready`, which is the two tabs. A camera that already posts to a blog goes straight to `ready`. Onboarding asks one question per screen and never puts two fields on one.
 
 The camera on screen is the same object as the one on lttl.cam: its panel shows the camera's own mood while it sleeps, and the icons it shows otherwise are lifted from `firmware/src/icons.h` by `site/tools/gen_icons.py`, so the app never invents artwork the device could not draw itself. A new panel icon starts as an SVG in `firmware/artifacts/fonts/`, goes into `icons.h` through the converter there, and reaches the app and the site through that script.
 
@@ -63,4 +63,5 @@ It builds and every stage has been looked at in the simulator. **Nothing below h
 - **Keychain accessibility.** The secret is `AfterFirstUnlock` so a background sync after a reboot can read it. Untested.
 - **Update throughput.** A 1.5 MB image at iOS's write-without-response rate should be a minute or two, but the camera writes flash from its main loop and the real ceiling is probably there. A log full of rewinds means the camera's window is too big for its loop, not the other way round.
 - **Whether iOS keeps a write-without-response stream alive in the background** for a whole image. The update runs inside the same ~30 s `beginBackgroundTask` window as a sync, which is enough for photos and probably not for firmware, so expect to keep the app open for this one.
+- **Motion photos** (`docs/protocol.md` §2.1) arrive as a looping GIF and loop in the blog tab through `UI/MotionImage.swift`, which reads the frames with ImageIO because `AsyncImage` stops at the first. *Save to photos* hands Photos the file's own bytes, so a GIF stays animated. Neither has been seen against a real motion upload.
 - The app icon is a generated black square with a white dithered dot. Replace it with a hand-made one some day.

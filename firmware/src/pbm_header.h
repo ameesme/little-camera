@@ -13,6 +13,11 @@
 // boot = NVS boot counter, up = millis() at capture, t = unix time at capture
 // or 0 when the camera did not know the time. Files from older firmware have no
 // comment line; both shapes parse. See docs/protocol.md §2.
+//
+// A motion photo (§2.1) is several P4 images back to back in one file. Only
+// the first carries the comment, with an extra `ms=` key (the frame interval);
+// the rest are bare `P4\n320 240\n` headers. A reader that stops after one
+// image sees a still, so older firmware and every PBM viewer keep working.
 
 #include <stdint.h>
 #include <stddef.h>
@@ -23,8 +28,9 @@
 namespace Pbm {
 
 // Longest header this code ever writes: "P4\n# boot=65535 up=4294967295
-// t=4294967295\n65535 65535\n" is 56 bytes. Readers only need this many bytes
-// to find the raster.
+// t=4294967295 ms=999\n65535 65535\n" is 63 bytes. Readers only need this
+// many bytes to find the raster. Kept at 64 on purpose: older firmware reads
+// exactly this much, so a motion photo's header must still fit in it.
 constexpr size_t MAX_HEADER = 64;
 
 struct Header {
@@ -34,6 +40,7 @@ struct Header {
     uint16_t boot = 0;
     uint32_t up = 0;
     uint32_t t = 0;
+    uint16_t ms = 0;          // Motion photo frame interval, 0 on a still
     size_t rasterOffset = 0;  // Byte offset of the first raster byte
 };
 
@@ -73,6 +80,7 @@ inline bool parseHeader(const uint8_t* buf, size_t len, Header* out) {
                     if (kLen == 4 && !memcmp(buf + kStart, "boot", 4)) { h.boot = (uint16_t)v; h.hasMeta = true; }
                     else if (kLen == 2 && !memcmp(buf + kStart, "up", 2)) { h.up = (uint32_t)v; h.hasMeta = true; }
                     else if (kLen == 1 && buf[kStart] == 't') { h.t = (uint32_t)v; h.hasMeta = true; }
+                    else if (kLen == 2 && !memcmp(buf + kStart, "ms", 2)) { h.ms = (uint16_t)v; }
                 } else {
                     while (i < end && buf[i] != ' ') i++;
                 }
@@ -106,10 +114,22 @@ inline bool parseHeader(const uint8_t* buf, size_t len, Header* out) {
 // Write the firmware's header shape. Returns the length written, or -1 if it
 // did not fit. `t` of 0 means "time unknown" and is written as such, so a
 // reader can tell an unset clock from the epoch.
+// `ms` > 0 marks the first frame of a motion photo; it is clamped to three
+// digits so the header always fits MAX_HEADER.
 inline int writeHeader(char* out, size_t outLen, int width, int height,
-                       uint16_t boot, uint32_t up, uint32_t t) {
-    int n = snprintf(out, outLen, "P4\n# boot=%u up=%lu t=%lu\n%d %d\n",
-                     (unsigned)boot, (unsigned long)up, (unsigned long)t, width, height);
+                       uint16_t boot, uint32_t up, uint32_t t, uint16_t ms = 0) {
+    if (ms > 999) ms = 999;
+    int n = ms ? snprintf(out, outLen, "P4\n# boot=%u up=%lu t=%lu ms=%u\n%d %d\n",
+                          (unsigned)boot, (unsigned long)up, (unsigned long)t, (unsigned)ms, width, height)
+               : snprintf(out, outLen, "P4\n# boot=%u up=%lu t=%lu\n%d %d\n",
+                          (unsigned)boot, (unsigned long)up, (unsigned long)t, width, height);
+    if (n < 0 || (size_t)n >= outLen) return -1;
+    return n;
+}
+
+// The bare header of every motion frame after the first.
+inline int writeFrameHeader(char* out, size_t outLen, int width, int height) {
+    int n = snprintf(out, outLen, "P4\n%d %d\n", width, height);
     if (n < 0 || (size_t)n >= outLen) return -1;
     return n;
 }

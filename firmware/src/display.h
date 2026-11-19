@@ -126,6 +126,10 @@ bool toastVisible();
 // approved. Only valid until the next draw call re-dithers — in practice that
 // means read it while the save screen is up.
 const uint8_t* photoBits();
+// Replace the cached photo with another bitmap of the same shape, without
+// drawing. A motion photo on the save screen steps through its frames with
+// this followed by drawSaveTransition(1.0f).
+void setPhotoBits(const uint8_t* bits);
 // On v3q the panel's VCOM comes from U8's EXTCOMIN with EXTMODE tied high, so these toggles are a no-op kept for tools/preview; the interval now only paces the sleep face's breath.
 constexpr uint32_t VCOM_INTERVAL_MS = 5000;
 
@@ -174,10 +178,10 @@ void drawPalWelcome(uint8_t happiness, uint8_t palId, float slideT, uint32_t ms,
 
 // What the phone asked this camera to photograph (docs/protocol.md §3.3
 // PROMPT). The viewfinder says so rather than leaving the holder to guess why
-// their phone is showing them a card: the sidebar's face block becomes the
+// their phone is waiting: the sidebar's face block becomes the
 // prompt's icon and a standing toast names the shot. Prompt::None is the
 // ordinary camera.
-enum class Prompt : uint8_t { None = 0, Verification = 1, Selfie = 2 };
+enum class Prompt : uint8_t { None = 0, Selfie = 2 };
 void setPrompt(Prompt prompt);
 // True while the phone is standing by for a particular photo, which is not an idle camera.
 bool promptPending();

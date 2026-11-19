@@ -29,8 +29,8 @@ export const ClaimPrompt: FC<{ blogName: string; shortCode: string; token: strin
     }
   >
     <p>
-      A phone holding camera <code>{shortCode}</code> wants to manage <b>{blogName}</b>: your pictures, your comments and
-      who is on your list.
+      A phone holding camera <code>{shortCode}</code> wants to post to <b>{blogName}</b> and manage it: your pictures,
+      your comments and who is on your list.
     </p>
     <p>Only do this if it is your phone, and if you just asked it to.</p>
   </Stage>
@@ -38,7 +38,7 @@ export const ClaimPrompt: FC<{ blogName: string; shortCode: string; token: strin
 
 export const ClaimDone: FC<{ blogName: string }> = ({ blogName }) => (
   <Stage title="Phone let in" heading="Phone let in">
-    <p>That phone can manage <b>{blogName}</b> now. Go back to the app.</p>
+    <p>That camera posts to <b>{blogName}</b> now, and its phone manages it. Go back to the app.</p>
   </Stage>
 );
 

@@ -18,15 +18,12 @@
     "@hono/node-server": "^1.14.0",
     "@little-camera/pbm": "workspace:*",
     "hono": "^4.7.0",
-    "jsqr": "^1.4.0",
     "nodemailer": "^7.0.0",
-    "qrcode": "^1.5.4",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@types/nodemailer": "^6.4.17",
-    "@types/qrcode": "^1.5.5",
     "tsx": "^4.19.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

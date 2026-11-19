@@ -61,7 +61,7 @@ export function confirmAddress(world: TestWorld, email: string, cam = CAM) {
   setCameraVerifiedEmail(world.env.db, cam.id, email);
 }
 
-/** Bind without photographing a QR code. The QR path itself is covered in qr.test.ts. */
+/** Bind without the mail round trip. That path itself is covered in camera.test.ts. */
 export function linkCamera(world: TestWorld, blogId: number, cam = CAM) {
   return bind(world.env, findCamera(world.env.db, cam.id)!, blogId);
 }
